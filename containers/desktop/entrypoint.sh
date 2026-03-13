@@ -3,7 +3,7 @@ set -euo pipefail
 
 AGENC_USER="agenc"
 HOME_DIR="/home/agenc"
-SERVER_DIR="/opt/server"
+SERVER_DIR="/opt/agenc"
 
 remap_group() {
   local target_gid="$1"

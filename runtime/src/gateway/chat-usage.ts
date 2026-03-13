@@ -20,6 +20,9 @@ export interface ChatUsagePayload {
   readonly totalTokens: number;
   readonly budget: number;
   readonly compacted: boolean;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly usedFallback?: boolean;
   readonly contextWindowTokens?: number;
   readonly promptTokens?: number;
   readonly promptTokenBudget?: number;
@@ -32,6 +35,9 @@ interface BuildChatUsagePayloadInput {
   readonly totalTokens: number;
   readonly sessionTokenBudget: number;
   readonly compacted: boolean;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly usedFallback?: boolean;
   readonly contextWindowTokens?: number;
   readonly callUsage?: readonly ChatCallUsageRecord[];
 }
@@ -87,6 +93,9 @@ export function buildChatUsagePayload(
     totalTokens: normalizeNonNegativeInt(input.totalTokens),
     budget: normalizeNonNegativeInt(input.sessionTokenBudget),
     compacted: input.compacted === true,
+    ...(input.provider ? { provider: input.provider } : {}),
+    ...(input.model ? { model: input.model } : {}),
+    ...(input.usedFallback === true ? { usedFallback: true } : {}),
   };
 
   const usageRecord = selectUsageRecord(input.callUsage);

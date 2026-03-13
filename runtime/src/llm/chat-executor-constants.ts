@@ -118,14 +118,14 @@ export const MAX_PLANNER_CONTEXT_MEMORY_CHARS = 1_200;
 export const MAX_PLANNER_CONTEXT_TOOL_OUTPUT_CHARS = 1_200;
 /** Default per-request tool-call budget. */
 export const DEFAULT_TOOL_BUDGET_PER_REQUEST = 24;
-/** Default per-request model recall budget (calls after first). */
-export const DEFAULT_MODEL_RECALLS_PER_REQUEST = 24;
+/** Default per-request model recall budget (calls after first). 0 = unlimited. */
+export const DEFAULT_MODEL_RECALLS_PER_REQUEST = 0;
 /** Default per-request failed-tool-call budget. */
 export const DEFAULT_FAILURE_BUDGET_PER_REQUEST = 8;
 /** Default timeout for a single tool execution call in ms. */
 export const DEFAULT_TOOL_CALL_TIMEOUT_MS = 180_000;
-/** Default end-to-end timeout for one execute() invocation in ms. */
-export const DEFAULT_REQUEST_TIMEOUT_MS = 600_000;
+/** Default end-to-end timeout for one execute() invocation in ms. 0 = unlimited. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 0;
 /**
  * Absolute adaptive ceiling for tool rounds.
  * Keep aligned with gateway config validation for `llm.maxToolRounds`.

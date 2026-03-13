@@ -39,8 +39,16 @@ test("serves health only with the configured bearer token", async () => {
       headers: { Authorization: `Bearer ${AUTH_TOKEN}` },
     });
     assert.equal(res.status, 200);
-    const body = await res.json() as { status: string };
+    const body = await res.json() as {
+      status: string;
+      workingDirectory: string;
+      workspaceRoot: string | null;
+      features: string[];
+    };
     assert.equal(body.status, "ok");
+    assert.equal(body.workingDirectory, process.cwd());
+    assert.equal(body.workspaceRoot, null);
+    assert.ok(body.features.includes("foreground_bash_cwd"));
   });
 });
 

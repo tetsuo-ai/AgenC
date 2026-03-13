@@ -336,6 +336,7 @@ export async function executeDelegationTool(
     parentAllowedTools: availableToolNames,
     availableTools: availableToolNames,
     enforceParentIntersection: true,
+    strictExplicitToolAllowlist: Array.isArray(input.tools) && input.tools.length > 0,
     unsafeBenchmarkMode,
   });
   if (resolvedChildScope.blockedReason) {

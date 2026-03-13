@@ -113,6 +113,29 @@ describe("chat-executor-doom", () => {
     expect(contract).toBeUndefined();
   });
 
+  it("ignores negated Doom tool exclusions in non-Doom coding prompts", () => {
+    const contract = inferDoomTurnContract(
+      "Build a complete self-contained TypeScript SAT solver toolkit in /tmp/codegen-bench-satsolver. " +
+        "Use only system.listDir, system.readFile, system.writeFile, system.bash, and execute_with_agent. " +
+        "Do not use any desktop.*, browser, sandbox, Docker, or Doom tools.",
+    );
+
+    expect(contract).toBeUndefined();
+  });
+
+  it("ignores negated Doom clauses when punctuation and later artifact text contain generic start wording", () => {
+    const contract = inferDoomTurnContract(
+      "Parent request summary: Build a complete self-contained TypeScript SAT solver toolkit. " +
+        "Use only system.listDir, system.readFile, system.writeFile, system.bash, and execute_with_agent. " +
+        "Do not use any desktop.*, browser, sandbox, Docker, or Doom tools.\n\n" +
+        "Dependency-derived workspace context:\n" +
+        "- Use these file snapshots as the starting point for this phase.\n" +
+        "- [artifact:http_api:src/server.ts] Start server if this module is executed directly.",
+    );
+
+    expect(contract).toBeUndefined();
+  });
+
   it("requires set_god_mode before hold-position and verification when god mode is requested", () => {
     const contract = inferDoomTurnContract(
       "Play Doom defend_the_center with god mode on until I say stop.",

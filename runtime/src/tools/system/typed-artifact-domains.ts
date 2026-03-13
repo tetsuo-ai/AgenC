@@ -11,6 +11,48 @@ export interface TypedArtifactDomain {
   readonly guidanceDetailTerms: readonly string[];
 }
 
+const TOKEN_RE = /[a-z0-9_]+/g;
+
+const SOFTWARE_AUTHORING_ACTION_TERMS = new Set([
+  "author",
+  "build",
+  "create",
+  "develop",
+  "generate",
+  "implement",
+  "scaffold",
+  "write",
+]);
+
+const SOFTWARE_AUTHORING_TARGET_TERMS = new Set([
+  "app",
+  "application",
+  "cli",
+  "codebase",
+  "compiler",
+  "component",
+  "engine",
+  "library",
+  "module",
+  "monorepo",
+  "package",
+  "parser",
+  "project",
+  "readme",
+  "repl",
+  "repo",
+  "repository",
+  "script",
+  "service",
+  "tests",
+  "tool",
+  "typescript",
+  "workspace",
+]);
+
+const SOFTWARE_AUTHORING_PHRASE_RE =
+  /\b(?:codebase|monorepo|package\.json|tsconfig|vitest|readme|self-contained|workspace|project files?)\b/i;
+
 export const TYPED_ARTIFACT_DOMAINS: readonly TypedArtifactDomain[] = [
   {
     id: "sqlite",
@@ -86,6 +128,10 @@ export const TYPED_ARTIFACT_DOMAINS: readonly TypedArtifactDomain[] = [
   },
 ] as const;
 
+function toTypedArtifactIntentTerms(value: string): readonly string[] {
+  return value.toLowerCase().match(TOKEN_RE) ?? [];
+}
+
 export function createTypedArtifactToolNameSet(
   domainId: string,
 ): ReadonlySet<string> {
@@ -140,4 +186,52 @@ export function messageContainsAnyTypedArtifactTerm(
   terms: readonly string[],
 ): boolean {
   return terms.some((term) => messageContainsTypedArtifactTerm(messageText, term));
+}
+
+export function hasSoftwareAuthoringIntent(messageText: string): boolean {
+  if (SOFTWARE_AUTHORING_PHRASE_RE.test(messageText)) {
+    return true;
+  }
+
+  const terms = toTypedArtifactIntentTerms(messageText);
+  const hasAction = terms.some((term) => SOFTWARE_AUTHORING_ACTION_TERMS.has(term));
+  const hasTarget = terms.some((term) => SOFTWARE_AUTHORING_TARGET_TERMS.has(term));
+  return hasAction && hasTarget;
+}
+
+export function inferTypedArtifactInspectionIntent(
+  messageText: string,
+  domain: TypedArtifactDomain,
+): boolean {
+  const lower = messageText.toLowerCase();
+  const explicitToolMatch =
+    lower.includes(domain.infoToolName.toLowerCase()) ||
+    lower.includes(domain.detailToolName.toLowerCase()) ||
+    lower.includes(`typed ${domain.label}`);
+
+  if (explicitToolMatch) {
+    return true;
+  }
+
+  if (hasSoftwareAuthoringIntent(messageText)) {
+    return false;
+  }
+
+  const domainMatch = messageContainsAnyTypedArtifactTerm(
+    messageText,
+    domain.guidanceDomainTerms,
+  );
+  if (!domainMatch) {
+    return false;
+  }
+
+  const infoMatch = messageContainsAnyTypedArtifactTerm(
+    messageText,
+    domain.guidanceInfoTerms,
+  );
+  const detailMatch = messageContainsAnyTypedArtifactTerm(
+    messageText,
+    domain.guidanceDetailTerms,
+  );
+  return infoMatch && detailMatch;
 }

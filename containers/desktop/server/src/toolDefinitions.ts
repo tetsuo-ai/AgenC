@@ -109,6 +109,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       type: "object",
       properties: {
         command: { type: "string", description: "Bash command to execute" },
+        cwd: {
+          type: "string",
+          description: "Absolute working directory. Defaults to /workspace when available.",
+        },
         timeoutMs: {
           type: "number",
           description: "Timeout in milliseconds",

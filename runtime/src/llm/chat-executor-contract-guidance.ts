@@ -26,10 +26,11 @@ import {
 } from "../utils/delegation-validation.js";
 import {
   TYPED_ARTIFACT_DOMAINS,
-  messageContainsAnyTypedArtifactTerm,
+  inferTypedArtifactInspectionIntent,
   type TypedArtifactDomain,
 } from "../tools/system/typed-artifact-domains.js";
 import { extractExplicitImperativeToolNames } from "./chat-executor-explicit-tools.js";
+import { getAcceptanceVerificationCategories } from "../utils/delegation-validation.js";
 
 export type ToolContractGuidancePhase =
   | "initial"
@@ -371,27 +372,7 @@ function inferTypedArtifactContract(
   input: ToolContractGuidanceContext,
 ): TypedArtifactDomain | undefined {
   for (const contract of TYPED_ARTIFACT_DOMAINS) {
-    const domainMatch = messageContainsAnyTypedArtifactTerm(
-      input.messageText,
-      contract.guidanceDomainTerms,
-    );
-    if (!domainMatch) continue;
-
-    const infoMatch = messageContainsAnyTypedArtifactTerm(
-      input.messageText,
-      contract.guidanceInfoTerms,
-    );
-    const detailMatch = messageContainsAnyTypedArtifactTerm(
-      input.messageText,
-      contract.guidanceDetailTerms,
-    );
-    const lower = input.messageText.toLowerCase();
-    const explicitToolMatch =
-      lower.includes(contract.infoToolName.toLowerCase()) ||
-      lower.includes(contract.detailToolName.toLowerCase()) ||
-      lower.includes(`typed ${contract.label}`);
-
-    if (!explicitToolMatch && !(infoMatch && detailMatch)) {
+    if (!inferTypedArtifactInspectionIntent(input.messageText, contract)) {
       continue;
     }
 
@@ -428,15 +409,30 @@ function resolveDelegationInitialContractGuidance(
 
   const workspaceBootstrap =
     isDelegatedWorkspaceBootstrapPhase(spec);
+  const fileAuthoringOnlyPhase =
+    !workspaceBootstrap &&
+    isDelegatedFileAuthoringPhaseWithoutVerification(spec);
+  const shellFilteredToolNames = fileAuthoringOnlyPhase
+    ? routedToolNames.filter(
+        (toolName) =>
+          toolName !== "system.bash" && toolName !== "desktop.bash",
+      )
+    : routedToolNames;
   const effectiveRoutedToolNames = workspaceBootstrap
     ? [preferredToolName]
-    : routedToolNames;
+    : shellFilteredToolNames.length > 0
+      ? shellFilteredToolNames
+      : routedToolNames;
   const usesFlexibleInitialSubset = effectiveRoutedToolNames.length > 1;
   const runtimeInstruction = usesFlexibleInitialSubset
     ? workspaceBootstrap
       ? "Bootstrap the delegated workspace before inspecting it. " +
         "If the delegated cwd does not exist yet, create the workspace root first or keep targeting that workspace via absolute paths until it exists. " +
         "After the workspace root exists, create or update the required files directly and use shell verification only after meaningful mutations."
+      : fileAuthoringOnlyPhase
+        ? "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
+          "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
+          "then create or update the required files directly. Do not spend shell rounds on speculative build/test/runtime verification unless acceptance explicitly requires that evidence."
       : "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
         "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
         "and use shell verification when build/test/install evidence is part of acceptance."
@@ -456,6 +452,38 @@ function resolveDelegationInitialContractGuidance(
     persistRoutedToolNames: false,
     toolChoice: "required",
   };
+}
+
+function isDelegatedFileAuthoringPhaseWithoutVerification(
+  spec: DelegationContractSpec,
+): boolean {
+  if ((spec.lastValidationCode ?? "") === "acceptance_evidence_missing") {
+    return false;
+  }
+
+  const acceptanceCriteria = spec.acceptanceCriteria ?? [];
+  const acceptanceRequiresVerification = acceptanceCriteria.some(
+    (criterion) => getAcceptanceVerificationCategories(criterion).length > 0,
+  );
+  if (acceptanceRequiresVerification) {
+    return false;
+  }
+
+  const combined = [
+    spec.task ?? "",
+    spec.objective ?? "",
+    spec.inputContract ?? "",
+    ...acceptanceCriteria,
+  ]
+    .join(" ")
+    .trim();
+  if (combined.length === 0) {
+    return false;
+  }
+
+  return !/\b(?:verify|verified|validation|test|tests|build|compile|coverage|lint|typecheck|install|stdout|stderr|exit code)\b/i.test(
+    combined,
+  );
 }
 
 function isDelegatedWorkspaceBootstrapPhase(

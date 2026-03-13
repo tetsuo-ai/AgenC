@@ -53,6 +53,12 @@ export const WATCH_COMMANDS = Object.freeze([
     description: "Fetch gateway status and active channel info.",
   }),
   Object.freeze({
+    name: "/model",
+    aliases: ["/models"],
+    usage: "/model [current|list|filter]",
+    description: "Ask the daemon for current model routing and known Grok models.",
+  }),
+  Object.freeze({
     name: "/pause",
     usage: "/pause",
     description: "Pause the current background run.",
@@ -76,6 +82,12 @@ export const WATCH_COMMANDS = Object.freeze([
     name: "/clear",
     usage: "/clear",
     description: "Clear the local transcript surface.",
+  }),
+  Object.freeze({
+    name: "/export",
+    aliases: ["/copy"],
+    usage: "/export",
+    description: "Write the current detail view or transcript to a temp file.",
   }),
   Object.freeze({
     name: "/quit",

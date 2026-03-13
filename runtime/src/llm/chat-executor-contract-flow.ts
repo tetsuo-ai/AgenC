@@ -11,6 +11,8 @@ import type {
 } from "../utils/delegation-validation.js";
 import {
   getMissingSuccessfulToolEvidenceMessage,
+  specRequiresFileMutationEvidence,
+  specRequiresMeaningfulBrowserEvidence,
   validateDelegatedOutputContract,
 } from "../utils/delegation-validation.js";
 import { buildBrowserEvidenceRetryGuidance } from "../utils/browser-tool-taxonomy.js";
@@ -178,7 +180,13 @@ export function buildRequiredToolEvidenceRetryInstruction(input: {
   }
   if (input.validationCode === "contradictory_completion_claim") {
     correctionLines.push(
-      "Do not claim the phase is complete while also mentioning unresolved mismatches, placeholders, or needed follow-up. Fix and verify the issue first, or explicitly report that the phase is blocked.",
+      "Do not claim the phase is complete while also mentioning unresolved mismatches, placeholders, or needed follow-up.",
+    );
+    correctionLines.push(
+      "If the latest allowed-tool evidence fixes the issue, re-emit a completion-only answer grounded in that evidence.",
+    );
+    correctionLines.push(
+      "Report the phase as blocked only when the blocking issue still remains after the allowed tool work.",
     );
   }
   return (
@@ -197,7 +205,19 @@ export function canRetryDelegatedOutputWithoutAdditionalToolCalls(input: {
 }): boolean {
   if (
     input.validationCode !== "expected_json_object" &&
-    input.validationCode !== "empty_structured_payload"
+    input.validationCode !== "empty_structured_payload" &&
+    input.validationCode !== "blocked_phase_output"
+  ) {
+    return false;
+  }
+
+  if (
+    input.validationCode === "blocked_phase_output" &&
+    input.delegationSpec &&
+    (
+      specRequiresFileMutationEvidence(input.delegationSpec) ||
+      specRequiresMeaningfulBrowserEvidence(input.delegationSpec)
+    )
   ) {
     return false;
   }

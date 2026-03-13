@@ -123,6 +123,7 @@ import {
   InMemoryDelegationTrajectorySink,
   type DelegationBanditArm,
 } from "../llm/delegation-learning.js";
+import { DEFAULT_TOOL_CALL_TIMEOUT_MS } from "../llm/chat-executor-constants.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { createBashTool } from "../tools/system/bash.js";
 import { createHttpTools } from "../tools/system/http.js";
@@ -133,6 +134,7 @@ import { createPdfTools } from "../tools/system/pdf.js";
 import { createOfficeDocumentTools } from "../tools/system/office-document.js";
 import { createEmailMessageTools } from "../tools/system/email-message.js";
 import { createCalendarTools } from "../tools/system/calendar.js";
+import { TOOL_DEFINITIONS as DESKTOP_TOOL_DEFINITIONS } from "../desktop/tool-definitions.js";
 import {
   createRemoteJobTools,
   SystemRemoteJobManager,
@@ -142,6 +144,7 @@ import { createSandboxTools } from "../tools/system/sandbox-handle.js";
 import { createServerTools } from "../tools/system/server.js";
 import { createSqliteTools } from "../tools/system/sqlite.js";
 import { createSpreadsheetTools } from "../tools/system/spreadsheet.js";
+import { DEFAULT_TIMEOUT_MS as DEFAULT_BASH_TOOL_TIMEOUT_MS } from "../tools/system/types.js";
 import { resolveBrowserToolMode } from "./browser-tool-mode.js";
 import { createExecuteWithAgentTool } from "./delegation-tool.js";
 import {
@@ -200,6 +203,7 @@ import { HookDispatcher, createBuiltinHooks } from "./hooks.js";
 import { ProgressTracker, summarizeToolResult } from "./progress.js";
 import {
   inferContextWindowTokens,
+  listKnownGrokModels,
   normalizeGrokModel,
   resolveContextWindowProfile,
 } from "./context-window.js";
@@ -233,6 +237,15 @@ import {
   isBackgroundRunStatusRequest,
   isBackgroundRunStopRequest,
 } from "./background-run-supervisor.js";
+
+function firstSurfaceSummaryLine(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const line = value
+    .split(/\r?\n/)
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0);
+  return line && line.length > 0 ? line : undefined;
+}
 import { BackgroundRunNotifier } from "./background-run-notifier.js";
 import { BackgroundRunStore } from "./background-run-store.js";
 import type {
@@ -306,6 +319,22 @@ export type { LLMFailureSurfaceSummary } from "./daemon-llm-failure.js";
 const DEFAULT_GROK_MODEL = "grok-4-1-fast-reasoning";
 const DEFAULT_GROK_FALLBACK_MODEL = "grok-4-1-fast-non-reasoning";
 const DEFAULT_DOOM_FIT_RESOLUTION = "RES_1024X768";
+const STATIC_SUBAGENT_DESKTOP_TOOLS: readonly Tool[] = DESKTOP_TOOL_DEFINITIONS
+  .filter((definition) => definition.name !== "screenshot")
+  .map((definition) => {
+    const fullName = `desktop.${definition.name}`;
+    return {
+      name: fullName,
+      description: definition.description,
+      inputSchema: definition.inputSchema,
+      execute: async () => ({
+        content: JSON.stringify({
+          error: `Tool "${fullName}" requires desktop routing context`,
+        }),
+        isError: true,
+      }),
+    } satisfies Tool;
+  });
 
 function chooseDoomResolutionForDisplay(width: number, height: number): string {
   if (width >= 1280 && height >= 720) return "RES_1280X720";
@@ -621,6 +650,29 @@ export function resolveStructuredExecDenyExclusions(
     return baseExclusions.length > 0 ? [...baseExclusions] : undefined;
   }
   return [...new Set([...baseExclusions, ...STRUCTURED_EXEC_RUNTIME_DENY_EXCLUSIONS])];
+}
+
+export function resolveBashToolTimeoutConfig(
+  config: Pick<GatewayConfig, "desktop" | "llm">,
+): {
+  timeoutMs: number;
+  maxTimeoutMs: number;
+} {
+  const chatToolTimeoutMs = Math.max(
+    1,
+    Math.floor(config.llm?.toolCallTimeoutMs ?? DEFAULT_TOOL_CALL_TIMEOUT_MS),
+  );
+  const baseTimeoutMs = config.desktop?.enabled
+    ? 300_000
+    : DEFAULT_BASH_TOOL_TIMEOUT_MS;
+  const baseMaxTimeoutMs = config.desktop?.enabled
+    ? 600_000
+    : baseTimeoutMs;
+
+  return {
+    timeoutMs: Math.min(baseTimeoutMs, chatToolTimeoutMs),
+    maxTimeoutMs: Math.min(baseMaxTimeoutMs, chatToolTimeoutMs),
+  };
 }
 
 function mapScopedActionBudgets(
@@ -1105,7 +1157,7 @@ function resolveSubAgentRuntimeConfig(
     ),
     maxCumulativeTokensPerRequestTree: Math.min(
       SUBAGENT_CONFIG_HARD_CAPS.maxCumulativeTokensPerRequestTree,
-      Math.max(1, subagents?.maxCumulativeTokensPerRequestTree ?? 250_000),
+      Math.max(0, subagents?.maxCumulativeTokensPerRequestTree ?? 0),
     ),
     maxCumulativeTokensPerRequestTreeExplicitlyConfigured,
     defaultTimeoutMs: Math.min(
@@ -1719,6 +1771,15 @@ export class DaemonManager {
   private _subAgentLifecycleUnsubscribe: (() => void) | null = null;
   private readonly _activeSessionTraceIds = new Map<string, string>();
   private readonly _subagentActivityTraceBySession = new Map<string, string>();
+  private readonly _latestDelegationSurfaceContextBySession = new Map<
+    string,
+    {
+      objective?: string;
+      stepName?: string;
+      subagentSessionId?: string;
+      toolName?: string;
+    }
+  >();
   private readonly _textApprovalDispatchBySession = new Map<
     string,
     {
@@ -1936,15 +1997,33 @@ export class DaemonManager {
   private refreshSubAgentToolCatalog(
     registry: ToolRegistry,
     environment: ToolEnvironmentMode,
+    options: {
+      readonly includeStaticDesktopTools?: boolean;
+    } = {},
   ): void {
     const tools = filterNamedToolsByEnvironment(
       registry.listAll(),
       environment,
     );
+    const mergedTools = [...tools];
+    if (options.includeStaticDesktopTools) {
+      const knownToolNames = new Set(mergedTools.map((tool) => tool.name));
+      const desktopTools = filterNamedToolsByEnvironment(
+        STATIC_SUBAGENT_DESKTOP_TOOLS,
+        environment,
+      );
+      for (const tool of desktopTools) {
+        if (knownToolNames.has(tool.name)) {
+          continue;
+        }
+        knownToolNames.add(tool.name);
+        mergedTools.push(tool);
+      }
+    }
     this._subAgentToolCatalog.splice(
       0,
       this._subAgentToolCatalog.length,
-      ...tools,
+      ...mergedTools,
     );
   }
 
@@ -2385,7 +2464,6 @@ export class DaemonManager {
       telemetry ?? undefined,
     );
     const environment = config.desktop?.environment ?? "both";
-    this.refreshSubAgentToolCatalog(registry, environment);
 
     const llmTools = registry.toLLMTools();
     let baseToolHandler = registry.createToolHandler();
@@ -2395,6 +2473,10 @@ export class DaemonManager {
       llmTools,
       baseToolHandler,
     );
+
+    this.refreshSubAgentToolCatalog(registry, environment, {
+      includeStaticDesktopTools: config.desktop?.enabled === true,
+    });
 
     this._allLlmTools = [...llmTools];
     this._llmTools = filterLlmToolsByEnvironment(llmTools, environment);
@@ -2725,6 +2807,7 @@ export class DaemonManager {
         getStatus: () => this.buildGatewayStatusSnapshot(gateway),
         config,
       },
+      getDaemonStatus: () => this.getStatus(),
       skills: skillList,
       voiceBridge,
       memoryBackend,
@@ -3836,7 +3919,10 @@ export class DaemonManager {
               this._allLlmTools,
               env,
             );
-            this.refreshSubAgentToolCatalog(registry, env);
+            this.refreshSubAgentToolCatalog(registry, env, {
+              includeStaticDesktopTools:
+                gateway.config.desktop?.enabled === true,
+            });
           }
           if (llmChanged || envChanged) {
             await this.hotSwapLLMProvider(
@@ -5375,14 +5461,15 @@ export class DaemonManager {
     const bashDenyExclusions = resolveBashDenyExclusions(config);
     const structuredExecDenyExclusions = resolveStructuredExecDenyExclusions(config);
 
+    const bashToolTimeoutConfig = resolveBashToolTimeoutConfig(config);
     registry.register(
       createBashTool({
         logger: this.logger,
         env: safeEnv,
         denyExclusions: bashDenyExclusions,
         unrestricted: unrestrictedHostExec,
-        timeoutMs: config.desktop?.enabled ? 300_000 : undefined,
-        maxTimeoutMs: config.desktop?.enabled ? 600_000 : undefined,
+        timeoutMs: bashToolTimeoutConfig.timeoutMs,
+        maxTimeoutMs: bashToolTimeoutConfig.maxTimeoutMs,
       }),
     );
     registry.registerAll(
@@ -6648,23 +6735,65 @@ export class DaemonManager {
     });
     commandRegistry.register({
       name: "model",
-      description: "Show current LLM model",
-      args: "[name]",
+      description: "Show current model routing and known Grok models",
+      args: "[current|list|filter]",
       global: true,
       handler: async (ctx) => {
         const sessionId = ctx.sessionId;
         const last = this._sessionModelInfo.get(sessionId);
-        if (last) {
-          await ctx.reply(
-            `Last completion model: ${last.model} (provider: ${last.provider}${last.usedFallback ? ", fallback used" : ""})`,
-          );
+        const filter = ctx.args.trim().toLowerCase();
+        const currentOnly = filter === "current";
+        const configuredPrimaryProvider = this.gateway?.config.llm?.provider ?? "none";
+        const configuredPrimaryModel =
+          configuredPrimaryProvider === "grok"
+            ? normalizeGrokModel(this.gateway?.config.llm?.model) ??
+              DEFAULT_GROK_MODEL
+            : this.gateway?.config.llm?.model ?? "unknown";
+        const configuredFallbacks =
+          this.gateway?.config.llm?.fallback?.map((entry) => (
+            `${entry.provider}:${
+              entry.provider === "grok"
+                ? normalizeGrokModel(entry.model) ?? DEFAULT_GROK_MODEL
+                : entry.model ?? "unknown"
+            }`
+          )) ?? [];
+
+        const knownGrokModels = listKnownGrokModels();
+        const filteredModels =
+          !filter || filter === "list" || currentOnly
+            ? knownGrokModels
+            : knownGrokModels.filter((entry) =>
+                entry.id.toLowerCase().includes(filter) ||
+                entry.aliases.some((alias) => alias.toLowerCase().includes(filter)),
+              );
+
+        const lines = [
+          "Model routing:",
+          last
+            ? `- Last completion: ${last.model} (provider: ${last.provider}${last.usedFallback ? ", fallback used" : ""})`
+            : "- Last completion: none recorded for this session",
+          `- Primary: ${configuredPrimaryProvider}:${configuredPrimaryModel}`,
+          `- Fallbacks: ${configuredFallbacks.length > 0 ? configuredFallbacks.join(", ") : "none"}`,
+        ];
+
+        if (currentOnly) {
+          await ctx.reply(lines.join("\n"));
           return;
         }
-        const providerInfo =
-          providers.map((provider) => provider.name).join(", ") || "none";
-        await ctx.reply(
-          `No completion recorded yet for this session. Provider chain: ${providerInfo}`,
-        );
+
+        lines.push("", "Known Grok models:");
+        if (filteredModels.length === 0) {
+          lines.push(`- No Grok models matched "${ctx.args.trim()}".`);
+        } else {
+          for (const entry of filteredModels) {
+            lines.push(
+              `- ${entry.id} (${entry.contextWindowTokens.toLocaleString("en-US")} ctx)` +
+                (entry.aliases.length > 0 ? ` aliases: ${entry.aliases.join(", ")}` : ""),
+            );
+          }
+        }
+
+        await ctx.reply(lines.join("\n"));
       },
     });
 
@@ -7984,14 +8113,64 @@ export class DaemonManager {
     event: SubAgentLifecycleEvent,
   ): void {
     const parentSessionId = this.resolveLifecycleParentSessionId(event);
+    const previousContext =
+      this._latestDelegationSurfaceContextBySession.get(parentSessionId);
+    const payloadWithContext =
+      event.type === "subagents.synthesized"
+        ? {
+            ...(event.payload ?? {}),
+            ...(typeof event.payload?.objective === "string" &&
+            event.payload.objective.trim().length > 0
+              ? {}
+              : previousContext?.objective
+                ? { objective: previousContext.objective }
+                : {}),
+            ...(typeof event.payload?.stepName === "string" &&
+            event.payload.stepName.trim().length > 0
+              ? {}
+              : previousContext?.stepName
+                ? { stepName: previousContext.stepName }
+                : {}),
+          }
+        : event.payload;
     const subagentSessionId =
       event.subagentSessionId ??
+      previousContext?.subagentSessionId ??
       (event.sessionId.startsWith("subagent:") ? event.sessionId : undefined);
-    const sanitizedData = sanitizeLifecyclePayloadData(event.payload);
+    const effectiveToolName =
+      event.toolName ?? previousContext?.toolName;
+    const sanitizedData = sanitizeLifecyclePayloadData(payloadWithContext);
     const parentTraceId = this._activeSessionTraceIds.get(parentSessionId);
     const traceId = buildSubagentTraceId(parentTraceId, event);
     if (parentTraceId && event.type !== "subagents.synthesized") {
       this._subagentActivityTraceBySession.set(parentSessionId, parentTraceId);
+    }
+    if (event.type !== "subagents.synthesized") {
+      const nextContext = {
+        objective:
+          typeof payloadWithContext?.objective === "string" &&
+          payloadWithContext.objective.trim().length > 0
+            ? payloadWithContext.objective.trim()
+            : previousContext?.objective,
+        stepName:
+          typeof payloadWithContext?.stepName === "string" &&
+          payloadWithContext.stepName.trim().length > 0
+            ? payloadWithContext.stepName.trim()
+            : previousContext?.stepName,
+        subagentSessionId,
+        toolName: effectiveToolName,
+      };
+      if (
+        nextContext.objective ||
+        nextContext.stepName ||
+        nextContext.subagentSessionId ||
+        nextContext.toolName
+      ) {
+        this._latestDelegationSurfaceContextBySession.set(
+          parentSessionId,
+          nextContext,
+        );
+      }
     }
 
     webChat.pushToSession(parentSessionId, {
@@ -8000,7 +8179,7 @@ export class DaemonManager {
         sessionId: parentSessionId,
         parentSessionId,
         ...(subagentSessionId ? { subagentSessionId } : {}),
-        ...(event.toolName ? { toolName: event.toolName } : {}),
+        ...(effectiveToolName ? { toolName: effectiveToolName } : {}),
         timestamp: event.timestamp,
         ...(Object.keys(sanitizedData).length > 0
           ? { data: sanitizedData }
@@ -8014,7 +8193,7 @@ export class DaemonManager {
       sessionId: parentSessionId,
       parentSessionId,
       ...(subagentSessionId ? { subagentSessionId } : {}),
-      ...(event.toolName ? { toolName: event.toolName } : {}),
+      ...(effectiveToolName ? { toolName: effectiveToolName } : {}),
       timestamp: event.timestamp,
     };
     for (const [key, value] of Object.entries(sanitizedData)) {
@@ -8043,6 +8222,9 @@ export class DaemonManager {
       ...(traceId ? { traceId } : {}),
       ...(parentTraceId ? { parentTraceId } : {}),
     });
+    if (event.type === "subagents.synthesized") {
+      this._latestDelegationSurfaceContextBySession.delete(parentSessionId);
+    }
   }
 
   private attachSubAgentLifecycleBridge(webChat: WebChatChannel): void {
@@ -9008,6 +9190,12 @@ export class DaemonManager {
           ) {
             return;
           }
+          const outputPreview = firstSurfaceSummaryLine(result.content);
+          const stopReasonDetail =
+            typeof result.stopReasonDetail === "string" &&
+            result.stopReasonDetail.trim().length > 0
+              ? result.stopReasonDetail.trim()
+              : undefined;
           this.relaySubAgentLifecycleEvent(webChat, {
             type: "subagents.synthesized",
             timestamp: Date.now(),
@@ -9015,11 +9203,14 @@ export class DaemonManager {
             parentSessionId: msg.sessionId,
             payload: {
               stopReason: result.stopReason,
+              ...(stopReasonDetail ? { stopReasonDetail } : {}),
               outputChars: result.content.length,
               toolCalls: result.toolCalls.length,
+              ...(outputPreview ? { outputPreview } : {}),
             },
           });
           this._subagentActivityTraceBySession.delete(msg.sessionId);
+          this._latestDelegationSurfaceContextBySession.delete(msg.sessionId);
         },
       });
     } finally {
@@ -9031,6 +9222,7 @@ export class DaemonManager {
         this._subagentActivityTraceBySession.get(msg.sessionId) === turnTraceId
       ) {
         this._subagentActivityTraceBySession.delete(msg.sessionId);
+        this._latestDelegationSurfaceContextBySession.delete(msg.sessionId);
       }
     }
   }
@@ -9268,11 +9460,12 @@ export class DaemonManager {
         "Execute tasks immediately without narrating your plan. " +
         "Do NOT list steps. Do NOT explain what you will do. Just act."
       : "\n\n## Task Execution Protocol\n\n" +
-        "When given a request that requires multiple steps or tool calls:\n" +
-        "1. First, briefly state your plan as a numbered list (2-6 steps max)\n" +
-        "2. Execute each step in order, confirming the result before proceeding\n" +
-        "3. If a step fails, reassess the plan and adapt\n\n" +
-        "For simple questions or single-step requests, respond directly without a plan.";
+        "When the user asks you to create files, edit code, run commands, validate output, or otherwise use tools:\n" +
+        "1. Start executing immediately\n" +
+        "2. If a brief preamble helps, keep it to one short sentence and continue into tool use in the same turn\n" +
+        "3. Never end the turn with only a plan when execution was requested\n" +
+        "4. Finish with grounded results or a specific blocker backed by the tool evidence\n\n" +
+        "For simple questions or explanation-only requests, respond directly without tools.";
 
     const additionalContext =
       desktopContext + planningInstruction + modelDisclosureContext;
@@ -9795,6 +9988,7 @@ Concise and action-oriented.
       this._webChatInboundHandler = null;
       this._activeSessionTraceIds.clear();
       this._subagentActivityTraceBySession.clear();
+      this._latestDelegationSurfaceContextBySession.clear();
       this._foregroundSessionLocks.clear();
       this._hostWorkspacePath = null;
       if (this.gateway !== null) {

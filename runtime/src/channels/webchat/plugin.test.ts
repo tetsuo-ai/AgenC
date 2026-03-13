@@ -64,6 +64,14 @@ function createDeps(overrides?: Partial<WebChatDeps>): WebChatDeps {
       }),
       config: { agent: { name: "test-agent" } },
     },
+    getDaemonStatus: () => ({
+      pid: 4242,
+      uptimeMs: 60_000,
+      memoryUsage: {
+        heapUsedMB: 12.5,
+        rssMB: 48.75,
+      },
+    }),
     ...overrides,
   };
 }
@@ -1291,6 +1299,11 @@ describe("WebChatChannel", () => {
           payload: expect.objectContaining({
             state: "running",
             agentName: "test-agent",
+            pid: 4242,
+            memoryUsage: expect.objectContaining({
+              heapUsedMB: 12.5,
+              rssMB: 48.75,
+            }),
           }),
         }),
       );

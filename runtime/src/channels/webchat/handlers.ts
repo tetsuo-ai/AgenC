@@ -163,11 +163,20 @@ export function handleStatusGet(
   send: SendFn,
 ): void {
   const status = deps.gateway.getStatus();
+  const daemonStatus = deps.getDaemonStatus?.();
   send({
     type: 'status.update',
     payload: {
       ...status,
       agentName: deps.gateway.config.agent?.name,
+      llmProvider: deps.gateway.config.llm?.provider,
+      llmModel: deps.gateway.config.llm?.model,
+      ...(daemonStatus
+        ? {
+            pid: daemonStatus.pid,
+            memoryUsage: daemonStatus.memoryUsage,
+          }
+        : {}),
     },
     id,
   });

@@ -3,6 +3,7 @@ import {
   clearDynamicContextWindowCache,
   inferContextWindowTokens,
   inferGrokContextWindowTokens,
+  listKnownGrokModels,
   normalizeGrokModel,
   resolveContextWindowProfile,
   resolveDynamicContextWindowTokens,
@@ -39,6 +40,20 @@ describe("inferGrokContextWindowTokens", () => {
     expect(inferGrokContextWindowTokens("grok-3")).toBe(131_072);
     expect(inferGrokContextWindowTokens("grok-3-mini")).toBe(131_072);
     expect(inferGrokContextWindowTokens("grok-2-vision-1212")).toBe(32_768);
+  });
+});
+
+describe("listKnownGrokModels", () => {
+  it("returns canonical model ids with legacy aliases attached", () => {
+    const models = listKnownGrokModels();
+    expect(models.find((entry) => entry.id === "grok-4-1-fast-reasoning")).toMatchObject({
+      id: "grok-4-1-fast-reasoning",
+      aliases: expect.arrayContaining(["grok-4", "grok-4-fast-reasoning"]),
+    });
+    expect(models.find((entry) => entry.id === "grok-3-mini")).toMatchObject({
+      id: "grok-3-mini",
+      contextWindowTokens: 131_072,
+    });
   });
 });
 

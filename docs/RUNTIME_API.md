@@ -356,7 +356,7 @@ Use for most production channels where correctness and predictable behavior matt
     "model": "grok-3",
     "timeoutMs": 60000,
     "toolCallTimeoutMs": 180000,
-    "requestTimeoutMs": 600000,
+    "requestTimeoutMs": 0,
     "parallelToolCalls": false,
     "contextWindowTokens": 131072,
     "promptSafetyMarginTokens": 2048,
@@ -366,7 +366,7 @@ Use for most production channels where correctness and predictable behavior matt
     "plannerMaxTokens": 320,
     "maxToolRounds": 5,
     "toolBudgetPerRequest": 10,
-    "maxModelRecallsPerRequest": 2,
+    "maxModelRecallsPerRequest": 0,
     "maxFailureBudgetPerRequest": 3,
     "retryPolicy": {
       "timeout": { "maxRetries": 2 },
@@ -392,6 +392,8 @@ Use for most production channels where correctness and predictable behavior matt
   }
 }
 ```
+
+`llm.maxModelRecallsPerRequest` treats `0` as unlimited. `llm.requestTimeoutMs` also treats `0` or omission as unlimited, which is now the default mode. Long autonomous runs are then governed by tool budgets, no-progress detection, failure breakers, and any narrower provider/tool timeouts you keep enabled.
 
 ### Profile 2: High Throughput
 
@@ -517,7 +519,7 @@ Use for multi-step delegated workloads where planner DAG execution, verifier gat
     "model": "grok-3",
     "timeoutMs": 60000,
     "toolCallTimeoutMs": 180000,
-    "requestTimeoutMs": 600000,
+    "requestTimeoutMs": 0,
     "parallelToolCalls": false,
     "plannerEnabled": true,
     "plannerMaxTokens": 320,
@@ -544,7 +546,7 @@ Use for multi-step delegated workloads where planner DAG execution, verifier gat
       "maxFanoutPerTurn": 8,
       "maxTotalSubagentsPerRequest": 32,
       "maxCumulativeToolCallsPerRequestTree": 256,
-      "maxCumulativeTokensPerRequestTree": 250000,
+      "maxCumulativeTokensPerRequestTree": 0,
       "defaultTimeoutMs": 120000,
       "spawnDecisionThreshold": 0.2,
       "handoffMinPlannerConfidence": 0.82,
@@ -575,6 +577,8 @@ Use for multi-step delegated workloads where planner DAG execution, verifier gat
   }
 }
 ```
+
+Set `llm.subagents.maxCumulativeTokensPerRequestTree` to `0` or omit it to allow autonomous child-request trees to run without a cumulative token ceiling. Use a positive integer only when you want a hard tree-wide stop condition.
 
 ### Stateful Response Compaction
 

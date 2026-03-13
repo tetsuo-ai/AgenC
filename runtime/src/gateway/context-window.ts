@@ -23,6 +23,19 @@ const LEGACY_GROK_MODEL_ALIASES: Record<string, string> = {
   "grok-4-fast-non-reasoning": "grok-4-1-fast-non-reasoning",
 };
 
+const KNOWN_GROK_MODEL_IDS = [
+  "grok-4-1-fast-reasoning",
+  "grok-4-1-fast-non-reasoning",
+  "grok-4.20-experimental-beta-0304-reasoning",
+  "grok-4.20-experimental-beta-0304-non-reasoning",
+  "grok-4.20-multi-agent-experimental-beta-0304",
+  "grok-code-fast-1",
+  "grok-4-0709",
+  "grok-3-mini",
+  "grok-3",
+  "grok-2-vision-1212",
+] as const;
+
 const GROK_CONTEXT_WINDOW_BY_PREFIX: ReadonlyArray<{
   readonly prefix: string;
   readonly contextWindowTokens: number;
@@ -79,6 +92,12 @@ interface CachedResolvedContextWindow {
 interface ResolvedContextWindow {
   readonly contextWindowTokens: number;
   readonly source: LLMContextWindowSource;
+}
+
+export interface KnownGrokModelEntry {
+  readonly id: string;
+  readonly contextWindowTokens: number;
+  readonly aliases: readonly string[];
 }
 
 const grokCatalogCache = new Map<string, CachedModelCatalog>();
@@ -589,6 +608,17 @@ export function inferGrokContextWindowTokens(model: string | undefined): number 
     if (normalized.startsWith(entry.prefix)) return entry.contextWindowTokens;
   }
   return DEFAULT_GROK_CONTEXT_WINDOW_TOKENS;
+}
+
+export function listKnownGrokModels(): readonly KnownGrokModelEntry[] {
+  return KNOWN_GROK_MODEL_IDS.map((id) => ({
+    id,
+    contextWindowTokens: inferGrokContextWindowTokens(id),
+    aliases: Object.entries(LEGACY_GROK_MODEL_ALIASES)
+      .filter(([, canonical]) => canonical === id)
+      .map(([alias]) => alias)
+      .sort((left, right) => left.localeCompare(right)),
+  }));
 }
 
 export function inferContextWindowTokens(

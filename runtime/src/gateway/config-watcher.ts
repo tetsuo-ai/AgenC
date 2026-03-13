@@ -1895,7 +1895,7 @@ function validateLlmSubagentsSection(
     requireIntRange(
       subagentsValue.maxCumulativeTokensPerRequestTree,
       "llm.subagents.maxCumulativeTokensPerRequestTree",
-      1,
+      0,
       10_000_000,
       errors,
     );
@@ -2038,13 +2038,19 @@ function validateLlmSection(llm: unknown, errors: string[]): void {
     requireIntRange(llm.timeoutMs, "llm.timeoutMs", 1_000, 3_600_000, errors);
   }
   if (llm.requestTimeoutMs !== undefined) {
-    requireIntRange(
-      llm.requestTimeoutMs,
-      "llm.requestTimeoutMs",
-      5_000,
-      7_200_000,
-      errors,
-    );
+    const requestTimeoutMs = llm.requestTimeoutMs;
+    if (
+      typeof requestTimeoutMs !== "number" ||
+      !Number.isInteger(requestTimeoutMs) ||
+      (
+        requestTimeoutMs !== 0 &&
+        (requestTimeoutMs < 5_000 || requestTimeoutMs > 7_200_000)
+      )
+    ) {
+      errors.push(
+        "llm.requestTimeoutMs must be 0 or an integer between 5000 and 7200000",
+      );
+    }
   }
   if (llm.toolCallTimeoutMs !== undefined) {
     requireIntRange(

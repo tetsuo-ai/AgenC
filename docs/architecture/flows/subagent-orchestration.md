@@ -86,7 +86,7 @@ Additional safety kill controls:
 - `llm.subagents.maxFanoutPerTurn`
 - `llm.subagents.maxTotalSubagentsPerRequest`
 - `llm.subagents.maxCumulativeToolCallsPerRequestTree`
-- `llm.subagents.maxCumulativeTokensPerRequestTree`
+- `llm.subagents.maxCumulativeTokensPerRequestTree` (`0` or unset = unlimited)
 - `llm.subagents.spawnDecisionThreshold`
 - `llm.subagents.forceVerifier`
 

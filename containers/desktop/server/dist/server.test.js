@@ -33,6 +33,9 @@ test("serves health only with the configured bearer token", async () => {
         assert.equal(res.status, 200);
         const body = await res.json();
         assert.equal(body.status, "ok");
+        assert.equal(body.workingDirectory, process.cwd());
+        assert.equal(body.workspaceRoot, null);
+        assert.ok(body.features.includes("foreground_bash_cwd"));
     });
 });
 test("allows loopback CORS preflight requests", async () => {
