@@ -11,6 +11,8 @@ import {
 import {
   createTypedArtifactTermSet,
   createTypedArtifactToolNameSet,
+  getTypedArtifactDomain,
+  inferTypedArtifactInspectionIntent,
 } from "../tools/system/typed-artifact-domains.js";
 
 const TOKEN_RE = /[a-z0-9_]+/g;
@@ -70,6 +72,14 @@ const DEFAULT_MANDATORY_TOOLS = [
   "execute_with_agent",
 ];
 
+const HOST_CODING_TOOL_NAMES = new Set([
+  "system.bash",
+  "system.readFile",
+  "system.writeFile",
+  "system.listDir",
+  "execute_with_agent",
+]);
+
 const DEFAULT_FAMILY_CAPS: Record<string, number> = {
   system: 12,
   desktop: 10,
@@ -100,15 +110,10 @@ const SHELL_TERMS = new Set([
 const PROCESS_TERMS = new Set([
   "background",
   "daemon",
-  "log",
-  "logs",
-  "monitor",
   "pid",
   "process",
   "server",
   "service",
-  "status",
-  "stop",
   "worker",
 ]);
 
@@ -213,6 +218,21 @@ const SPREADSHEET_TOOL_NAMES = createTypedArtifactToolNameSet("spreadsheet");
 const OFFICE_DOCUMENT_TOOL_NAMES = createTypedArtifactToolNameSet("office-document");
 const EMAIL_MESSAGE_TOOL_NAMES = createTypedArtifactToolNameSet("email-message");
 const CALENDAR_TOOL_NAMES = createTypedArtifactToolNameSet("calendar");
+const CODEGEN_TYPED_ARTIFACT_TOOL_NAMES = new Set([
+  ...SQLITE_TOOL_NAMES,
+  ...PDF_TOOL_NAMES,
+  ...SPREADSHEET_TOOL_NAMES,
+  ...OFFICE_DOCUMENT_TOOL_NAMES,
+  ...EMAIL_MESSAGE_TOOL_NAMES,
+  ...CALENDAR_TOOL_NAMES,
+]);
+
+const SQLITE_DOMAIN = getTypedArtifactDomain("sqlite");
+const PDF_DOMAIN = getTypedArtifactDomain("pdf");
+const SPREADSHEET_DOMAIN = getTypedArtifactDomain("spreadsheet");
+const OFFICE_DOCUMENT_DOMAIN = getTypedArtifactDomain("office-document");
+const EMAIL_MESSAGE_DOMAIN = getTypedArtifactDomain("email-message");
+const CALENDAR_DOMAIN = getTypedArtifactDomain("calendar");
 
 const REMOTE_JOB_TERMS = new Set([
   "callback",
@@ -247,12 +267,8 @@ const RESEARCH_TERMS = new Set([
 const SANDBOX_TERMS = new Set([
   "container",
   "docker",
-  "environment",
-  "execution",
-  "exec",
   "isolated",
   "sandbox",
-  "workspace",
 ]);
 
 const SQLITE_TERMS = createTypedArtifactTermSet("sqlite", "routingTerms");
@@ -262,19 +278,22 @@ const OFFICE_DOCUMENT_TERMS = createTypedArtifactTermSet("office-document", "rou
 const EMAIL_MESSAGE_TERMS = createTypedArtifactTermSet("email-message", "routingTerms");
 const CALENDAR_TERMS = createTypedArtifactTermSet("calendar", "routingTerms");
 
-const HARD_SQLITE_TERMS = createTypedArtifactTermSet("sqlite", "hardRoutingTerms");
-const HARD_PDF_TERMS = createTypedArtifactTermSet("pdf", "hardRoutingTerms");
-const HARD_SPREADSHEET_TERMS = createTypedArtifactTermSet("spreadsheet", "hardRoutingTerms");
-const HARD_OFFICE_DOCUMENT_TERMS = createTypedArtifactTermSet("office-document", "hardRoutingTerms");
-const HARD_EMAIL_MESSAGE_TERMS = createTypedArtifactTermSet("email-message", "hardRoutingTerms");
-const HARD_CALENDAR_TERMS = createTypedArtifactTermSet("calendar", "hardRoutingTerms");
-
 const DOOM_TERMS = new Set([
   "doom",
   "vizdoom",
   "defend_the_center",
   "freedoom",
 ]);
+
+const DOOM_INTENT_RE = /\b(?:doom|vizdoom|defend_the_center|freedoom)\b/i;
+const NEGATED_TOOL_CLAUSE_RE =
+  /\b(?:do\s+not(?:\s+use)?|don't(?:\s+use)?|dont(?:\s+use)?|avoid|without|never(?:\s+use)?|exclude|skip)\b/i;
+const COMPACT_NEGATED_TOOL_CLAUSE_RE =
+  /\bnot\s+(?:use\s+)?(?:any\s+)?(?:desktop(?:\.\*)?|browser|playwright|sandbox|docker|container|doom|vizdoom|freedoom)(?:\s*\/\s*(?:desktop(?:\.\*)?|browser|playwright|sandbox|docker|container|doom|vizdoom|freedoom))*\b/;
+const EXPLICIT_TOOL_ALLOWLIST_RE =
+  /\b(?:use\s+only|only\s+these\s+tools?)\b/i;
+const HOST_CODING_TOOLS_RE =
+  /\b(?:host(?:-|\s)?coding\s+tools?|host(?:\s+|[-/])(?:code|file|system)(?:[-/\s]+(?:code|file|system))*\s+tools?|host-only\s+tools?)\b/i;
 
 const TERMINAL_TERMS = new Set([
   "terminal",
@@ -305,7 +324,6 @@ const BROWSER_TERMS = new Set([
   "website",
   "navigate",
   "click",
-  "type",
   "scroll",
   "tab",
   "vnc",
@@ -356,7 +374,7 @@ const MCP_TERMS = new Set([
 ]);
 
 const AGENC_PROTOCOL_INTENT_RE =
-  /\b(?:agenc|on-?chain|solana|lamports?|stake|reputation|slashing|escrow|pda|devnet|mainnet|proof(?:s)?\s+of\s+completion|claim(?:able|ing)?\s+tasks?|agent\s+registration|register(?:ed|ing)?\s+(?:the\s+)?agent|capabilit(?:y|ies))\b/i;
+  /\b(?:agenc\s+(?:protocol|task|tasks|agent|agent\s+registration)|on-?chain|solana|lamports?|stake|reputation|slashing|escrow|pda|devnet|mainnet|proof(?:s)?\s+of\s+completion|claim(?:able|ing)?\s+tasks?|agent\s+registration|register(?:ed|ing)?\s+(?:the\s+)?agent|capabilit(?:y|ies))\b/i;
 
 const MARKETPLACE_PROTOCOL_INTENT_RE =
   /\b(?:marketplace|service\s+request|service\s+bids?|agent\s+marketplace)\b/i;
@@ -556,27 +574,152 @@ function addToolSet(target: Set<string>, toolNames: ReadonlySet<string>): void {
   }
 }
 
-function requiredToolNamesForTerms(terms: readonly string[]): Set<string> {
+function requiredToolNamesForMessage(messageText: string): Set<string> {
   const required = new Set<string>();
-  if (terms.some((term) => HARD_SQLITE_TERMS.has(term))) {
+  if (inferTypedArtifactInspectionIntent(messageText, SQLITE_DOMAIN)) {
     addToolSet(required, SQLITE_TOOL_NAMES);
   }
-  if (terms.some((term) => HARD_PDF_TERMS.has(term))) {
+  if (inferTypedArtifactInspectionIntent(messageText, PDF_DOMAIN)) {
     addToolSet(required, PDF_TOOL_NAMES);
   }
-  if (terms.some((term) => HARD_SPREADSHEET_TERMS.has(term))) {
+  if (inferTypedArtifactInspectionIntent(messageText, SPREADSHEET_DOMAIN)) {
     addToolSet(required, SPREADSHEET_TOOL_NAMES);
   }
-  if (terms.some((term) => HARD_OFFICE_DOCUMENT_TERMS.has(term))) {
+  if (inferTypedArtifactInspectionIntent(messageText, OFFICE_DOCUMENT_DOMAIN)) {
     addToolSet(required, OFFICE_DOCUMENT_TOOL_NAMES);
   }
-  if (terms.some((term) => HARD_EMAIL_MESSAGE_TERMS.has(term))) {
+  if (inferTypedArtifactInspectionIntent(messageText, EMAIL_MESSAGE_DOMAIN)) {
     addToolSet(required, EMAIL_MESSAGE_TOOL_NAMES);
   }
-  if (terms.some((term) => HARD_CALENDAR_TERMS.has(term))) {
+  if (inferTypedArtifactInspectionIntent(messageText, CALENDAR_DOMAIN)) {
     addToolSet(required, CALENDAR_TOOL_NAMES);
   }
   return required;
+}
+
+function isBrowserToolName(toolName: string): boolean {
+  return (
+    toolName === "system.browse" ||
+    toolName === "system.browserAction" ||
+    toolName.startsWith("system.browserSession") ||
+    familyFromToolName(toolName) === "playwright" ||
+    familyFromToolName(toolName) === "mcp.browser"
+  );
+}
+
+function isDoomToolName(toolName: string): boolean {
+  return toolName.startsWith("mcp.doom.");
+}
+
+function hasExplicitDoomToolMention(
+  explicitToolMentions: ReadonlySet<string>,
+): boolean {
+  for (const toolName of explicitToolMentions) {
+    if (isDoomToolName(toolName)) return true;
+  }
+  return false;
+}
+
+function inferBlockedToolNamesForMessage(
+  messageText: string,
+  allToolNames: readonly string[],
+): Set<string> {
+  const normalized = messageText.toLowerCase().replace(/\s+/g, " ");
+  const blocked = new Set<string>();
+  let blockDesktop = false;
+  let blockBrowser = false;
+  let blockSandbox = false;
+  let blockDoom = false;
+  const compactNegatedClause =
+    normalized.match(COMPACT_NEGATED_TOOL_CLAUSE_RE)?.[0] ?? "";
+  const hasNegatedDesktop =
+    NEGATED_TOOL_CLAUSE_RE.test(normalized) &&
+    /(?:do\s+not(?:\s+use)?|don't(?:\s+use)?|dont(?:\s+use)?|avoid|without|never(?:\s+use)?|exclude|skip)[^!\n]{0,160}\bdesktop(?:\.\*)?\b/.test(
+      normalized,
+    ) || /\bdesktop(?:\.\*)?\b/.test(compactNegatedClause);
+  const hasNegatedBrowser =
+    NEGATED_TOOL_CLAUSE_RE.test(normalized) &&
+    /(?:do\s+not(?:\s+use)?|don't(?:\s+use)?|dont(?:\s+use)?|avoid|without|never(?:\s+use)?|exclude|skip)[^!\n]{0,160}\b(?:browser|playwright)\b/.test(
+      normalized,
+    ) || /\b(?:browser|playwright)\b/.test(compactNegatedClause);
+  const hasNegatedSandbox =
+    NEGATED_TOOL_CLAUSE_RE.test(normalized) &&
+    /(?:do\s+not(?:\s+use)?|don't(?:\s+use)?|dont(?:\s+use)?|avoid|without|never(?:\s+use)?|exclude|skip)[^!\n]{0,160}\b(?:sandbox|docker|container)\b/.test(
+      normalized,
+    ) || /\b(?:sandbox|docker|container)\b/.test(compactNegatedClause);
+  const hasNegatedDoom =
+    NEGATED_TOOL_CLAUSE_RE.test(normalized) &&
+    /(?:do\s+not(?:\s+use)?|don't(?:\s+use)?|dont(?:\s+use)?|avoid|without|never(?:\s+use)?|exclude|skip)[^!\n]{0,160}\b(?:doom|vizdoom|freedoom)\b/.test(
+      normalized,
+    ) || /\b(?:doom|vizdoom|freedoom)\b/.test(compactNegatedClause);
+
+  blockDesktop = hasNegatedDesktop;
+  blockBrowser = hasNegatedBrowser;
+  blockSandbox = hasNegatedSandbox;
+  blockDoom = hasNegatedDoom;
+
+  for (const toolName of allToolNames) {
+    if (
+      blockDesktop &&
+      familyFromToolName(toolName) === "desktop"
+    ) {
+      blocked.add(toolName);
+      continue;
+    }
+    if (blockBrowser && isBrowserToolName(toolName)) {
+      blocked.add(toolName);
+      continue;
+    }
+    if (blockSandbox && SANDBOX_TOOL_NAMES.has(toolName)) {
+      blocked.add(toolName);
+      continue;
+    }
+    if (blockDoom && isDoomToolName(toolName)) {
+      blocked.add(toolName);
+    }
+  }
+
+  return blocked;
+}
+
+function inferConstrainedAllowedToolNamesForMessage(
+  messageText: string,
+  explicitToolMentions: ReadonlySet<string>,
+  allToolNames: readonly string[],
+): Set<string> | null {
+  const normalized = messageText.toLowerCase().replace(/\s+/g, " ");
+  const hasExplicitAllowlist = EXPLICIT_TOOL_ALLOWLIST_RE.test(normalized);
+  const mentionsHostCodingTools = HOST_CODING_TOOLS_RE.test(normalized);
+  if (!hasExplicitAllowlist && !mentionsHostCodingTools) {
+    return null;
+  }
+
+  const allowed = new Set<string>();
+  if (mentionsHostCodingTools) {
+    for (const toolName of HOST_CODING_TOOL_NAMES) {
+      if (allToolNames.includes(toolName)) {
+        allowed.add(toolName);
+      }
+    }
+  }
+  for (const toolName of explicitToolMentions) {
+    if (allToolNames.includes(toolName)) {
+      allowed.add(toolName);
+    }
+  }
+
+  return allowed.size > 0 ? allowed : null;
+}
+
+function inferHostCodegenIntent(messageText: string): boolean {
+  const normalized = messageText.toLowerCase().replace(/\s+/g, " ");
+  const hasCodegenAction =
+    /\b(?:build|create|implement|scaffold|generate)\b/.test(normalized);
+  const hasProjectShape =
+    /\b(?:codebase|project|toolkit|cli|readme|tests?|benchmarks?|typescript|javascript|node(?:\.js)?|c\+\+|cpp|cmake|makefile|cargo|rust|python|pytest|go|golang|java|kotlin|swift)\b/.test(
+      normalized,
+    ) || /\/tmp\//.test(messageText);
+  return hasCodegenAction && hasProjectShape;
 }
 
 function hasAllRequiredToolNames(
@@ -807,11 +950,20 @@ export class ToolRouter {
     const currentIntentTerms = toTerms(params.messageText);
     const intentTerms = this.extractIntentTerms(currentIntentTerms, params.history);
     const explicitToolMentions = this.extractExplicitToolMentions(params.messageText);
+    const blockedToolNames = inferBlockedToolNamesForMessage(
+      params.messageText,
+      this.allToolNames,
+    );
+    const constrainedAllowedToolNames = inferConstrainedAllowedToolNamesForMessage(
+      params.messageText,
+      explicitToolMentions,
+      this.allToolNames,
+    );
     const clusterKey = intentTerms.slice(0, 6).join("|") || "general";
     const now = Date.now();
     const cached = this.cache.get(params.sessionId);
     const requiredFamilies = requiredFamiliesForTerms(currentIntentTerms);
-    const requiredToolNames = requiredToolNamesForTerms(currentIntentTerms);
+    const requiredToolNames = requiredToolNamesForMessage(params.messageText);
     const terminalIntent = resolveTerminalIntent(currentIntentTerms);
 
     let invalidatedReason: string | undefined;
@@ -829,6 +981,22 @@ export class ToolRouter {
         terminalIntent !== cachedTerminalIntent
       ) {
         invalidatedReason = "terminal_action_shift";
+      } else if (
+        cached.routedToolNames.some((toolName) => blockedToolNames.has(toolName))
+      ) {
+        invalidatedReason = "blocked_tool_filter";
+      } else if (
+        constrainedAllowedToolNames &&
+        (
+          cached.routedToolNames.some(
+            (toolName) => !constrainedAllowedToolNames.has(toolName),
+          ) ||
+          cached.expandedToolNames.some(
+            (toolName) => !constrainedAllowedToolNames.has(toolName),
+          )
+        )
+      ) {
+        invalidatedReason = "allowed_tool_filter";
       } else if (
         Array.from(requiredFamilies).some(
           (family) => !hasAnyToolInFamily(cached.routedToolNames, family),
@@ -862,18 +1030,27 @@ export class ToolRouter {
       }
     }
 
+    const hasHostCodegenIntent = inferHostCodegenIntent(params.messageText);
     const scored = this.scoreTools(
       params.messageText,
       intentTerms,
       explicitToolMentions,
+      blockedToolNames,
+      constrainedAllowedToolNames,
     );
     const routedToolNames = this.selectRoutedTools(
       scored,
       requiredFamilies,
       requiredToolNames,
       explicitToolMentions,
+      blockedToolNames,
+      constrainedAllowedToolNames,
+      hasHostCodegenIntent,
     );
-    const expandedToolNames = this.selectExpandedTools(scored, routedToolNames);
+    const expandedToolNames = this.selectExpandedTools(
+      scored,
+      routedToolNames,
+    );
     const confidence = this.estimateConfidence(scored, intentTerms, routedToolNames);
 
     this.cache.set(params.sessionId, {
@@ -1005,6 +1182,8 @@ export class ToolRouter {
     messageText: string,
     intentTerms: readonly string[],
     explicitToolMentions: ReadonlySet<string>,
+    blockedToolNames: ReadonlySet<string>,
+    constrainedAllowedToolNames: ReadonlySet<string> | null,
   ): Array<{ tool: IndexedTool; score: number }> {
     const hasShellIntent = intentTerms.some((term) => SHELL_TERMS.has(term));
     const hasProcessIntent = intentTerms.some((term) => PROCESS_TERMS.has(term));
@@ -1015,19 +1194,36 @@ export class ToolRouter {
     const hasRemoteJobIntent = intentTerms.some((term) => REMOTE_JOB_TERMS.has(term));
     const hasResearchIntent = intentTerms.some((term) => RESEARCH_TERMS.has(term));
     const hasSandboxIntent = intentTerms.some((term) => SANDBOX_TERMS.has(term));
-    const hasSqliteIntent = intentTerms.some((term) => SQLITE_TERMS.has(term));
-    const hasDocumentIntent = intentTerms.some((term) => DOCUMENT_TERMS.has(term));
-    const hasSpreadsheetIntent = intentTerms.some((term) =>
-      SPREADSHEET_TERMS.has(term)
+    const hasSqliteIntent = inferTypedArtifactInspectionIntent(
+      messageText,
+      SQLITE_DOMAIN,
     );
-    const hasOfficeDocumentIntent = intentTerms.some((term) =>
-      OFFICE_DOCUMENT_TERMS.has(term)
+    const hasDocumentIntent = inferTypedArtifactInspectionIntent(
+      messageText,
+      PDF_DOMAIN,
     );
-    const hasEmailMessageIntent = intentTerms.some((term) =>
-      EMAIL_MESSAGE_TERMS.has(term)
+    const hasSpreadsheetIntent = inferTypedArtifactInspectionIntent(
+      messageText,
+      SPREADSHEET_DOMAIN,
     );
-    const hasCalendarIntent = intentTerms.some((term) =>
-      CALENDAR_TERMS.has(term)
+    const hasOfficeDocumentIntent = inferTypedArtifactInspectionIntent(
+      messageText,
+      OFFICE_DOCUMENT_DOMAIN,
+    );
+    const hasEmailMessageIntent = inferTypedArtifactInspectionIntent(
+      messageText,
+      EMAIL_MESSAGE_DOMAIN,
+    );
+    const hasCalendarIntent = inferTypedArtifactInspectionIntent(
+      messageText,
+      CALENDAR_DOMAIN,
+    );
+    const hasExplicitHostProcessHandleMention = Array.from(
+      explicitToolMentions,
+    ).some((toolName) =>
+      toolName.startsWith("system.process") ||
+      toolName.startsWith("system.server") ||
+      toolName.startsWith("desktop.process_")
     );
     const wantsTypedServer =
       explicitToolMentions.has("system.serverStart") ||
@@ -1047,6 +1243,11 @@ export class ToolRouter {
       !wantsTypedServer &&
       !explicitToolMentions.has("system.processStart") &&
       !explicitToolMentions.has("system.serverStart");
+    const hasProcessHandleContext =
+      hasProcessIntent ||
+      wantsTypedServer ||
+      prefersDesktopProcessHandles ||
+      hasExplicitHostProcessHandleMention;
     const hasDoomIntent = intentTerms.some((term) => DOOM_TERMS.has(term));
     const wantsDoomStop = hasDoomIntent && wantsProcessStop;
     const hasBrowserIntent = intentTerms.some((term) => BROWSER_TERMS.has(term));
@@ -1060,13 +1261,82 @@ export class ToolRouter {
     const explicitTabIntent = intentTerms.some((term) => TAB_MANAGEMENT_TERMS.has(term));
     const requiredFamilies = requiredFamiliesForTerms(intentTerms);
     const terminalIntent = resolveTerminalIntent(intentTerms);
+    const hasHostCodegenIntent = inferHostCodegenIntent(messageText);
 
     const scored = this.indexedTools.map((tool) => {
+      if (blockedToolNames.has(tool.name)) {
+        return { tool, score: Number.NEGATIVE_INFINITY };
+      }
+      if (
+        constrainedAllowedToolNames &&
+        !constrainedAllowedToolNames.has(tool.name)
+      ) {
+        return { tool, score: Number.NEGATIVE_INFINITY };
+      }
       if (
         isProtocolScopedTool(tool.name) &&
         !protectedToolIntentSatisfied(tool.name, messageText, explicitToolMentions)
       ) {
         return { tool, score: Number.NEGATIVE_INFINITY };
+      }
+      if (
+        isDoomToolName(tool.name) &&
+        !DOOM_INTENT_RE.test(messageText) &&
+        !hasExplicitDoomToolMention(explicitToolMentions)
+      ) {
+        return { tool, score: Number.NEGATIVE_INFINITY };
+      }
+      if (
+        hasHostCodegenIntent &&
+        !constrainedAllowedToolNames
+      ) {
+        if (
+          tool.family === "desktop" &&
+          !explicitToolMentions.has(tool.name)
+        ) {
+          return { tool, score: Number.NEGATIVE_INFINITY };
+        }
+        if (
+          isDoomToolName(tool.name) &&
+          !hasExplicitDoomToolMention(explicitToolMentions)
+        ) {
+          return { tool, score: Number.NEGATIVE_INFINITY };
+        }
+        if (
+          (
+            tool.name.startsWith("system.process") ||
+            tool.name.startsWith("system.server") ||
+            tool.name.startsWith("desktop.process_")
+          ) &&
+          !hasProcessHandleContext
+        ) {
+          return { tool, score: Number.NEGATIVE_INFINITY };
+        }
+        if (isBrowserToolName(tool.name) && !hasBrowserIntent) {
+          return { tool, score: Number.NEGATIVE_INFINITY };
+        }
+        if (REMOTE_JOB_TOOL_NAMES.has(tool.name) && !hasRemoteJobIntent) {
+          return { tool, score: Number.NEGATIVE_INFINITY };
+        }
+        if (RESEARCH_TOOL_NAMES.has(tool.name) && !wantsResearchHandles) {
+          return { tool, score: Number.NEGATIVE_INFINITY };
+        }
+        if (SANDBOX_TOOL_NAMES.has(tool.name) && !hasSandboxIntent) {
+          return { tool, score: Number.NEGATIVE_INFINITY };
+        }
+        if (
+          CODEGEN_TYPED_ARTIFACT_TOOL_NAMES.has(tool.name) &&
+          !(
+            hasSqliteIntent ||
+            hasDocumentIntent ||
+            hasSpreadsheetIntent ||
+            hasOfficeDocumentIntent ||
+            hasEmailMessageIntent ||
+            hasCalendarIntent
+          )
+        ) {
+          return { tool, score: Number.NEGATIVE_INFINITY };
+        }
       }
 
       let score = 0;
@@ -1142,13 +1412,25 @@ export class ToolRouter {
           score -= 6;
         }
       }
-      if (wantsProcessStart && PROCESS_START_TOOL_NAMES.has(tool.name)) {
+      if (
+        hasProcessHandleContext &&
+        wantsProcessStart &&
+        PROCESS_START_TOOL_NAMES.has(tool.name)
+      ) {
         score += 12;
       }
-      if (wantsProcessStatus && PROCESS_STATUS_TOOL_NAMES.has(tool.name)) {
+      if (
+        hasProcessHandleContext &&
+        wantsProcessStatus &&
+        PROCESS_STATUS_TOOL_NAMES.has(tool.name)
+      ) {
         score += 12;
       }
-      if (wantsProcessStop && PROCESS_STOP_TOOL_NAMES.has(tool.name)) {
+      if (
+        hasProcessHandleContext &&
+        wantsProcessStop &&
+        PROCESS_STOP_TOOL_NAMES.has(tool.name)
+      ) {
         score += 12;
       }
       if (hasDoomIntent && tool.name.startsWith("mcp.doom.")) {
@@ -1262,12 +1544,29 @@ export class ToolRouter {
     requiredFamilies: ReadonlySet<string>,
     requiredToolNames: ReadonlySet<string>,
     explicitToolMentions: ReadonlySet<string>,
+    blockedToolNames: ReadonlySet<string>,
+    constrainedAllowedToolNames: ReadonlySet<string> | null,
+    hasHostCodegenIntent: boolean,
   ): string[] {
     const selected = new Set<string>();
     const familyCounts = new Map<string, number>();
     const hardPinnedToolNames = new Set<string>();
 
     for (const mandatoryTool of this.config.mandatoryTools) {
+      if (blockedToolNames.has(mandatoryTool)) continue;
+      if (
+        hasHostCodegenIntent &&
+        familyFromToolName(mandatoryTool) === "desktop" &&
+        !explicitToolMentions.has(mandatoryTool)
+      ) {
+        continue;
+      }
+      if (
+        constrainedAllowedToolNames &&
+        !constrainedAllowedToolNames.has(mandatoryTool)
+      ) {
+        continue;
+      }
       if (!this.allToolNames.includes(mandatoryTool)) continue;
       selected.add(mandatoryTool);
       hardPinnedToolNames.add(mandatoryTool);
@@ -1279,17 +1578,31 @@ export class ToolRouter {
     const minTools = this.config.minToolsPerTurn;
     const requiredFamilySelections = new Map<string, IndexedTool>();
     for (const requiredFamily of requiredFamilies) {
-      const bestRequired = scored.find((entry) => entry.tool.family === requiredFamily);
+      const bestRequired = scored.find((entry) =>
+        entry.tool.family === requiredFamily && Number.isFinite(entry.score)
+      );
       if (!bestRequired) continue;
       requiredFamilySelections.set(requiredFamily, bestRequired.tool);
       hardPinnedToolNames.add(bestRequired.tool.name);
     }
     for (const requiredToolName of requiredToolNames) {
+      if (
+        constrainedAllowedToolNames &&
+        !constrainedAllowedToolNames.has(requiredToolName)
+      ) {
+        continue;
+      }
       if (this.allToolNames.includes(requiredToolName)) {
         hardPinnedToolNames.add(requiredToolName);
       }
     }
     for (const mentionedTool of explicitToolMentions) {
+      if (
+        constrainedAllowedToolNames &&
+        !constrainedAllowedToolNames.has(mentionedTool)
+      ) {
+        continue;
+      }
       if (this.allToolNames.includes(mentionedTool)) {
         hardPinnedToolNames.add(mentionedTool);
       }
@@ -1322,7 +1635,9 @@ export class ToolRouter {
     }
 
     for (const requiredToolName of requiredToolNames) {
-      const explicitMatch = scored.find((entry) => entry.tool.name === requiredToolName);
+      const explicitMatch = scored.find((entry) =>
+        entry.tool.name === requiredToolName && Number.isFinite(entry.score)
+      );
       if (!explicitMatch) continue;
       tryAdd(explicitMatch.tool, {
         limit: hardPinLimit,
@@ -1331,7 +1646,9 @@ export class ToolRouter {
     }
 
     for (const mentionedTool of explicitToolMentions) {
-      const explicitMatch = scored.find((entry) => entry.tool.name === mentionedTool);
+      const explicitMatch = scored.find((entry) =>
+        entry.tool.name === mentionedTool && Number.isFinite(entry.score)
+      );
       if (!explicitMatch) continue;
       tryAdd(explicitMatch.tool, {
         limit: hardPinLimit,
@@ -1355,8 +1672,11 @@ export class ToolRouter {
       }
     }
 
-    if (selected.size === 0 && this.allToolNames.length > 0) {
-      selected.add(this.allToolNames[0]);
+    if (selected.size === 0) {
+      const fallback = scored.find((entry) => Number.isFinite(entry.score));
+      if (fallback) {
+        selected.add(fallback.tool.name);
+      }
     }
 
     return Array.from(selected);
@@ -1372,6 +1692,7 @@ export class ToolRouter {
     for (const entry of scored) {
       if (selected.size >= maxExpanded) break;
       if (!Number.isFinite(entry.score)) continue;
+      if (entry.score <= 0) break;
       selected.add(entry.tool.name);
     }
 

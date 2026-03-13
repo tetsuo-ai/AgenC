@@ -50,6 +50,16 @@ export interface WebChatDeps {
     config: {
       agent?: { name?: string };
       connection?: { rpcUrl?: string; keypairPath?: string };
+      llm?: { provider?: string; model?: string };
+    };
+  };
+  /** Optional daemon-level status for operator memory/process panels. */
+  getDaemonStatus?: () => {
+    pid: number;
+    uptimeMs: number;
+    memoryUsage: {
+      heapUsedMB: number;
+      rssMB: number;
     };
   };
   /** Optional skill listing for skills.list handler. */
@@ -495,6 +505,13 @@ export interface StatusUpdateResponse {
     activeSessions: number;
     controlPlanePort: number;
     agentName?: string;
+    llmProvider?: string;
+    llmModel?: string;
+    pid?: number;
+    memoryUsage?: {
+      heapUsedMB: number;
+      rssMB: number;
+    };
   };
   id?: string;
 }

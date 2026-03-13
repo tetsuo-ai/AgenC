@@ -1259,6 +1259,24 @@ describe("config loading", () => {
     expect(result.errors).toEqual([]);
   });
 
+  it("validateGatewayConfig accepts an unlimited llm.subagents child-token ceiling", () => {
+    const result = validateGatewayConfig(
+      makeConfig({
+        llm: {
+          provider: "grok",
+          apiKey: "test",
+          subagents: {
+            enabled: true,
+            maxCumulativeTokensPerRequestTree: 0,
+          },
+        },
+      }),
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
   it("validateGatewayConfig rejects invalid llm.subagents fields", () => {
     const result = validateGatewayConfig(
       makeConfig({
@@ -1274,7 +1292,7 @@ describe("config loading", () => {
             maxFanoutPerTurn: 100,
             maxTotalSubagentsPerRequest: 0,
             maxCumulativeToolCallsPerRequestTree: 0,
-            maxCumulativeTokensPerRequestTree: 0,
+            maxCumulativeTokensPerRequestTree: -1,
             defaultTimeoutMs: 500,
             spawnDecisionThreshold: 2,
             handoffMinPlannerConfidence: 2,
@@ -1315,7 +1333,7 @@ describe("config loading", () => {
       "llm.subagents.maxCumulativeToolCallsPerRequestTree must be an integer between 1 and 4096",
     );
     expect(result.errors).toContain(
-      "llm.subagents.maxCumulativeTokensPerRequestTree must be an integer between 1 and 10000000",
+      "llm.subagents.maxCumulativeTokensPerRequestTree must be an integer between 0 and 10000000",
     );
     expect(result.errors).toContain(
       "llm.subagents.defaultTimeoutMs must be an integer between 1000 and 3600000",
@@ -1367,7 +1385,7 @@ describe("config loading", () => {
           maxModelRecallsPerRequest: 12,
           maxFailureBudgetPerRequest: 6,
           toolCallTimeoutMs: 120_000,
-          requestTimeoutMs: 600_000,
+          requestTimeoutMs: 0,
           toolFailureCircuitBreaker: {
             enabled: true,
             threshold: 6,
@@ -1442,7 +1460,7 @@ describe("config loading", () => {
       "llm.toolCallTimeoutMs must be an integer between 1000 and 3600000",
     );
     expect(result.errors).toContain(
-      "llm.requestTimeoutMs must be an integer between 5000 and 7200000",
+      "llm.requestTimeoutMs must be 0 or an integer between 5000 and 7200000",
     );
     expect(result.errors).toContain(
       "llm.toolFailureCircuitBreaker.enabled must be a boolean",

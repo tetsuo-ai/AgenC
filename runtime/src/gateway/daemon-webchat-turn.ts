@@ -82,6 +82,57 @@ export interface ExecuteWebChatConversationTurnParams {
   readonly onSubagentSynthesis?: (result: ChatExecutorResult) => void;
 }
 
+function maybeBroadcastExecutionTraceEventToWebChat(params: {
+  webChat: WebChatChannel;
+  sessionId: string;
+  traceId: string;
+  event: ChatExecutionTraceEvent;
+}): void {
+  const { webChat, sessionId, traceId, event } = params;
+  const basePayload: Record<string, unknown> = {
+    sessionId,
+    traceId,
+    ...(typeof event.phase === "string" ? { phase: event.phase } : {}),
+    ...(Number.isFinite(Number(event.callIndex))
+      ? { callIndex: Number(event.callIndex) }
+      : {}),
+    ...event.payload,
+  };
+
+  switch (event.type) {
+    case "planner_path_finished":
+    case "planner_pipeline_finished":
+    case "planner_synthesis_fallback_applied":
+    case "planner_pipeline_started":
+    case "planner_plan_parsed":
+    case "planner_refinement_requested":
+    case "planner_verifier_retry_scheduled":
+    case "planner_verifier_round_finished":
+      webChat.broadcastEvent(event.type, basePayload);
+      return;
+    case "tool_dispatch_started":
+      if (
+        event.phase === "planner" &&
+        typeof event.payload.stepName === "string" &&
+        event.payload.stepName.trim()
+      ) {
+        webChat.broadcastEvent("planner_step_started", basePayload);
+      }
+      return;
+    case "tool_dispatch_finished":
+      if (
+        event.phase === "planner" &&
+        typeof event.payload.stepName === "string" &&
+        event.payload.stepName.trim()
+      ) {
+        webChat.broadcastEvent("planner_step_finished", basePayload);
+      }
+      return;
+    default:
+      return;
+  }
+}
+
 export async function executeWebChatConversationTurn(
   params: ExecuteWebChatConversationTurnParams,
 ): Promise<ChatExecutorResult | undefined> {
@@ -213,26 +264,12 @@ export async function executeWebChatConversationTurn(
             expandOnMiss: true,
           }
         : undefined,
-      ...(traceConfig.enabled
-        ? {
-            trace: {
-              ...(traceConfig.includeProviderPayloads
-                ? {
-                    includeProviderPayloads: true,
-                    onProviderTraceEvent: (event: LLMProviderTraceEvent) => {
-                      logProviderPayloadTraceEvent({
-                        logger,
-                        channelName: "webchat",
-                        traceId: turnTraceId,
-                        sessionId: msg.sessionId,
-                        traceConfig,
-                        event,
-                      });
-                    },
-                  }
-                : {}),
-              onExecutionTraceEvent: (event: ChatExecutionTraceEvent) => {
-                logExecutionTraceEvent({
+      trace: {
+        ...(traceConfig.enabled && traceConfig.includeProviderPayloads
+          ? {
+              includeProviderPayloads: true,
+              onProviderTraceEvent: (event: LLMProviderTraceEvent) => {
+                logProviderPayloadTraceEvent({
                   logger,
                   channelName: "webchat",
                   traceId: turnTraceId,
@@ -241,9 +278,27 @@ export async function executeWebChatConversationTurn(
                   event,
                 });
               },
-            },
+            }
+          : {}),
+        onExecutionTraceEvent: (event: ChatExecutionTraceEvent) => {
+          if (traceConfig.enabled) {
+            logExecutionTraceEvent({
+              logger,
+              channelName: "webchat",
+              traceId: turnTraceId,
+              sessionId: msg.sessionId,
+              traceConfig,
+              event,
+            });
           }
-        : {}),
+          maybeBroadcastExecutionTraceEventToWebChat({
+            webChat,
+            sessionId: msg.sessionId,
+            traceId: turnTraceId,
+            event,
+          });
+        },
+      },
     });
     recordToolRoutingOutcome(msg.sessionId, result.toolRoutingSummary);
 
@@ -365,6 +420,9 @@ export async function executeWebChatConversationTurn(
         totalTokens: getSessionTokenUsage(msg.sessionId),
         sessionTokenBudget,
         compacted: result.compacted ?? false,
+        provider: result.provider,
+        model: result.model,
+        usedFallback: result.usedFallback,
         contextWindowTokens,
         callUsage: result.callUsage,
       }),

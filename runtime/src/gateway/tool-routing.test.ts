@@ -375,6 +375,25 @@ describe("ToolRouter", () => {
     expect(decision.routedToolNames).toContain("system.sqliteQuery");
   });
 
+  it("does not prioritize typed SQLite tools for SQL-like codebase generation prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 8,
+      minToolsPerTurn: 4,
+    });
+
+    const decision = router.route({
+      sessionId: "s-sqlite-codegen",
+      messageText:
+        "Build a complete self-contained TypeScript codebase for an in-memory JSON document database " +
+        "with a SQL-like language supporting CREATE TABLE, SELECT, UPDATE, DELETE, a CLI REPL, tests, and README.",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).not.toContain("system.sqliteSchema");
+    expect(decision.routedToolNames).not.toContain("system.sqliteQuery");
+    expect(decision.routedToolNames).toContain("system.bash");
+  });
+
   it("prioritizes typed spreadsheet tools for workbook prompts", () => {
     const router = new ToolRouter(TOOLS, {
       maxToolsPerTurn: 8,
@@ -487,6 +506,221 @@ describe("ToolRouter", () => {
     expect(decision.routedToolNames).not.toContain(
       "mcp.solana-fender.security_check_file",
     );
+    expect(decision.routedToolNames).not.toContain("mcp.doom.start_game");
+    expect(decision.routedToolNames).not.toContain("mcp.doom.get_state");
+  });
+
+  it("honors explicit no-desktop/no-browser/no-sandbox constraints on host codegen prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 18,
+      minToolsPerTurn: 6,
+      maxExpandedToolsPerTurn: 24,
+    });
+
+    const decision = router.route({
+      sessionId: "s-host-codegen-no-sandbox",
+      messageText:
+        "Build a complete self-contained TypeScript event-sourced document database in /tmp/codegen-bench-eventdb-host. " +
+        "Use only system.listDir, system.readFile, system.writeFile, system.bash, and execute_with_agent. " +
+        "Do not use any desktop.*, browser, sandbox, or Docker tools.",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toEqual(
+      expect.arrayContaining([
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.listDir",
+        "execute_with_agent",
+      ]),
+    );
+    expect(decision.routedToolNames).not.toContain("desktop.bash");
+    expect(decision.routedToolNames).not.toContain("playwright.browser_navigate");
+    expect(decision.routedToolNames).not.toContain("system.browse");
+    expect(decision.routedToolNames).not.toContain("system.browserSessionStart");
+    expect(decision.routedToolNames).not.toContain("system.processStart");
+    expect(decision.routedToolNames).not.toContain("system.processLogs");
+    expect(decision.routedToolNames).not.toContain("system.serverStart");
+    expect(decision.routedToolNames).not.toContain("system.serverResume");
+    expect(decision.routedToolNames).not.toContain("system.sandboxStart");
+    expect(decision.routedToolNames).not.toContain("system.sandboxJobStart");
+    expect(decision.routedToolNames).not.toContain("mcp.doom.start_game");
+    expect(decision.expandedToolNames).not.toContain("desktop.bash");
+    expect(decision.expandedToolNames).not.toContain("playwright.browser_navigate");
+    expect(decision.expandedToolNames).not.toContain("system.browse");
+    expect(decision.expandedToolNames).not.toContain("system.browserSessionStart");
+    expect(decision.expandedToolNames).not.toContain("system.processStart");
+    expect(decision.expandedToolNames).not.toContain("system.processLogs");
+    expect(decision.expandedToolNames).not.toContain("system.serverStart");
+    expect(decision.expandedToolNames).not.toContain("system.serverResume");
+    expect(decision.expandedToolNames).not.toContain("system.sandboxStart");
+    expect(decision.expandedToolNames).not.toContain("mcp.doom.start_game");
+  });
+
+  it("honors compact slash-style host-only tool exclusions on codegen prompts", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 18,
+      minToolsPerTurn: 6,
+      maxExpandedToolsPerTurn: 24,
+    });
+
+    const decision = router.route({
+      sessionId: "s-host-codegen-compact-negation",
+      messageText:
+        "Create a complete self-contained TypeScript codebase in /tmp/codegen-bench-spacecolony-host. " +
+        "Use only host coding tools, not desktop/browser/sandbox/docker/doom tools.",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toEqual(
+      expect.arrayContaining([
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.listDir",
+        "execute_with_agent",
+      ]),
+    );
+    expect(decision.routedToolNames).not.toContain("desktop.bash");
+    expect(decision.routedToolNames).not.toContain("desktop.text_editor");
+    expect(decision.routedToolNames).not.toContain("playwright.browser_navigate");
+    expect(decision.routedToolNames).not.toContain("system.browse");
+    expect(decision.routedToolNames).not.toContain("system.browserSessionStart");
+    expect(decision.routedToolNames).not.toContain("system.processStart");
+    expect(decision.routedToolNames).not.toContain("system.processLogs");
+    expect(decision.routedToolNames).not.toContain("system.serverStart");
+    expect(decision.routedToolNames).not.toContain("system.serverResume");
+    expect(decision.routedToolNames).not.toContain("system.sandboxStart");
+    expect(decision.routedToolNames).not.toContain("system.sandboxJobStart");
+    expect(decision.routedToolNames).not.toContain("mcp.doom.start_game");
+    expect(decision.routedToolNames).not.toContain("mcp.doom.get_state");
+    expect(decision.expandedToolNames).not.toContain("system.browse");
+    expect(decision.expandedToolNames).not.toContain("system.processStart");
+    expect(decision.expandedToolNames).not.toContain("system.processLogs");
+    expect(decision.expandedToolNames).not.toContain("system.serverStart");
+    expect(decision.expandedToolNames).not.toContain("system.serverResume");
+  });
+
+  it("treats C++ Doom-clone prompts as host codegen instead of Doom gameplay intent", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 18,
+      minToolsPerTurn: 6,
+      maxExpandedToolsPerTurn: 24,
+    });
+
+    const decision = router.route({
+      sessionId: "s-host-codegen-doom-clone-cpp",
+      messageText:
+        "Build a complete standalone C++ Doom 1-inspired FPS in /tmp/codegen-bench-doom1-cpp-host. " +
+        "Use CMake, write the full codebase, and keep iterating until it builds cleanly.",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toEqual(
+      expect.arrayContaining([
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.listDir",
+        "execute_with_agent",
+      ]),
+    );
+    expect(decision.routedToolNames).not.toContain("mcp.doom.start_game");
+    expect(decision.routedToolNames).not.toContain("mcp.doom.get_state");
+    expect(decision.routedToolNames).not.toContain("desktop.bash");
+    expect(decision.expandedToolNames).not.toContain("mcp.doom.start_game");
+    expect(decision.expandedToolNames).not.toContain("desktop.bash");
+  });
+
+  it("treats host code/file/system tools phrasing as host-only codegen intent", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 18,
+      minToolsPerTurn: 6,
+      maxExpandedToolsPerTurn: 24,
+    });
+
+    const decision = router.route({
+      sessionId: "s-host-code-file-system-tools",
+      messageText:
+        "Build a complete standalone TypeScript terminal colony simulator in /tmp/codegen-bench-colony-sim-host. " +
+        "Use only host code/file/system tools; do not use desktop/browser tools.",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toEqual(
+      expect.arrayContaining([
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.listDir",
+        "execute_with_agent",
+      ]),
+    );
+    expect(decision.routedToolNames).not.toContain("desktop.bash");
+    expect(decision.routedToolNames).not.toContain("desktop.text_editor");
+    expect(decision.routedToolNames).not.toContain("playwright.browser_navigate");
+    expect(decision.routedToolNames).not.toContain("system.browse");
+    expect(decision.routedToolNames).not.toContain("system.browserSessionStart");
+  });
+
+  it("does not treat event-log codegen requirements as host process intent", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 18,
+      minToolsPerTurn: 6,
+      maxExpandedToolsPerTurn: 24,
+    });
+
+    const decision = router.route({
+      sessionId: "s-orbital-sim-codegen",
+      messageText:
+        "Create a complete self-contained TypeScript codebase in /tmp/codegen-bench-orbital-sim-natural. " +
+        "Build a deterministic orbital mechanics and spacecraft rendezvous simulation toolkit with an N-body integrator, " +
+        "mission scripting DSL, event log, PNG renderer, CLI scenarios, tests, and benchmarks.",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).toEqual(
+      expect.arrayContaining([
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+        "system.listDir",
+        "execute_with_agent",
+      ]),
+    );
+    expect(decision.routedToolNames).not.toContain("system.browse");
+    expect(decision.routedToolNames).not.toContain("system.processStart");
+    expect(decision.routedToolNames).not.toContain("system.processLogs");
+    expect(decision.routedToolNames).not.toContain("system.serverStart");
+    expect(decision.routedToolNames).not.toContain("system.serverResume");
+    expect(decision.expandedToolNames).not.toContain("system.browse");
+    expect(decision.expandedToolNames).not.toContain("system.processStart");
+    expect(decision.expandedToolNames).not.toContain("system.processLogs");
+    expect(decision.expandedToolNames).not.toContain("system.serverStart");
+    expect(decision.expandedToolNames).not.toContain("system.serverResume");
+  });
+
+  it("does not treat /tmp/agenc-codegen scratch paths as protocol intent", () => {
+    const router = new ToolRouter(TOOLS, {
+      maxToolsPerTurn: 18,
+      minToolsPerTurn: 6,
+    });
+
+    const decision = router.route({
+      sessionId: "s-agenc-codegen-scratch",
+      messageText:
+        "Create a complete self-contained Node.js ESM project at " +
+        "/tmp/agenc-codegen-jsondb-20260312-030351/jsondb. " +
+        "Build a JSON-backed embedded document database with parser, storage engine, CLI, and tests.",
+      history: [],
+    });
+
+    expect(decision.routedToolNames).not.toContain("agenc.createTask");
+    expect(decision.routedToolNames).not.toContain("agenc.getAgent");
+    expect(decision.routedToolNames).not.toContain("agenc.getTask");
+    expect(decision.routedToolNames).not.toContain("agenc.registerAgent");
+    expect(decision.routedToolNames).not.toContain("agenc.getProtocolConfig");
   });
 
   it("routes protocol and Solana audit tools only for explicit protocol prompts", () => {

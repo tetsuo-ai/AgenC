@@ -29,6 +29,9 @@ export interface HealthResponse {
   status: "ok";
   display: string;
   uptime: number;
+  workingDirectory: string;
+  workspaceRoot: string | null;
+  features: string[];
 }
 
 export interface TextEditorResult {

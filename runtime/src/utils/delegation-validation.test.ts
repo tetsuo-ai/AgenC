@@ -603,6 +603,61 @@ describe("delegation-validation", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("does not infer forbidden install/build/test actions from file-count guardrails that reference npm output", () => {
+    const result = validateDelegatedOutputContract({
+      spec: {
+        task: "implement_todo_cli",
+        objective:
+          "Create exactly these files under /tmp/codegen-bench-todojson-20260312-r1 and no others unless required by npm install/build output",
+        inputContract:
+          "Implement the CLI, then run npm install, npm test, and npm run build until all three pass",
+        acceptanceCriteria: [
+          "npm test passes",
+          "npm run build passes",
+        ],
+      },
+      output:
+        "**Phase implement_todo_cli completed.** Authored the requested files, then ran npm install, npm test, and npm run build successfully.",
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "/tmp/codegen-bench-todojson-20260312-r1/src/store.ts",
+            content: "export const store = new Map();\n",
+          },
+          result:
+            '{"path":"/tmp/codegen-bench-todojson-20260312-r1/src/store.ts","bytesWritten":31}',
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["install"],
+          },
+          result: '{"stdout":"added 2 packages","stderr":"","exitCode":0}',
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["test"],
+          },
+          result: '{"stdout":"tests passed","stderr":"","exitCode":0}',
+        },
+        {
+          name: "system.bash",
+          args: {
+            command: "npm",
+            args: ["run", "build"],
+          },
+          result: '{"stdout":"build ok","stderr":"","exitCode":0}',
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("does not treat scaffold inspection summaries with negative no-run status as forbidden phase execution claims", () => {
     const result = validateDelegatedOutputContract({
       spec: {
@@ -2280,7 +2335,7 @@ Project is functional for core/pathfinding; CLI/web assumed usable per authored 
     expect(refined.blockedReason).toContain("low-signal browser state checks");
   });
 
-  it("recovers direct child scope to desktop-safe semantic fallback tools", () => {
+  it("keeps direct child explicit tool allowlists exact instead of widening to desktop fallbacks", () => {
     const resolved = resolveDelegatedChildToolScope({
       spec: {
         task: "core_implementation",
@@ -2301,20 +2356,16 @@ Project is functional for core/pathfinding; CLI/web assumed usable per authored 
         "mcp.neovim.vim_buffer_save",
       ],
       enforceParentIntersection: true,
+      strictExplicitToolAllowlist: true,
     });
 
-    expect(resolved.allowedTools).toEqual([
-      "desktop.bash",
-      "desktop.text_editor",
-    ]);
+    expect(resolved.allowedTools).toEqual([]);
     expect(resolved.removedByPolicy).toEqual([
       "system.bash",
       "system.writeFile",
     ]);
-    expect(resolved.semanticFallback).toEqual([
-      "desktop.bash",
-      "desktop.text_editor",
-    ]);
+    expect(resolved.semanticFallback).toEqual([]);
+    expect(resolved.blockedReason).toContain("No permitted child tools remain");
   });
 
   it("preserves explicitly requested concrete tools for browser-grounded research child scope", () => {
@@ -2913,6 +2964,22 @@ Project is functional for core/pathfinding; CLI/web assumed usable per authored 
       },
       ["system.bash", "system.writeFile"],
       "blocked_phase_output",
+    );
+
+    expect(toolNames).toEqual(["system.writeFile", "system.bash"]);
+  });
+
+  it("preserves mutation and verification tools after missing file-evidence failures on implementation steps", () => {
+    const toolNames = resolveDelegatedCorrectionToolChoiceToolNames(
+      {
+        task: "implement_cli",
+        objective:
+          "Build CLI in src/cli.ts that accepts stdin/file, runs chosen algo, prints length/cost/visited/overlay",
+        inputContract: "Use process.argv, import core",
+        acceptanceCriteria: ["Compiles to dist/cli.js, correct output format"],
+      },
+      ["system.bash", "system.writeFile"],
+      "missing_file_mutation_evidence",
     );
 
     expect(toolNames).toEqual(["system.writeFile", "system.bash"]);

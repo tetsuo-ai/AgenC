@@ -38,7 +38,7 @@ export interface GatewayLLMConfig {
   maxRuntimeHints?: number;
   /** Request timeout in milliseconds for provider calls (default: provider-specific). */
   timeoutMs?: number;
-  /** End-to-end timeout in milliseconds for one chat request execution. */
+  /** End-to-end timeout in milliseconds for one chat request execution. 0 or undefined = unlimited. */
   requestTimeoutMs?: number;
   /** Timeout in milliseconds for a single tool execution call. */
   toolCallTimeoutMs?: number;
@@ -79,7 +79,7 @@ export interface GatewayLLMConfig {
   plannerMaxTokens?: number;
   /** Maximum tool calls allowed in one request execution. */
   toolBudgetPerRequest?: number;
-  /** Maximum model recalls after the initial call per request. */
+  /** Maximum model recalls after the initial call per request. 0 or undefined = unlimited. */
   maxModelRecallsPerRequest?: number;
   /** Maximum failed tool calls allowed per request before aborting. */
   maxFailureBudgetPerRequest?: number;
@@ -171,7 +171,7 @@ export interface GatewaySubagentConfig {
   maxTotalSubagentsPerRequest?: number;
   /** Hard cap on cumulative child tool calls across one request tree. */
   maxCumulativeToolCallsPerRequestTree?: number;
-  /** Hard cap on cumulative child LLM tokens across one request tree. */
+  /** Hard cap on cumulative child LLM tokens across one request tree. 0 or undefined = unlimited. */
   maxCumulativeTokensPerRequestTree?: number;
   /** Default timeout for child agent execution in milliseconds. */
   defaultTimeoutMs?: number;

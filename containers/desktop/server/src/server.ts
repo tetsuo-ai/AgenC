@@ -13,6 +13,12 @@ interface DesktopServerOptions {
   startTime?: number;
 }
 
+const DESKTOP_SERVER_FEATURES = [
+  "foreground_bash_cwd",
+  "background_bash_cwd",
+  "managed_process_identity",
+] as const;
+
 function json(res: ServerResponse, status: number, data: unknown): void {
   const body = JSON.stringify(data);
   res.writeHead(status, {
@@ -96,6 +102,9 @@ function handleHealthRequest(
     status: "ok",
     display: process.env.DISPLAY ?? ":1",
     uptime: Math.floor((Date.now() - startTime) / 1000),
+    workingDirectory: process.cwd(),
+    workspaceRoot: process.env.AGENC_WORKSPACE_ROOT?.trim() || null,
+    features: [...DESKTOP_SERVER_FEATURES],
   };
   json(res, 200, health);
   return true;

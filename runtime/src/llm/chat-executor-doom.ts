@@ -12,8 +12,10 @@ import {
 
 const DOOM_INTENT_RE =
   /\b(?:doom|vizdoom|defend_the_center|capture(?:\s+the)?\s+center)\b/i;
+const NEGATED_DOOM_TOOL_CLAUSE_RE =
+  /\b(?:do\s+not(?:\s+use)?|don't(?:\s+use)?|dont(?:\s+use)?|avoid|without|never(?:\s+use)?|exclude|skip)\b[\s\S]*\b(?:doom|vizdoom|freedoom)\b[\s\S]*\btools?\b/i;
 const DOOM_AUTONOMOUS_INTENT_RE =
-  /\b(?:playing?\s+until\s+(?:you|i)\s+(?:say|tell)\s+(?:me\s+)?(?:to\s+)?stop|until\s+(?:you|i)\s+(?:say|tell)\s+(?:me\s+)?(?:to\s+)?stop|run(?:ning)?\s+(?:autonom(?:ous|ously)|async)|autoplay|continuous(?:ly)?(?:\s+playing)?|keep\s+playing|stay\s+running|async(?:\s+player)?|play\b|launch\b|start\b)\b/i;
+  /\b(?:playing?\s+until\s+(?:you|i)\s+(?:say|tell)\s+(?:me\s+)?(?:to\s+)?stop|until\s+(?:you|i)\s+(?:say|tell)\s+(?:me\s+)?(?:to\s+)?stop|run(?:ning)?\s+(?:autonom(?:ous|ously)|async)|autoplay|continuous(?:ly)?(?:\s+playing)?|keep\s+playing|stay\s+running|async(?:\s+player)?|play\b)\b/i;
 const DOOM_HOLD_POSITION_INTENT_RE =
   /\b(?:hold(?:ing)?\s+position|stay(?:ing)?\s+(?:put|centered)|stationary|won't\s+run\s+around|will\s+not\s+run\s+around|don't\s+run\s+around|do\s+not\s+run\s+around|defend(?:ing)?(?:\s+|_)the(?:\s+|_)center|capture(?:\s+the)?\s+center)\b/i;
 const DOOM_GOD_MODE_INTENT_RE =
@@ -62,7 +64,9 @@ export interface DoomEvidenceGap {
 export function inferDoomTurnContract(
   messageText: string,
 ): DoomTurnContract | undefined {
-  const intentText = extractPrimaryDoomIntentText(messageText);
+  const intentText = stripNegatedDoomToolClauses(
+    extractPrimaryDoomIntentText(messageText),
+  );
   if (!DOOM_INTENT_RE.test(intentText)) return undefined;
 
   const requiresAutonomousPlay = DOOM_AUTONOMOUS_INTENT_RE.test(intentText);
@@ -86,6 +90,16 @@ export function inferDoomTurnContract(
     requiresHoldPosition,
     requiresGodMode,
   };
+}
+
+function stripNegatedDoomToolClauses(messageText: string): string {
+  const segments = messageText
+    .split(/(?<=[.!?])\s+|\n+/)
+    .filter((segment) => segment.trim().length > 0);
+
+  return segments
+    .filter((segment) => !NEGATED_DOOM_TOOL_CLAUSE_RE.test(segment))
+    .join("\n");
 }
 
 export function summarizeDoomToolEvidence(

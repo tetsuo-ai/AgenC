@@ -136,6 +136,7 @@ export interface SubAgentConfig {
   readonly prompt?: string;
   readonly continuationSessionId?: string;
   readonly timeoutMs?: number;
+  readonly toolBudgetPerRequest?: number;
   readonly workingDirectory?: string;
   readonly workingDirectorySource?: "context_requirement" | "task_text";
   readonly workspace?: string;
@@ -634,6 +635,11 @@ export class SubAgentManager {
               handle.config.tools,
             )
           : undefined;
+      const effectiveToolBudgetPerRequest =
+        typeof handle.config.toolBudgetPerRequest === "number" &&
+          Number.isFinite(handle.config.toolBudgetPerRequest)
+          ? Math.max(1, Math.floor(handle.config.toolBudgetPerRequest))
+          : undefined;
       const executor = new ChatExecutor({
         providers: [selectedProvider],
         toolHandler,
@@ -707,6 +713,7 @@ export class SubAgentManager {
             contextWindowTokens: resolvedProviderProfile?.contextWindowTokens,
             contextWindowSource: resolvedProviderProfile?.contextWindowSource,
             maxOutputTokens: resolvedProviderProfile?.maxOutputTokens,
+            toolBudgetPerRequest: effectiveToolBudgetPerRequest,
             unsafeBenchmarkMode,
             sessionTokenBudget: resolvedSessionTokenBudget,
             promptBudget: resolvedPromptBudget
@@ -729,6 +736,9 @@ export class SubAgentManager {
           history: handle.history,
           systemPrompt,
           sessionId: handle.sessionId,
+          ...(typeof effectiveToolBudgetPerRequest === "number"
+            ? { toolBudgetPerRequest: effectiveToolBudgetPerRequest }
+            : {}),
           requiredToolEvidence: handle.config.requireToolCall
             ? {
               maxCorrectionAttempts: 1,
@@ -777,9 +787,12 @@ export class SubAgentManager {
       const enforcedStopReasonDetail = requireToolCallFailure
         ? requireToolCallFailureDetail
         : (delegatedOutputValidation?.error ?? resultOrAbort.stopReasonDetail);
-      const validationCode = delegatedOutputValidation?.error
-        ? delegatedOutputValidation.code
-        : (requireToolCallFailure ? "missing_successful_tool_evidence" : undefined);
+      const validationCode = resultOrAbort.validationCode ??
+        (delegatedOutputValidation?.error
+          ? delegatedOutputValidation.code
+          : (requireToolCallFailure
+            ? "missing_successful_tool_evidence"
+            : undefined));
       const terminalStatus = mapChatStopReasonToSubAgentStatus(
         enforcedStopReason,
       );

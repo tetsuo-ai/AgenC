@@ -409,6 +409,29 @@ describe("chat-executor-contract-guidance", () => {
     expect(block).toBeUndefined();
   });
 
+  it("does not misclassify SQL codebase generation turns as typed SQLite inspection", () => {
+    const messageText =
+      "Build a complete self-contained TypeScript codebase for an in-memory JSON document database " +
+      "with a SQL-like language supporting CREATE TABLE, SELECT, UPDATE, DELETE, a CLI REPL, tests, and README.";
+
+    const guidance = resolveToolContractGuidance({
+      phase: "initial",
+      messageText,
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.sqliteSchema", "system.sqliteQuery"],
+    });
+    const block = resolveToolContractExecutionBlock({
+      phase: "initial",
+      messageText,
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.sqliteSchema", "system.sqliteQuery"],
+      candidateToolName: "system.bash",
+    });
+
+    expect(guidance).toBeUndefined();
+    expect(block).toBeUndefined();
+  });
+
   it("routes delegated implementation turns to an editor-first tool on initial guidance", () => {
     const guidance = resolveToolContractGuidance({
       phase: "initial",
@@ -432,7 +455,7 @@ describe("chat-executor-contract-guidance", () => {
     });
   });
 
-  it("keeps inspection, mutation, and verification tools available for local implementation phases", () => {
+  it("keeps initial delegated local implementation phases on inspect/mutate tools when acceptance is file-authoring-only", () => {
     const guidance = resolveToolContractGuidance({
       phase: "initial",
       messageText: "Implement the requested files.",
@@ -457,8 +480,8 @@ describe("chat-executor-contract-guidance", () => {
       runtimeInstruction:
         "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
         "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
-        "and use shell verification when build/test/install evidence is part of acceptance.",
-      routedToolNames: ["system.readFile", "system.writeFile", "system.bash"],
+        "then create or update the required files directly. Do not spend shell rounds on speculative build/test/runtime verification unless acceptance explicitly requires that evidence.",
+      routedToolNames: ["system.readFile", "system.writeFile"],
       persistRoutedToolNames: false,
       toolChoice: "required",
     });
@@ -493,8 +516,8 @@ describe("chat-executor-contract-guidance", () => {
       runtimeInstruction:
         "Start with the smallest grounded step that reduces uncertainty in the delegated contract. " +
         "Inspect the existing workspace state before mutating files when that will prevent avoidable rework, " +
-        "and use shell verification when build/test/install evidence is part of acceptance.",
-      routedToolNames: ["system.readFile", "system.writeFile", "system.bash"],
+        "then create or update the required files directly. Do not spend shell rounds on speculative build/test/runtime verification unless acceptance explicitly requires that evidence.",
+      routedToolNames: ["system.readFile", "system.writeFile"],
       persistRoutedToolNames: false,
       toolChoice: "required",
     });
@@ -656,6 +679,32 @@ describe("chat-executor-contract-guidance", () => {
     expect(guidance).toEqual({
       source: "delegation-correction",
       routedToolNames: ["desktop.text_editor"],
+      persistRoutedToolNames: false,
+      toolChoice: "required",
+    });
+  });
+
+  it("keeps mutation and verification tools available for missing file evidence on implementation phases", () => {
+    const guidance = resolveToolContractGuidance({
+      phase: "correction",
+      messageText: "Implement the requested files and keep the CLI buildable.",
+      toolCalls: [],
+      allowedToolNames: ["system.bash", "system.writeFile"],
+      requiredToolEvidence: {
+        delegationSpec: {
+          task: "implement_cli",
+          objective:
+            "Build CLI in src/cli.ts that accepts stdin/file, runs chosen algo, prints length/cost/visited/overlay",
+          inputContract: "Use process.argv, import core",
+          acceptanceCriteria: ["Compiles to dist/cli.js, correct output format"],
+        },
+      },
+      validationCode: "missing_file_mutation_evidence",
+    });
+
+    expect(guidance).toEqual({
+      source: "delegation-correction",
+      routedToolNames: ["system.writeFile", "system.bash"],
       persistRoutedToolNames: false,
       toolChoice: "required",
     });

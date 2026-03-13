@@ -87,6 +87,7 @@ import {
   didEvalScriptPass,
   resolveTraceFanoutEnabled,
   resolveBashToolEnv,
+  resolveBashToolTimeoutConfig,
   resolveRuntimeSkillDiscoveryPaths,
   resolveBashDenyExclusions,
   resolveStructuredExecDenyExclusions,
@@ -141,6 +142,8 @@ describe("DaemonManager host workspace prompt and memory resolution", () => {
       });
 
       expect(prompt).toContain("local engineering and automation tasks");
+      expect(prompt).toContain("Start executing immediately");
+      expect(prompt).toContain("Never end the turn with only a plan");
       expect(prompt).not.toContain("AgenC protocol");
       expect(prompt).not.toContain("Solana");
       expect(prompt).not.toContain("# Identity");
@@ -237,6 +240,56 @@ describe("resolveSessionTokenBudget", () => {
         64_000,
       ),
     ).toBe(64_000);
+  });
+});
+
+describe("resolveBashToolTimeoutConfig", () => {
+  it("caps desktop bash timeout to the chat tool timeout budget", () => {
+    expect(
+      resolveBashToolTimeoutConfig({
+        desktop: { enabled: true },
+        llm: {},
+      } as any),
+    ).toEqual({
+      timeoutMs: 180_000,
+      maxTimeoutMs: 180_000,
+    });
+  });
+
+  it("preserves the shorter direct bash default when desktop mode is off", () => {
+    expect(
+      resolveBashToolTimeoutConfig({
+        desktop: { enabled: false },
+        llm: {},
+      } as any),
+    ).toEqual({
+      timeoutMs: 30_000,
+      maxTimeoutMs: 30_000,
+    });
+  });
+
+  it("respects an explicitly lower llm tool timeout", () => {
+    expect(
+      resolveBashToolTimeoutConfig({
+        desktop: { enabled: true },
+        llm: { toolCallTimeoutMs: 45_000 },
+      } as any),
+    ).toEqual({
+      timeoutMs: 45_000,
+      maxTimeoutMs: 45_000,
+    });
+  });
+
+  it("allows longer configured llm tool timeouts up to the desktop bash ceiling", () => {
+    expect(
+      resolveBashToolTimeoutConfig({
+        desktop: { enabled: true },
+        llm: { toolCallTimeoutMs: 480_000 },
+      } as any),
+    ).toEqual({
+      timeoutMs: 300_000,
+      maxTimeoutMs: 480_000,
+    });
   });
 });
 
@@ -2148,6 +2201,28 @@ describe("DaemonManager", () => {
     await dm.stop();
   });
 
+  it("includes static desktop tools in the subagent catalog for desktop sessions", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const registry = {
+      listAll: () => [{
+        name: "system.bash",
+        description: "host shell",
+        inputSchema: { type: "object", properties: {} },
+        execute: vi.fn(),
+      }],
+    };
+
+    (dm as any).refreshSubAgentToolCatalog(registry, "desktop", {
+      includeStaticDesktopTools: true,
+    });
+
+    const names = ((dm as any)._subAgentToolCatalog as Array<{ name: string }>)
+      .map((tool) => tool.name);
+    expect(names).toContain("desktop.bash");
+    expect(names).toContain("desktop.text_editor");
+    expect(names).not.toContain("system.bash");
+  });
+
   it("discoverSkills ignores ~/.agenc/skills unless explicitly enabled", async () => {
     const homeDir = await mkdtemp(join(tmpdir(), "agenc-home-"));
     const userSkillsDir = join(homeDir, ".agenc", "skills");
@@ -3353,6 +3428,88 @@ describe("DaemonManager", () => {
     expect(typeof eventData.traceId).toBe("string");
     expect((eventData.result as Record<string, unknown>).artifactType).toBe(
       "image_data_url",
+    );
+  });
+
+  it("enriches synthesized lifecycle events with the latest delegated child context", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+    } as unknown as {
+      pushToSession: (sessionId: string, response: unknown) => void;
+      broadcastEvent: (eventType: string, data: Record<string, unknown>) => void;
+    };
+
+    (dm as any)._activeSessionTraceIds.set("session-parent", "trace-parent");
+    (dm as any)._subAgentManager = {
+      getInfo: vi.fn().mockReturnValue({
+        sessionId: "subagent:child",
+        parentSessionId: "session-parent",
+        status: "completed",
+        startedAt: 1,
+        task: "test",
+      }),
+    };
+
+    (dm as any).relaySubAgentLifecycleEvent(webChat as any, {
+      type: "subagents.completed",
+      timestamp: 1_234,
+      sessionId: "subagent:child",
+      subagentSessionId: "subagent:child",
+      toolName: "execute_with_agent",
+      payload: {
+        stepName: "runtime_probe",
+        objective: "Create src/parser.js and inspect it",
+        toolCalls: 3,
+      },
+    });
+
+    (dm as any).relaySubAgentLifecycleEvent(webChat as any, {
+      type: "subagents.synthesized",
+      timestamp: 1_235,
+      sessionId: "session-parent",
+      parentSessionId: "session-parent",
+      payload: {
+        stopReason: "completed",
+        stopReasonDetail: "Compiled parser, ran probes, and emitted final synthesis",
+        outputChars: 128,
+        toolCalls: 3,
+        outputPreview: "Compiled parser, ran probes, and emitted final synthesis",
+      },
+    });
+
+    const synthesisPushPayload = (webChat.pushToSession as any).mock.calls[1][1] as {
+      type: string;
+      payload: {
+        subagentSessionId?: string;
+        data?: Record<string, unknown>;
+      };
+    };
+    expect(synthesisPushPayload.type).toBe("subagents.synthesized");
+    expect(synthesisPushPayload.payload.subagentSessionId).toBe("subagent:child");
+    expect(synthesisPushPayload.payload.data).toMatchObject({
+      stepName: "runtime_probe",
+      objective: "Create src/parser.js and inspect it",
+      stopReason: "completed",
+      stopReasonDetail: "Compiled parser, ran probes, and emitted final synthesis",
+      outputChars: 128,
+      toolCalls: 3,
+      outputPreview: "Compiled parser, ran probes, and emitted final synthesis",
+    });
+
+    const [, synthesisBroadcast] = (webChat.broadcastEvent as any).mock.calls[1] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(synthesisBroadcast.subagentSessionId).toBe("subagent:child");
+    expect(synthesisBroadcast.stepName).toBe("runtime_probe");
+    expect(synthesisBroadcast.objective).toBe("Create src/parser.js and inspect it");
+    expect(synthesisBroadcast.stopReasonDetail).toBe(
+      "Compiled parser, ran probes, and emitted final synthesis",
+    );
+    expect(synthesisBroadcast.outputPreview).toBe(
+      "Compiled parser, ran probes, and emitted final synthesis",
     );
   });
 

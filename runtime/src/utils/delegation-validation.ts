@@ -1550,6 +1550,7 @@ export function resolveDelegatedChildToolScope(params: {
   availableTools?: readonly string[];
   forbiddenTools?: readonly string[];
   enforceParentIntersection?: boolean;
+  strictExplicitToolAllowlist?: boolean;
   unsafeBenchmarkMode?: boolean;
 }): ResolvedDelegatedChildToolScope {
   const requestedSource = normalizeToolNames(
@@ -1580,6 +1581,10 @@ export function resolveDelegatedChildToolScope(params: {
   const contextOnlyCapabilityRequest =
     semanticCapabilities.length > 0 &&
     semanticCapabilities.every(isContextOnlyCapabilityName);
+  const strictExplicitToolAllowlist =
+    params.strictExplicitToolAllowlist === true &&
+    requested.length > 0 &&
+    semanticCapabilities.length === 0;
   const explicitBrowserToolRequested = requested.some((toolName) =>
     isBrowserToolName(toolName) || isHostBrowserToolName(toolName)
   );
@@ -1683,6 +1688,7 @@ export function resolveDelegatedChildToolScope(params: {
   };
 
   if (
+    !strictExplicitToolAllowlist &&
     !capabilityProfile.isReadOnlyContract &&
     localFileInspectionTask &&
     !requireBrowser &&
@@ -1695,6 +1701,7 @@ export function resolveDelegatedChildToolScope(params: {
   }
 
   if (
+    !strictExplicitToolAllowlist &&
     !capabilityProfile.isReadOnlyContract &&
     allowImplicitBrowserFallback &&
     (requireBrowser || (taskIntent === "research" && !localFileInspectionTask))
@@ -1712,6 +1719,7 @@ export function resolveDelegatedChildToolScope(params: {
   }
 
   if (
+    !strictExplicitToolAllowlist &&
     !capabilityProfile.isReadOnlyContract &&
     (requireFileMutation || taskIntent === "implementation" || setupHeavy)
   ) {
@@ -1724,7 +1732,11 @@ export function resolveDelegatedChildToolScope(params: {
     addSemanticFallback("mcp.neovim.vim_buffer_save");
   }
 
-  if (!capabilityProfile.isReadOnlyContract && taskIntent === "validation") {
+  if (
+    !strictExplicitToolAllowlist &&
+    !capabilityProfile.isReadOnlyContract &&
+    taskIntent === "validation"
+  ) {
     addShellSemanticFallback();
     if (allowImplicitBrowserFallback) {
       addSemanticFallback("system.browserSessionStart");
@@ -1739,6 +1751,7 @@ export function resolveDelegatedChildToolScope(params: {
   }
 
   if (
+    !strictExplicitToolAllowlist &&
     allowedTools.length === 0 &&
     !contextOnlyCapabilityRequest &&
     !capabilityProfile.isReadOnlyContract
@@ -1770,7 +1783,12 @@ export function resolveDelegatedChildToolScope(params: {
   const profiledSemanticFallback = semanticFallback.filter((toolName) =>
     profiledAllowedTools.includes(toolName)
   );
+  const explicitAllowlistUnsatisfied =
+    strictExplicitToolAllowlist &&
+    requested.length > 0 &&
+    profiledAllowedTools.length === 0;
   const allowsToollessExecution =
+    !explicitAllowlistUnsatisfied &&
     profiledAllowedTools.length === 0 &&
     !specRequiresSuccessfulToolEvidence(params.spec) &&
     !refined.blockedReason;
@@ -2009,6 +2027,41 @@ export function resolveDelegatedCorrectionToolChoiceToolNames(
   }
 
   if (validationCode === "missing_file_mutation_evidence") {
+    const taskIntent = classifyDelegatedTaskIntent(spec);
+    const hasPositiveVerificationCue = [
+      spec.task ?? "",
+      spec.objective ?? "",
+      spec.inputContract ?? "",
+      ...(spec.acceptanceCriteria ?? []),
+    ].some((value) =>
+      /\b(?:compile|compiles|compiled|build|builds|built|test|tests|tested|verify|verified|validation|stdout|stderr|exit(?:\s+code|s)?|output\s+format)\b/i.test(
+        value,
+      )
+    );
+    const correctionTools: string[] = [];
+    const pushFirstAvailable = (candidates: readonly string[]) => {
+      const toolName = candidates.find((candidate) =>
+        normalizedTools.includes(candidate)
+      );
+      if (toolName && !correctionTools.includes(toolName)) {
+        correctionTools.push(toolName);
+      }
+    };
+
+    if (
+      taskIntent === "validation" ||
+      (
+        taskIntent === "implementation" &&
+        hasPositiveVerificationCue
+      )
+    ) {
+      pushFirstAvailable(INITIAL_FILE_MUTATION_TOOL_NAMES);
+      pushFirstAvailable(INITIAL_SETUP_TOOL_NAMES);
+      if (correctionTools.length > 0) {
+        return correctionTools;
+      }
+    }
+
     const preferredEditor = normalizedTools.find((toolName) =>
       PREFERRED_IMPLEMENTATION_EDITOR_TOOL_NAMES.has(toolName)
     );
@@ -2389,18 +2442,40 @@ function isNegativePhaseConstraintCriterion(
   criterion: string,
 ): boolean {
   const normalized = criterion.toLowerCase();
-  const hasNegativeDirective =
-    NEGATIVE_PHASE_CONTRACT_RE.test(normalized) ||
-    AUTHOR_ONLY_PHASE_CONTRACT_RE.test(normalized);
-  if (!hasNegativeDirective) {
+  const hasAuthorOnlyDirective = AUTHOR_ONLY_PHASE_CONTRACT_RE.test(normalized);
+  if (hasAuthorOnlyDirective) {
+    return PHASE_INSTALL_TERM_RE.test(normalized) ||
+      PHASE_BUILD_TERM_RE.test(normalized) ||
+      PHASE_TEST_TERM_RE.test(normalized) ||
+      PHASE_TYPECHECK_TERM_RE.test(normalized) ||
+      PHASE_LINT_TERM_RE.test(normalized) ||
+      WORKSPACE_PROTOCOL_RE.test(normalized);
+  }
+
+  if (!NEGATIVE_PHASE_CONTRACT_RE.test(normalized)) {
     return false;
   }
-  return PHASE_INSTALL_TERM_RE.test(normalized) ||
-    PHASE_BUILD_TERM_RE.test(normalized) ||
-    PHASE_TEST_TERM_RE.test(normalized) ||
-    PHASE_TYPECHECK_TERM_RE.test(normalized) ||
-    PHASE_LINT_TERM_RE.test(normalized) ||
-    WORKSPACE_PROTOCOL_RE.test(normalized);
+
+  if (
+    /\b(?:command|commands|objective|phase|step)\b/i.test(normalized) &&
+    (
+      PHASE_INSTALL_TERM_RE.test(normalized) ||
+      PHASE_BUILD_TERM_RE.test(normalized) ||
+      PHASE_TEST_TERM_RE.test(normalized) ||
+      PHASE_TYPECHECK_TERM_RE.test(normalized) ||
+      PHASE_LINT_TERM_RE.test(normalized) ||
+      WORKSPACE_PROTOCOL_RE.test(normalized)
+    )
+  ) {
+    return true;
+  }
+
+  return hasExplicitNegativePhaseConstraintCategory(normalized, "install") ||
+    hasExplicitNegativePhaseConstraintCategory(normalized, "build") ||
+    hasExplicitNegativePhaseConstraintCategory(normalized, "test") ||
+    hasExplicitNegativePhaseConstraintCategory(normalized, "typecheck") ||
+    hasExplicitNegativePhaseConstraintCategory(normalized, "lint") ||
+    hasExplicitNegativePhaseConstraintCategory(normalized, "workspace_protocol");
 }
 
 export function isDefinitionOnlyVerificationText(text: string): boolean {
@@ -2487,21 +2562,81 @@ function collectForbiddenPhaseActionCategories(
   for (const segment of segments) {
     if (typeof segment !== "string" || segment.trim().length === 0) continue;
     const normalized = segment.toLowerCase();
-    const hasNegativeDirective = NEGATIVE_PHASE_CONTRACT_RE.test(normalized) ||
-      AUTHOR_ONLY_PHASE_CONTRACT_RE.test(normalized);
-    if (!hasNegativeDirective) continue;
+    const hasAuthorOnlyDirective = AUTHOR_ONLY_PHASE_CONTRACT_RE.test(normalized);
+    if (hasAuthorOnlyDirective) {
+      if (PHASE_INSTALL_TERM_RE.test(normalized)) categories.add("install");
+      if (PHASE_BUILD_TERM_RE.test(normalized)) categories.add("build");
+      if (PHASE_TEST_TERM_RE.test(normalized)) categories.add("test");
+      if (PHASE_TYPECHECK_TERM_RE.test(normalized)) categories.add("typecheck");
+      if (PHASE_LINT_TERM_RE.test(normalized)) categories.add("lint");
+      if (WORKSPACE_PROTOCOL_RE.test(normalized)) {
+        categories.add("workspace_protocol");
+      }
+      continue;
+    }
 
-    if (PHASE_INSTALL_TERM_RE.test(normalized)) categories.add("install");
-    if (PHASE_BUILD_TERM_RE.test(normalized)) categories.add("build");
-    if (PHASE_TEST_TERM_RE.test(normalized)) categories.add("test");
-    if (PHASE_TYPECHECK_TERM_RE.test(normalized)) categories.add("typecheck");
-    if (PHASE_LINT_TERM_RE.test(normalized)) categories.add("lint");
-    if (WORKSPACE_PROTOCOL_RE.test(normalized)) {
+    if (!NEGATIVE_PHASE_CONTRACT_RE.test(normalized)) continue;
+
+    if (hasExplicitNegativePhaseConstraintCategory(normalized, "install")) {
+      categories.add("install");
+    }
+    if (hasExplicitNegativePhaseConstraintCategory(normalized, "build")) {
+      categories.add("build");
+    }
+    if (hasExplicitNegativePhaseConstraintCategory(normalized, "test")) {
+      categories.add("test");
+    }
+    if (hasExplicitNegativePhaseConstraintCategory(normalized, "typecheck")) {
+      categories.add("typecheck");
+    }
+    if (hasExplicitNegativePhaseConstraintCategory(normalized, "lint")) {
+      categories.add("lint");
+    }
+    if (hasExplicitNegativePhaseConstraintCategory(normalized, "workspace_protocol")) {
       categories.add("workspace_protocol");
     }
   }
 
   return categories;
+}
+
+function hasExplicitNegativePhaseConstraintCategory(
+  value: string,
+  category: ForbiddenPhaseActionCategory,
+): boolean {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length === 0) {
+    return false;
+  }
+  if (category === "workspace_protocol") {
+    return /\b(?:do\s+not|don't|never|must\s+not|should\s+not|avoid(?:ing)?|exclude(?:d|ing)?|no|without)\b[^.\n]{0,48}\bworkspace:\*\b/i
+      .test(normalized) ||
+      /\bworkspace:\*[^.\n]{0,32}\b(?:not used|avoided|excluded|forbidden|disallowed)\b/i
+        .test(normalized);
+  }
+
+  const subjectPattern = getForbiddenOutputClaimSubjectPattern(category);
+  const compactNegativeListRe = new RegExp(
+    String.raw`\b(?:no|without)\b(?:\s+(?:any|extra|further))?\s+(?:(?:npm|pnpm|yarn|bun)\s+)?${subjectPattern}\b`,
+    "i",
+  );
+  if (compactNegativeListRe.test(normalized)) {
+    return true;
+  }
+
+  const negativeActionRe = new RegExp(
+    String.raw`\b(?:do\s+not|don't|never|must\s+not|should\s+not|avoid(?:ing)?|exclude(?:d|ing)?)\b[^.\n]{0,24}\b(?:run|execute|claim|use|trigger|perform|invoke|allow)\w*\b[^.\n]{0,72}\b${subjectPattern}\b`,
+    "i",
+  );
+  if (negativeActionRe.test(normalized)) {
+    return true;
+  }
+
+  const negativeSuffixRe = new RegExp(
+    String.raw`\b${subjectPattern}\b[^.\n]{0,32}\b(?:not used|avoided|excluded|forbidden|disallowed)\b`,
+    "i",
+  );
+  return negativeSuffixRe.test(normalized);
 }
 
 function normalizeExecCommandTokens(args: unknown): {

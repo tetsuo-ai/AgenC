@@ -121,6 +121,9 @@ describe("buildChatUsagePayload", () => {
       totalTokens: 12_345,
       sessionTokenBudget: 90_000,
       compacted: true,
+      provider: "grok",
+      model: "grok-4-1-fast-reasoning",
+      usedFallback: true,
       callUsage: [makeCallUsage(9_600, makeDiagnostics())],
     });
 
@@ -128,6 +131,9 @@ describe("buildChatUsagePayload", () => {
       totalTokens: 12_345,
       budget: 90_000,
       compacted: true,
+      provider: "grok",
+      model: "grok-4-1-fast-reasoning",
+      usedFallback: true,
       contextWindowTokens: 128_000,
       promptTokens: 2_400,
       promptTokenBudget: 117_760,

@@ -6,6 +6,7 @@ import {
   buildPlannerMessages,
   buildPlannerVerificationRequirementsFailureMessage,
   buildPlannerVerificationRequirementsRefinementHint,
+  extractPlannerVerificationCommandRequirements,
   extractPlannerVerificationRequirements,
   buildPlannerStructuralRefinementHint,
   extractExplicitDeterministicToolRequirements,
@@ -78,6 +79,34 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
     ).toEqual(["install", "build", "test", "browser"]);
   });
 
+  it("does not infer browser verification from local headless smoke-test prompts", () => {
+    expect(
+      extractPlannerVerificationRequirements(
+        "Build a complete standalone C++ Quake 1-inspired software-rendered FPS prototype in /tmp/codegen-bench-quakeclone-cpp-20260312-r2.\n" +
+          "Make it substantial and visually interesting for a live stream: multi-file CMake project, textured or shaded pseudo-3D renderer, player movement, collision, enemies or pickups, map format/loading, and a headless validation mode or scripted smoke test so it can verify progress as it builds.\n" +
+          "Keep iterating until it builds and runs cleanly.",
+      ),
+    ).toEqual(["build", "test"]);
+  });
+
+  it("extracts explicit acceptance commands from acceptance criteria", () => {
+    expect(
+      extractPlannerVerificationCommandRequirements(
+        "Acceptance criteria:\n" +
+          "- `package.json` exists and uses ESM.\n" +
+          "- `node --test` passes from `/tmp/agenc-codegen/regexkit`.\n" +
+          "- `node src/cli.mjs match 'a(b|c)+d' 'abbd'` reports a match.\n" +
+          "- `node src/cli.mjs grep 'colou?r' fixtures/sample.txt` returns only matching lines.\n" +
+          "Hard constraints:\n" +
+          "- Do not run `npm install`.\n",
+      ),
+    ).toEqual([
+      "node --test",
+      "node src/cli.mjs match 'a(b|c)+d' 'abbd'",
+      "node src/cli.mjs grep 'colou?r' fixtures/sample.txt",
+    ]);
+  });
+
   it("adds planner guidance to preserve explicit verification coverage", () => {
     const messages = buildPlannerMessages(
       "Create the project from scratch.\n" +
@@ -92,6 +121,33 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
           role: "system",
           content: expect.stringContaining(
             "Preserve these verification modes in the plan: install -> build -> test -> browser.",
+          ),
+        }),
+      ]),
+    );
+  });
+
+  it("adds planner guidance to preserve explicit acceptance commands", () => {
+    const messages = buildPlannerMessages(
+      "Acceptance criteria:\n" +
+        "- `node --test` passes from `/tmp/agenc-codegen/regexkit`.\n" +
+        "- `node src/cli.mjs explain 'ab|cd*'` prints a useful structured explanation.\n",
+      [],
+      256,
+    );
+
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "system",
+          content: expect.stringContaining(
+            "The user explicitly named acceptance commands that must remain represented in the plan.",
+          ),
+        }),
+        expect.objectContaining({
+          role: "system",
+          content: expect.stringContaining(
+            "`node src/cli.mjs explain 'ab|cd*'`",
           ),
         }),
       ]),
@@ -185,6 +241,78 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
         diagnostics,
       ),
     ).toContain("Missing verification modes: test, browser");
+  });
+
+  it("flags planner plans that drop explicit acceptance commands", () => {
+    const result = parsePlannerPlan(
+      JSON.stringify({
+        reason: "regexkit",
+        requiresSynthesis: true,
+        steps: [
+          {
+            name: "setup_manifests",
+            step_type: "subagent_task",
+            objective: "Author manifests and create the source layout.",
+            input_contract: "Empty scratch directory.",
+            acceptance_criteria: [
+              "package.json exists and uses ESM",
+              "src and test directories exist",
+            ],
+            required_tool_capabilities: [
+              "system.writeFile",
+              "system.readFile",
+              "system.listDir",
+            ],
+            context_requirements: ["cwd=/tmp/agenc-codegen/regexkit"],
+            max_budget_hint: "4m",
+          },
+          {
+            name: "run_tests",
+            step_type: "deterministic_tool",
+            depends_on: ["setup_manifests"],
+            tool: "system.bash",
+            args: {
+              command: "node",
+              args: ["--test"],
+              cwd: "/tmp/agenc-codegen/regexkit",
+            },
+          },
+          {
+            name: "final_synthesis",
+            step_type: "synthesis",
+            depends_on: ["run_tests"],
+          },
+        ],
+      }),
+    );
+
+    const diagnostics = validatePlannerVerificationRequirements(
+      result.plan!,
+      [],
+      [
+        "node --test",
+        "node src/cli.mjs match 'a(b|c)+d' 'abbd'",
+        "node src/cli.mjs grep 'colou?r' fixtures/sample.txt",
+      ],
+    );
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        category: "validation",
+        code: "planner_verification_requirements_missing",
+        details: expect.objectContaining({
+          missingCommands:
+            "node src/cli.mjs match 'a(b|c)+d' 'abbd'\n" +
+            "node src/cli.mjs grep 'colou?r' fixtures/sample.txt",
+        }),
+      }),
+    ]);
+    expect(
+      buildPlannerVerificationRequirementsRefinementHint([], diagnostics),
+    ).toContain("dropped explicit acceptance commands");
+    expect(
+      buildPlannerVerificationRequirementsFailureMessage([], diagnostics),
+    ).toContain("Missing acceptance commands:");
   });
 
   it("adds runner-compatible repair guidance for npm test -- --run failures", () => {
@@ -725,6 +853,55 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
         }),
       ]),
     );
+    expect(
+      validatePlannerStepContracts(result.plan!).some((diagnostic) =>
+        diagnostic.code === "planner_bash_shell_syntax_in_direct_args"
+      ),
+    ).toBe(false);
+  });
+
+  it("escapes literal find parentheses when planner bash direct args are normalized to shell mode", () => {
+    const result = parsePlannerPlan(
+      JSON.stringify({
+        reason: "identify_source_files",
+        requiresSynthesis: false,
+        steps: [
+          {
+            name: "identify_source_files",
+            step_type: "deterministic_tool",
+            tool: "system.bash",
+            args: {
+              command: "find",
+              args: [
+                ".",
+                "-type",
+                "f",
+                "(",
+                "-name",
+                "*.cpp",
+                "-o",
+                "-name",
+                "*.h",
+                ")",
+              ],
+              cwd: "/tmp/dungeon",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.plan?.steps).toEqual([
+      expect.objectContaining({
+        name: "identify_source_files",
+        stepType: "deterministic_tool",
+        tool: "system.bash",
+        args: {
+          command: "find . -type f \\( -name '*.cpp' -o -name '*.h' \\)",
+          cwd: "/tmp/dungeon",
+        },
+      }),
+    ]);
     expect(
       validatePlannerStepContracts(result.plan!).some((diagnostic) =>
         diagnostic.code === "planner_bash_shell_syntax_in_direct_args"

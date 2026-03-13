@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { processIdentityMatches, readProcessIdentitySnapshot, } from "@agenc/sdk";
 import { resolveValidatedTextEditorPath } from "./textEditorPath.js";
+export { TOOL_DEFINITIONS } from "./toolDefinitions.js";
 const DISPLAY = process.env.DISPLAY ?? ":1";
 const EXEC_TIMEOUT_MS = 30_000;
 const BASH_TIMEOUT_MS = 600_000;
@@ -79,12 +80,13 @@ function emitDesktopToolEvent(event) {
         }
     }
 }
-function exec(cmd, args, timeoutMs = EXEC_TIMEOUT_MS) {
+function exec(cmd, args, timeoutMs = EXEC_TIMEOUT_MS, cwd) {
     return new Promise((resolve, reject) => {
         execFile(cmd, args, {
             timeout: timeoutMs,
             maxBuffer: MAX_EXEC_BUFFER_BYTES,
             env: { ...process.env, DISPLAY },
+            ...(cwd ? { cwd } : {}),
         }, (err, stdout, stderr) => {
             if (err) {
                 const enriched = err;
@@ -809,6 +811,7 @@ async function spawnDetachedCommand(command, logPath, options) {
             env: { ...process.env, DISPLAY },
             detached: true,
             stdio: ["ignore", stdoutFd, stderrFd],
+            ...(options?.cwd ? { cwd: options.cwd } : {}),
         });
         child.unref();
         const launcherPid = typeof child.pid === "number" && Number.isFinite(child.pid)
@@ -845,6 +848,7 @@ async function bash(args) {
     if (!command)
         return fail("command is required");
     const normalizedCommand = normalizeAptCommand(command);
+    const cwd = await resolveManagedProcessCwd(args.cwd);
     const timeoutMs = Number(args.timeoutMs ?? BASH_TIMEOUT_MS);
     // GUI launch commands should be detached automatically so the tool call
     // doesn't block on an interactive app (e.g. `xfce4-terminal`).
@@ -856,7 +860,7 @@ async function bash(args) {
         // returns immediately instead of waiting on inherited pipes/job control.
         if (alreadyBackgrounded) {
             await mkdir("/tmp/agenc-bg", { recursive: true });
-            const { pid, launcherPid, backgroundPid, pidSemantics } = await spawnDetachedCommand(trimmed, "/tmp/agenc-bg/last-background.log");
+            const { pid, launcherPid, backgroundPid, pidSemantics } = await spawnDetachedCommand(trimmed, "/tmp/agenc-bg/last-background.log", { cwd });
             return ok({
                 stdout: "",
                 stderr: "",
@@ -870,7 +874,7 @@ async function bash(args) {
         }
         if (autoDetachGui) {
             await mkdir("/tmp/agenc-gui", { recursive: true });
-            const { pid, launcherPid, backgroundPid, pidSemantics } = await spawnDetachedCommand(trimmed, "/tmp/agenc-gui/last-launch.log", { wrapAsBackground: true });
+            const { pid, launcherPid, backgroundPid, pidSemantics } = await spawnDetachedCommand(trimmed, "/tmp/agenc-gui/last-launch.log", { wrapAsBackground: true, cwd });
             return ok({
                 stdout: "",
                 stderr: "",
@@ -888,7 +892,7 @@ async function bash(args) {
         const scriptPath = `/tmp/agenc-cmd-${scriptId}.sh`;
         await writeFile(scriptPath, normalizedCommand, { mode: 0o700 });
         try {
-            const { stdout, stderr } = await exec("/bin/bash", [scriptPath], timeoutMs);
+            const { stdout, stderr } = await exec("/bin/bash", [scriptPath], timeoutMs, cwd);
             return ok({
                 stdout: truncateOutput(stdout),
                 stderr: truncateOutput(stderr),
@@ -1496,317 +1500,6 @@ const handlers = {
     video_start: videoStart,
     video_stop: () => videoStop(),
 };
-export const TOOL_DEFINITIONS = [
-    {
-        name: "screenshot",
-        description: "Take a screenshot of the current desktop. Returns a base64-encoded PNG image with dimensions.",
-        inputSchema: { type: "object", properties: {}, required: [] },
-    },
-    {
-        name: "mouse_click",
-        description: "Move the mouse to (x, y) and click. Button: 1=left, 2=middle, 3=right.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                x: { type: "number", description: "X coordinate" },
-                y: { type: "number", description: "Y coordinate" },
-                button: {
-                    type: "number",
-                    description: "Mouse button (1=left, 2=middle, 3=right)",
-                    default: 1,
-                },
-            },
-            required: ["x", "y"],
-        },
-    },
-    {
-        name: "mouse_move",
-        description: "Move the mouse cursor to (x, y) without clicking.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                x: { type: "number", description: "X coordinate" },
-                y: { type: "number", description: "Y coordinate" },
-            },
-            required: ["x", "y"],
-        },
-    },
-    {
-        name: "mouse_drag",
-        description: "Click and drag from (startX, startY) to (endX, endY).",
-        inputSchema: {
-            type: "object",
-            properties: {
-                startX: { type: "number", description: "Start X coordinate" },
-                startY: { type: "number", description: "Start Y coordinate" },
-                endX: { type: "number", description: "End X coordinate" },
-                endY: { type: "number", description: "End Y coordinate" },
-                button: { type: "number", description: "Mouse button", default: 1 },
-            },
-            required: ["startX", "startY", "endX", "endY"],
-        },
-    },
-    {
-        name: "mouse_scroll",
-        description: "Scroll the mouse wheel in a direction.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                direction: {
-                    type: "string",
-                    enum: ["up", "down", "left", "right"],
-                    description: "Scroll direction",
-                    default: "down",
-                },
-                clicks: {
-                    type: "number",
-                    description: "Number of scroll clicks (1-100)",
-                    default: 3,
-                },
-            },
-        },
-    },
-    {
-        name: "keyboard_type",
-        description: "Type text using the keyboard. Text is chunked to prevent X11 buffer overflow.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                text: { type: "string", description: "Text to type" },
-            },
-            required: ["text"],
-        },
-    },
-    {
-        name: "keyboard_key",
-        description: "Press a key or key combination (e.g. 'Return', 'ctrl+c', 'alt+Tab').",
-        inputSchema: {
-            type: "object",
-            properties: {
-                key: {
-                    type: "string",
-                    description: "Key name or combination (e.g. 'Return', 'ctrl+c', 'alt+F4')",
-                },
-            },
-            required: ["key"],
-        },
-    },
-    {
-        name: "bash",
-        description: "Execute a bash command in the desktop environment. Returns stdout, stderr, and exit code.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                command: { type: "string", description: "Bash command to execute" },
-                timeoutMs: {
-                    type: "number",
-                    description: "Timeout in milliseconds",
-                    default: 600000,
-                },
-            },
-            required: ["command"],
-        },
-    },
-    {
-        name: "process_start",
-        description: "Start a long-running background process with a real executable plus args. Use this instead of bash for servers, background workers, and GUI apps that you need to inspect or stop later. Returns a stable processId, pid/pgid, logPath, and current state, and supports idempotent retries via idempotencyKey. Shell wrappers like bash -lc are rejected.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                command: {
-                    type: "string",
-                    description: "Executable token or absolute path only. Put flags/operands in args.",
-                },
-                args: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "Executable arguments as a flat string array.",
-                },
-                cwd: {
-                    type: "string",
-                    description: "Absolute working directory. Defaults to /workspace when available.",
-                },
-                env: {
-                    type: "object",
-                    description: "Optional environment variable overrides.",
-                    additionalProperties: { type: "string" },
-                },
-                label: {
-                    type: "string",
-                    description: "Stable human-readable handle label. Reuse it to find or stop the same logical process later.",
-                },
-                idempotencyKey: {
-                    type: "string",
-                    description: "Optional idempotency key for deduplicating repeated process_start requests.",
-                },
-                logPath: {
-                    type: "string",
-                    description: "Optional absolute combined stdout/stderr log path. Defaults under /tmp/agenc-processes.",
-                },
-            },
-            required: ["command"],
-        },
-    },
-    {
-        name: "process_status",
-        description: "Get the status of a managed background process started with process_start. Prefer processId from the start result; idempotencyKey, label, or pid are fallbacks. Returns running/exited state, pid/pgid, logPath, and recent output tail.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                processId: {
-                    type: "string",
-                    description: "Stable managed process ID returned by process_start.",
-                },
-                label: {
-                    type: "string",
-                    description: "Fallback lookup label when processId is unavailable.",
-                },
-                idempotencyKey: {
-                    type: "string",
-                    description: "Fallback idempotency key when processId is unavailable.",
-                },
-                pid: {
-                    type: "number",
-                    description: "Fallback OS pid when processId is unavailable.",
-                },
-            },
-            required: [],
-        },
-    },
-    {
-        name: "process_stop",
-        description: "Stop a managed background process started with process_start. Sends a signal to the process group, waits for exit, and escalates to SIGKILL if needed. Prefer processId from the start result; idempotencyKey, label, or pid are fallbacks.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                processId: {
-                    type: "string",
-                    description: "Stable managed process ID returned by process_start.",
-                },
-                label: {
-                    type: "string",
-                    description: "Fallback lookup label when processId is unavailable.",
-                },
-                idempotencyKey: {
-                    type: "string",
-                    description: "Fallback idempotency key when processId is unavailable.",
-                },
-                pid: {
-                    type: "number",
-                    description: "Fallback OS pid when processId is unavailable.",
-                },
-                signal: {
-                    type: "string",
-                    description: "Optional signal: SIGTERM, SIGINT, SIGKILL, or SIGHUP. Defaults to SIGTERM.",
-                },
-                gracePeriodMs: {
-                    type: "number",
-                    description: "Milliseconds to wait before escalating to SIGKILL. Defaults to 2000.",
-                },
-            },
-            required: [],
-        },
-    },
-    {
-        name: "window_list",
-        description: "List all open windows with their IDs and titles (up to 50).",
-        inputSchema: { type: "object", properties: {}, required: [] },
-    },
-    {
-        name: "window_focus",
-        description: "Focus a window by title (partial match).",
-        inputSchema: {
-            type: "object",
-            properties: {
-                title: {
-                    type: "string",
-                    description: "Window title or partial match",
-                },
-            },
-            required: ["title"],
-        },
-    },
-    {
-        name: "clipboard_get",
-        description: "Read the current clipboard contents.",
-        inputSchema: { type: "object", properties: {}, required: [] },
-    },
-    {
-        name: "clipboard_set",
-        description: "Set the clipboard contents.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                text: { type: "string", description: "Text to copy to clipboard" },
-            },
-            required: ["text"],
-        },
-    },
-    {
-        name: "screen_size",
-        description: "Get the current screen resolution.",
-        inputSchema: { type: "object", properties: {}, required: [] },
-    },
-    {
-        name: "text_editor",
-        description: "View, create, and edit files. Commands: view (read file with line numbers), create (write new file), str_replace (find and replace exact string — must be unique), insert (insert text after a line number), undo_edit (revert last edit).",
-        inputSchema: {
-            type: "object",
-            properties: {
-                command: {
-                    type: "string",
-                    enum: ["view", "create", "str_replace", "insert", "undo_edit"],
-                    description: "The editing command to execute",
-                },
-                path: {
-                    type: "string",
-                    description: "Absolute file path (must be under /home/agenc or /tmp)",
-                },
-                file_text: {
-                    type: "string",
-                    description: "File content (for create command)",
-                },
-                old_str: {
-                    type: "string",
-                    description: "String to find (for str_replace — must match exactly once)",
-                },
-                new_str: {
-                    type: "string",
-                    description: "Replacement string (for str_replace and insert)",
-                },
-                insert_line: {
-                    type: "number",
-                    description: "Line number to insert after (0 = beginning of file, for insert command)",
-                },
-                view_range: {
-                    type: "array",
-                    items: { type: "number" },
-                    description: "Optional [startLine, endLine] range for view command (1-indexed)",
-                },
-            },
-            required: ["command", "path"],
-        },
-    },
-    {
-        name: "video_start",
-        description: "Start recording the desktop screen to an MP4 file using ffmpeg. Only one recording at a time. Returns the file path.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                framerate: {
-                    type: "number",
-                    description: "Frames per second (1-60)",
-                    default: 15,
-                },
-            },
-        },
-    },
-    {
-        name: "video_stop",
-        description: "Stop the active screen recording. Returns the file path and duration.",
-        inputSchema: { type: "object", properties: {}, required: [] },
-    },
-];
 export async function executeTool(name, args) {
     const handler = handlers[name];
     if (!handler) {
