@@ -735,12 +735,30 @@ export type ControlMessageType =
   | "channels"
   | "sessions"
   | "sessions.kill"
+  | "init.run"
   | "auth"
   | "config.get"
   | "config.set"
   | "wallet.info"
   | "wallet.airdrop"
   | "ollama.models";
+
+export interface InitRunControlPayload {
+  readonly path?: string;
+  readonly force?: boolean;
+}
+
+export interface InitRunControlResponsePayload {
+  readonly projectRoot: string;
+  readonly filePath: string;
+  readonly result: "created" | "updated" | "skipped";
+  readonly delegatedInvestigations: number;
+  readonly attempts: number;
+  readonly modelBacked: true;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly usedFallback?: boolean;
+}
 
 export interface ControlMessage {
   type: ControlMessageType;

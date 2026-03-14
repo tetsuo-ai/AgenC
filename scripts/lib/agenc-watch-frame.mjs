@@ -345,11 +345,14 @@ export function createWatchFrameController(dependencies = {}) {
           Array.isArray(command.aliases) && command.aliases.length > 0
             ? `  ${color.fog}${command.aliases.join(", ")}${color.reset}`
             : "";
-        const usageLine = `${color.magenta}${command.usage}${color.reset}${aliasSuffix}`;
-        const descriptionLine = `${color.softInk}${command.description}${color.reset}`;
+        const usageLine = fitAnsi(`${color.magenta}${command.usage}${color.reset}${aliasSuffix}`, inner);
         lines.push(row(usageLine, color.panelBg));
-        if (descriptionLine) {
-          lines.push(row(truncate(descriptionLine, inner), color.panelBg));
+        if (command.description) {
+          const descriptionLine = fitAnsi(
+            `${color.softInk}${command.description}${color.reset}`,
+            inner,
+          );
+          lines.push(row(descriptionLine, color.panelBg));
         }
       }
     }
@@ -383,10 +386,14 @@ export function createWatchFrameController(dependencies = {}) {
       lines.push(row(`${color.softInk}Keep typing a filename or repo-relative path.${color.reset}`, color.panelBg));
     } else {
       for (const entry of suggestions) {
-        const directory = entry.directory ? `  ${color.fog}${entry.directory}${color.reset}` : "";
-        lines.push(row(`${color.magenta}${color.bold}${entry.label}${color.reset}`, color.panelBg));
-        if (directory) {
-          lines.push(row(truncate(directory, inner), color.panelBg));
+        const labelLine = fitAnsi(
+          `${color.magenta}${color.bold}${entry.label}${color.reset}`,
+          inner,
+        );
+        lines.push(row(labelLine, color.panelBg));
+        if (entry.directory) {
+          const directory = fitAnsi(`  ${color.fog}${entry.directory}${color.reset}`, inner);
+          lines.push(row(directory, color.panelBg));
         }
       }
     }

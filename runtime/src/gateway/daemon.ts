@@ -11,6 +11,7 @@
 import {
   mkdir,
   readFile,
+  stat,
   unlink,
   writeFile,
   access,
@@ -34,6 +35,8 @@ import type {
   ConfigDiff,
   GatewayLoggingConfig,
   ControlResponse,
+  InitRunControlPayload,
+  InitRunControlResponsePayload,
 } from "./types.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
@@ -200,6 +203,10 @@ import type { WorkspaceFiles } from "./workspace-files.js";
 import { loadPersonalityTemplate, mergePersonality } from "./personality.js";
 import { SlashCommandRegistry, createDefaultCommands } from "./commands.js";
 import { HookDispatcher, createBuiltinHooks } from "./hooks.js";
+import {
+  INIT_ROUTED_TOOL_NAMES,
+  runModelBackedProjectGuide,
+} from "./init-runner.js";
 import { ProgressTracker, summarizeToolResult } from "./progress.js";
 import {
   inferContextWindowTokens,
@@ -222,7 +229,6 @@ import { formatForChannel } from "./format.js";
 import type { ChannelPlugin } from "./channel.js";
 import type { ProactiveCommunicator } from "./proactive.js";
 import { ToolRouter, type ToolRoutingDecision } from "./tool-routing.js";
-import { writeProjectGuide } from "../project-doc.js";
 import {
   filterLlmToolsByEnvironment,
   filterNamedToolsByEnvironment,
@@ -2361,6 +2367,9 @@ export class DaemonManager {
     gateway.setStatusProvider?.((baseStatus) =>
       this.buildGatewayStatusSnapshot(baseStatus),
     );
+    gateway.setControlMessageDelegate?.((params) =>
+      this.handleGatewayControlMessage(params),
+    );
 
     await gateway.start();
     this.initializeObservabilityService(gatewayConfig.logging);
@@ -2790,6 +2799,9 @@ export class DaemonManager {
       registry,
       availableSkills,
       skillList,
+      hooks,
+      baseToolHandler,
+      approvalEngine,
       progressTracker,
       pipelineExecutor,
     );
@@ -6271,6 +6283,9 @@ export class DaemonManager {
     registry: ToolRegistry,
     availableSkills: DiscoveredSkill[],
     skillList: WebChatSkillSummary[],
+    hooks: HookDispatcher,
+    baseToolHandler: ToolHandler,
+    approvalEngine: ApprovalEngine | null,
     progressTracker?: ProgressTracker,
     pipelineExecutor?: PipelineExecutor,
   ): SlashCommandRegistry {
@@ -6319,18 +6334,67 @@ export class DaemonManager {
             : undefined) ??
           this._hostWorkspacePath ??
           process.cwd();
-
-        const result = await writeProjectGuide(workspaceRoot, { force });
-        if (result.status === "skipped") {
+        const webChat = this._webChatChannel;
+        if (!webChat) {
           await ctx.reply(
-            `AGENC.md already exists at ${result.filePath}. Use /init --force to overwrite it.`,
+            "Init unavailable: webchat pipeline is not initialized.",
           );
           return;
         }
 
         await ctx.reply(
-          `${result.status === "updated" ? "Updated" : "Created"} AGENC.md at ${result.filePath}.`,
+          "Starting AGENC.md generation. I’ll inspect the repo, run bounded delegated investigations, and write the guide when the evidence is complete.",
         );
+        webChat.pushToSession(ctx.sessionId, {
+          type: "agent.status",
+          payload: { phase: "thinking" },
+        });
+        webChat.pushToSession(ctx.sessionId, {
+          type: "chat.typing",
+          payload: { active: true },
+        });
+        try {
+          const result = await this.runProjectInitOperation({
+            workspaceRoot,
+            force,
+            sessionId: ctx.sessionId,
+            channel: "webchat",
+            traceLabel: "webchat.init",
+            traceConfig: resolveTraceLoggingConfig(this.gateway?.config.logging),
+            turnTraceId: createTurnTraceId(
+              createGatewayMessage({
+                channel: "webchat",
+                senderId: ctx.senderId,
+                senderName: `WebClient(${ctx.senderId})`,
+                sessionId: ctx.sessionId,
+                content: ctx.args.length > 0 ? `/init ${ctx.args}` : "/init",
+                scope: "dm",
+                metadata: {
+                  source: "slash-init",
+                  workspaceRoot,
+                },
+              }),
+            ),
+            sendResponse: (response) => webChat.pushToSession(ctx.sessionId, response),
+            hooks,
+            baseToolHandler,
+            approvalEngine,
+          });
+          await ctx.reply(
+            result.status === "skipped"
+              ? `AGENC.md already exists at ${result.filePath}. Use /init --force to overwrite it.`
+              : `${result.status === "updated" ? "Updated" : "Created"} AGENC.md at ${result.filePath} after ${result.delegatedInvestigations} delegated investigation(s).`,
+          );
+        } finally {
+          webChat.pushToSession(ctx.sessionId, {
+            type: "agent.status",
+            payload: { phase: "idle" },
+          });
+          webChat.pushToSession(ctx.sessionId, {
+            type: "chat.typing",
+            payload: { active: false },
+          });
+        }
       },
     });
     commandRegistry.register({
@@ -7444,6 +7508,156 @@ export class DaemonManager {
     });
 
     return commandRegistry;
+  }
+
+  private async runProjectInitOperation(params: {
+    workspaceRoot: string;
+    force?: boolean;
+    sessionId: string;
+    channel: string;
+    traceLabel: string;
+    traceConfig: ResolvedTraceLoggingConfig;
+    turnTraceId: string;
+    sendResponse: (response: ControlResponse) => void;
+    hooks?: HookDispatcher;
+    baseToolHandler?: ToolHandler;
+    approvalEngine?: ApprovalEngine | null;
+  }) {
+    const chatExecutor = this._chatExecutor;
+    const baseToolHandler = params.baseToolHandler ?? this._baseToolHandler;
+    const hooks = params.hooks ?? this._hookDispatcher;
+    const approvalEngine = params.approvalEngine ?? this._approvalEngine;
+    const systemPrompt = this._systemPrompt;
+    const workspaceRoot = resolvePath(params.workspaceRoot);
+
+    const workspaceStats = await stat(workspaceRoot).catch(() => null);
+    if (!workspaceStats?.isDirectory()) {
+      throw new Error(`Init workspace root is not a directory: ${workspaceRoot}`);
+    }
+    if (!chatExecutor) {
+      throw new Error(
+        "Init unavailable: no LLM provider is configured for the runtime.",
+      );
+    }
+    if (!baseToolHandler || !hooks) {
+      throw new Error(
+        "Init unavailable: the runtime tool pipeline is not initialized.",
+      );
+    }
+    if (systemPrompt.trim().length === 0) {
+      throw new Error("Init unavailable: system prompt is not initialized.");
+    }
+
+    const baseSessionHandler = createSessionToolHandler({
+      sessionId: params.sessionId,
+      baseHandler: baseToolHandler,
+      availableToolNames: [...INIT_ROUTED_TOOL_NAMES],
+      routerId: params.sessionId,
+      defaultWorkingDirectory: workspaceRoot,
+      workspaceAliasRoot: workspaceRoot,
+      scopedFilesystemRoot: workspaceRoot,
+      resolveWorkspaceContext: async () => ({
+        defaultWorkingDirectory: workspaceRoot,
+        workspaceAliasRoot: workspaceRoot,
+        scopedFilesystemRoot: workspaceRoot,
+        additionalAllowedPaths: [workspaceRoot],
+      }),
+      send: params.sendResponse,
+      hooks,
+      approvalEngine: approvalEngine ?? undefined,
+      delegation: this.resolveDelegationToolContext,
+      credentialBroker: this._sessionCredentialBroker ?? undefined,
+      resolvePolicyScope: () =>
+        this.resolvePolicyScopeForSession({
+          sessionId: params.sessionId,
+          runId: params.sessionId,
+          channel: params.channel,
+        }),
+    });
+
+    const toolHandler = this.createTracedSessionToolHandler({
+      traceLabel: params.traceLabel,
+      traceConfig: params.traceConfig,
+      turnTraceId: params.turnTraceId,
+      sessionId: params.sessionId,
+      baseSessionHandler,
+    });
+
+    return runModelBackedProjectGuide({
+      workspaceRoot,
+      force: params.force,
+      sessionId: params.sessionId,
+      systemPrompt,
+      chatExecutor,
+      toolHandler,
+    });
+  }
+
+  private async handleGatewayControlMessage(params: {
+    clientId: string;
+    message: {
+      type: string;
+      payload?: unknown;
+    };
+    sendResponse: (response: ControlResponse) => void;
+  }): Promise<boolean> {
+    if (params.message.type !== "init.run") {
+      return false;
+    }
+
+    const rawPayload =
+      typeof params.message.payload === "object" &&
+      params.message.payload !== null &&
+      !Array.isArray(params.message.payload)
+        ? (params.message.payload as InitRunControlPayload)
+        : {};
+    const workspaceRoot = resolvePath(
+      typeof rawPayload.path === "string" && rawPayload.path.trim().length > 0
+        ? rawPayload.path
+        : this._hostWorkspacePath ?? process.cwd(),
+    );
+    const sessionId = `init-control:${params.clientId}:${Date.now().toString(36)}`;
+    const turnTraceId = createTurnTraceId(
+      createGatewayMessage({
+        channel: "system",
+        senderId: params.clientId,
+        senderName: "Init Control",
+        sessionId,
+        scope: "dm",
+        content: `/init ${workspaceRoot}`,
+        metadata: { source: "control-init", workspaceRoot },
+      }),
+    );
+    const result = await this.runProjectInitOperation({
+      workspaceRoot,
+      force: rawPayload.force === true,
+      sessionId,
+      channel: "control",
+      traceLabel: "control.init",
+      traceConfig: resolveTraceLoggingConfig(this.gateway?.config.logging),
+      turnTraceId,
+      sendResponse: params.sendResponse,
+    });
+    const payload: InitRunControlResponsePayload = {
+      projectRoot: workspaceRoot,
+      filePath: result.filePath,
+      result: result.status,
+      delegatedInvestigations: result.delegatedInvestigations,
+      attempts: result.attempts,
+      modelBacked: true,
+      ...(result.result
+        ? {
+            provider: result.result.provider,
+            model: result.result.model,
+            usedFallback: result.result.usedFallback,
+          }
+        : {}),
+    };
+    params.sendResponse({
+      type: "init.run",
+      payload,
+    });
+    return true;
   }
 
   private createOptionalVoiceBridge(

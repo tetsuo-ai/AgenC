@@ -244,6 +244,12 @@ export interface InitOptions extends BaseCliOptions {
   force?: boolean;
   /** Target directory to inspect. Defaults to the current working directory. */
   path?: string;
+  /** Gateway config path used if init needs to start the daemon. */
+  configPath?: string;
+  /** PID file for the daemon that should service the init request. */
+  pidPath?: string;
+  /** Override the daemon control-plane port instead of reading it from the PID file. */
+  controlPlanePort?: number;
 }
 
 export interface ConfigValidateOptions extends BaseCliOptions {

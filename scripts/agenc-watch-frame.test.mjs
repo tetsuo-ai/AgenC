@@ -118,3 +118,128 @@ test("frame controller scrolls transcript and detail view independently", async 
     assert.equal(harness.watchState.detailScrollOffset, 2);
   });
 });
+
+test("frame controller routes slash palette rows through ansi-aware fitting", () => {
+  const fitCalls = [];
+  const harness = createWatchFrameHarness({
+    inputValue: "/",
+    suggestions: [{
+      usage: "/export",
+      description: "Write the current detail view or transcript to a temp file.",
+      aliases: ["/copy"],
+    }],
+    width: 40,
+    height: 18,
+    dependencies: {
+      color: {
+        reset: "<reset>",
+        bold: "<bold>",
+        border: "",
+        borderStrong: "",
+        softInk: "<soft>",
+        fog: "<fog>",
+        magenta: "<magenta>",
+        teal: "",
+        cyan: "",
+        red: "",
+        green: "",
+        yellow: "",
+        panelBg: "",
+        panelAltBg: "",
+        panelHiBg: "",
+        ink: "",
+      },
+      fitAnsi(text, width) {
+        fitCalls.push({ text: String(text ?? ""), width });
+        return String(text ?? "");
+      },
+      truncate(value, maxChars = 220) {
+        const text = String(value ?? "");
+        assert.equal(
+          /<(?:reset|soft|fog|magenta)>/.test(text),
+          false,
+          `plain truncate received colorized text: ${text}`,
+        );
+        return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
+      },
+    },
+  });
+
+  harness.controller.buildVisibleFrameSnapshot();
+
+  assert.ok(
+    fitCalls.some((call) => call.width === 36 && call.text.includes("/export") && call.text.includes("/copy")),
+  );
+  assert.ok(
+    fitCalls.some((call) =>
+      call.width === 36 &&
+      call.text.includes("Write the current detail view or transcript to a temp file."),
+    ),
+  );
+});
+
+test("frame controller routes file tag palette rows through ansi-aware fitting", () => {
+  const fitCalls = [];
+  const harness = createWatchFrameHarness({
+    inputValue: "@runtime/src/channels/webchat/ty",
+    fileTagPalette: {
+      activeTag: {
+        query: "runtime/src/channels/webchat/ty",
+      },
+      suggestions: [{
+        label: "types.ts",
+        directory: "runtime/src/channels/webchat",
+      }],
+      summary: {
+        title: "Files",
+        suggestionHint: "types.ts",
+        mode: "active",
+        empty: false,
+      },
+    },
+    width: 40,
+    height: 18,
+    dependencies: {
+      color: {
+        reset: "<reset>",
+        bold: "<bold>",
+        border: "",
+        borderStrong: "",
+        softInk: "<soft>",
+        fog: "<fog>",
+        magenta: "<magenta>",
+        teal: "",
+        cyan: "",
+        red: "",
+        green: "",
+        yellow: "",
+        panelBg: "",
+        panelAltBg: "",
+        panelHiBg: "",
+        ink: "",
+      },
+      fitAnsi(text, width) {
+        fitCalls.push({ text: String(text ?? ""), width });
+        return String(text ?? "");
+      },
+      truncate(value, maxChars = 220) {
+        const text = String(value ?? "");
+        assert.equal(
+          /<(?:reset|soft|fog|magenta)>/.test(text),
+          false,
+          `plain truncate received colorized text: ${text}`,
+        );
+        return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
+      },
+    },
+  });
+
+  harness.controller.buildVisibleFrameSnapshot();
+
+  assert.ok(
+    fitCalls.some((call) => call.width === 36 && call.text.includes("types.ts")),
+  );
+  assert.ok(
+    fitCalls.some((call) => call.width === 36 && call.text.includes("runtime/src/channels/webchat")),
+  );
+});
