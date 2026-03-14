@@ -107,6 +107,7 @@ export const WS_AGENT_STATUS = "agent.status" as const;
 
 export interface ChatSessionPayload {
   sessionId: string;
+  workspaceRoot?: string;
 }
 
 export interface ChatOwnerPayload {
@@ -118,6 +119,7 @@ export interface ChatSessionSummary {
   label: string;
   messageCount: number;
   lastActiveAt: number;
+  workspaceRoot?: string;
 }
 
 export type ChatSessionsPayload = ChatSessionSummary[];

@@ -27,6 +27,7 @@ export interface PersistedWebChatPolicyContext {
 
 export interface PersistedWebChatSessionMetadata {
   readonly policyContext?: PersistedWebChatPolicyContext;
+  readonly workspaceRoot?: string;
 }
 
 export interface PersistedWebChatOwnerCredential {
@@ -122,10 +123,17 @@ function coerceSessionMetadata(
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Record<string, unknown>;
   const policyContext = coercePolicyContext(raw.policyContext);
-  if (!policyContext) {
+  const workspaceRoot =
+    typeof raw.workspaceRoot === "string" && raw.workspaceRoot.trim().length > 0
+      ? raw.workspaceRoot.trim()
+      : undefined;
+  if (!policyContext && !workspaceRoot) {
     return undefined;
   }
-  return { policyContext };
+  return {
+    ...(policyContext ? { policyContext } : {}),
+    ...(workspaceRoot ? { workspaceRoot } : {}),
+  };
 }
 
 function coerceOwnerCredential(
@@ -164,11 +172,13 @@ function mergeSessionMetadata(
         ...update.policyContext,
       }
     : current?.policyContext;
-  if (!nextPolicyContext) {
+  const nextWorkspaceRoot = update?.workspaceRoot ?? current?.workspaceRoot;
+  if (!nextPolicyContext && !nextWorkspaceRoot) {
     return undefined;
   }
   return {
-    policyContext: nextPolicyContext,
+    ...(nextPolicyContext ? { policyContext: nextPolicyContext } : {}),
+    ...(nextWorkspaceRoot ? { workspaceRoot: nextWorkspaceRoot } : {}),
   };
 }
 

@@ -1,16 +1,18 @@
 {
   "name": "grid-router-ts",
   "version": "1.0.0",
-  "main": "dist/gridRouter.js",
+  "main": "dist/index.js",
   "bin": {
     "grid-router": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
-    "start": "tsx src/cli.ts",
+    "start": "tsx src/index.ts",
+    "headless": "tsx src/index.ts --headless",
     "test": "vitest"
   },
   "dependencies": {
+    "markdown-it": "^14.1.1",
     "tsx": "^4.7.0"
   },
   "devDependencies": {

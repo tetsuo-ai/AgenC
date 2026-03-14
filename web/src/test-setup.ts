@@ -45,23 +45,17 @@ function createMemoryStorage() {
   };
 }
 
-const hasWorkingStorage = (() => {
-  const localStorageCandidate = window.localStorage;
-  if (!localStorageCandidate) return false;
-  return (
-    typeof localStorageCandidate.getItem === 'function'
-    && typeof localStorageCandidate.setItem === 'function'
-    && typeof localStorageCandidate.removeItem === 'function'
-    && typeof localStorageCandidate.clear === 'function'
-  );
-})();
+const memoryLocalStorage = createMemoryStorage();
 
-if (!hasWorkingStorage) {
-  Object.defineProperty(window, 'localStorage', {
-    configurable: true,
-    value: createMemoryStorage(),
-  });
-}
+Object.defineProperty(window, 'localStorage', {
+  configurable: true,
+  value: memoryLocalStorage,
+});
+
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  value: memoryLocalStorage,
+});
 
 beforeEach(() => {
   window.localStorage.clear();

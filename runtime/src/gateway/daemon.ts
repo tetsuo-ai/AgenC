@@ -254,6 +254,7 @@ import type {
 } from "./background-run-store.js";
 import type {
   BackgroundRunControlAction,
+  BackgroundRunOperatorAvailability,
   BackgroundRunOperatorDetail,
   BackgroundRunOperatorSummary,
 } from "./background-run-operator.js";
@@ -1790,6 +1791,7 @@ export class DaemonManager {
   private _resolvedContextWindowTokens: number | undefined;
   private _hostToolingProfile: HostToolingProfile | null = null;
   private _hostWorkspacePath: string | null = null;
+  private _hostWorkspacePathPinned = false;
   private _allLlmTools: LLMTool[] = [];
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
@@ -2322,6 +2324,9 @@ export class DaemonManager {
       daemonCwd: process.cwd(),
     });
     this._hostWorkspacePath = hostWorkspacePath;
+    this._hostWorkspacePathPinned =
+      typeof gatewayConfig.workspace?.hostPath === "string" &&
+      gatewayConfig.workspace.hostPath.trim().length > 0;
 
     await this.configureSubAgentInfrastructure(gatewayConfig);
 
@@ -2352,6 +2357,9 @@ export class DaemonManager {
       logger: this.logger,
       configPath: this.configPath,
     });
+    gateway.setStatusProvider?.((baseStatus) =>
+      this.buildGatewayStatusSnapshot(baseStatus),
+    );
 
     await gateway.start();
     this.initializeObservabilityService(gatewayConfig.logging);
@@ -2804,7 +2812,7 @@ export class DaemonManager {
 
     const webChat = new WebChatChannel({
       gateway: {
-        getStatus: () => this.buildGatewayStatusSnapshot(gateway),
+        getStatus: () => gateway.getStatus(),
         config,
       },
       getDaemonStatus: () => this.getStatus(),
@@ -2851,6 +2859,7 @@ export class DaemonManager {
         ) ?? false,
       listBackgroundRuns: (sessionIds) =>
         this.listOwnedBackgroundRuns(sessionIds),
+      getBackgroundRunAvailability: () => this.getBackgroundRunAvailability(),
       inspectBackgroundRun: (sessionId) =>
         this.inspectOwnedBackgroundRun(sessionId),
       controlBackgroundRun: (params) => this.controlOwnedBackgroundRun(params),
@@ -3102,24 +3111,90 @@ export class DaemonManager {
     return telemetry;
   }
 
-  private buildGatewayStatusSnapshot(gateway: Gateway): GatewayStatus {
+  private buildGatewayStatusSnapshot(baseStatus: GatewayStatus): GatewayStatus {
     return {
-      ...gateway.getStatus(),
+      ...baseStatus,
       backgroundRuns: this.buildBackgroundRunStatusSummary(),
     };
   }
 
+  private buildBackgroundRunOperatorAvailability():
+    BackgroundRunOperatorAvailability {
+    const autonomyConfig = this.gateway?.config.autonomy;
+    if (autonomyConfig?.enabled === false) {
+      return {
+        enabled: false,
+        operatorAvailable: false,
+        inspectAvailable: false,
+        controlAvailable: false,
+        disabledCode: "autonomy_disabled",
+        disabledReason: "Autonomy is disabled for this runtime.",
+      };
+    }
+    if (autonomyConfig?.featureFlags?.backgroundRuns === false) {
+      return {
+        enabled: false,
+        operatorAvailable: false,
+        inspectAvailable: false,
+        controlAvailable: false,
+        disabledCode: "background_runs_feature_disabled",
+        disabledReason:
+          "Durable background runs are disabled in autonomy feature flags.",
+      };
+    }
+    if (autonomyConfig?.killSwitches?.backgroundRuns === true) {
+      return {
+        enabled: false,
+        operatorAvailable: false,
+        inspectAvailable: false,
+        controlAvailable: false,
+        disabledCode: "background_runs_kill_switch",
+        disabledReason:
+          "Durable background runs are disabled by the autonomy kill switch.",
+      };
+    }
+    if (!this._backgroundRunSupervisor) {
+      return {
+        enabled: true,
+        operatorAvailable: false,
+        inspectAvailable: false,
+        controlAvailable: false,
+        disabledCode: "operator_unavailable",
+        disabledReason:
+          "Durable background runs are enabled, but the run operator is not attached to this runtime.",
+      };
+    }
+    return {
+      enabled: true,
+      operatorAvailable: true,
+      inspectAvailable: true,
+      controlAvailable: true,
+    };
+  }
+
+  private attachBackgroundRunAvailability<T extends BackgroundRunOperatorSummary>(
+    value: T,
+  ): T {
+    return {
+      ...value,
+      availability: this.buildBackgroundRunOperatorAvailability(),
+    };
+  }
+
   private buildBackgroundRunStatusSummary():
-    | GatewayBackgroundRunStatus
-    | undefined {
+    GatewayBackgroundRunStatus {
     const fleet = this._backgroundRunSupervisor?.getFleetStatusSnapshot();
     const telemetry = this._telemetry?.getFullSnapshot();
     const multiAgentEnabled = this._durableSubrunOrchestrator !== null;
-    if (!fleet && !telemetry && !multiAgentEnabled) {
-      return undefined;
-    }
+    const availability = this.buildBackgroundRunOperatorAvailability();
 
     return {
+      enabled: availability.enabled,
+      operatorAvailable: availability.operatorAvailable,
+      inspectAvailable: availability.inspectAvailable,
+      controlAvailable: availability.controlAvailable,
+      disabledCode: availability.disabledCode,
+      disabledReason: availability.disabledReason,
       multiAgentEnabled,
       activeTotal: fleet?.activeTotal ?? 0,
       queuedSignalsTotal: fleet?.queuedSignalsTotal ?? 0,
@@ -3296,7 +3371,16 @@ export class DaemonManager {
     if (!this._backgroundRunSupervisor || sessionIds.length === 0) {
       return [];
     }
-    return this._backgroundRunSupervisor.listOperatorSummaries(sessionIds);
+    const summaries =
+      await this._backgroundRunSupervisor.listOperatorSummaries(sessionIds);
+    return summaries.map((summary) =>
+      this.attachBackgroundRunAvailability(summary),
+    );
+  }
+
+  private getBackgroundRunAvailability():
+    BackgroundRunOperatorAvailability {
+    return this.buildBackgroundRunOperatorAvailability();
   }
 
   private async inspectOwnedBackgroundRun(
@@ -3305,7 +3389,10 @@ export class DaemonManager {
     if (!this._backgroundRunSupervisor) {
       return undefined;
     }
-    return this._backgroundRunSupervisor.getOperatorDetail(sessionId);
+    const detail = await this._backgroundRunSupervisor.getOperatorDetail(sessionId);
+    return detail
+      ? this.attachBackgroundRunAvailability(detail)
+      : undefined;
   }
 
   private async controlOwnedBackgroundRun(params: {
@@ -3322,25 +3409,26 @@ export class DaemonManager {
     if (!detail) {
       return undefined;
     }
+    const detailWithAvailability = this.attachBackgroundRunAvailability(detail);
     await this.appendGovernanceAuditEvent({
       type: "run.controlled",
       actor: params.actor ? `webchat:${params.actor}` : undefined,
-      subject: detail.sessionId,
+      subject: detailWithAvailability.sessionId,
       scope: {
-        tenantId: detail.policyScope?.tenantId,
-        projectId: detail.policyScope?.projectId,
-        runId: detail.runId,
-        sessionId: detail.sessionId,
+        tenantId: detailWithAvailability.policyScope?.tenantId,
+        projectId: detailWithAvailability.policyScope?.projectId,
+        runId: detailWithAvailability.runId,
+        sessionId: detailWithAvailability.sessionId,
         channel: params.channel,
       },
       payload: {
         action: params.action.action,
-        state: detail.state,
-        currentPhase: detail.currentPhase,
-        unsafeToContinue: detail.unsafeToContinue,
+        state: detailWithAvailability.state,
+        currentPhase: detailWithAvailability.currentPhase,
+        unsafeToContinue: detailWithAvailability.unsafeToContinue,
       },
     });
-    return detail;
+    return detailWithAvailability;
   }
 
   private getTelemetryCounterTotal(
@@ -8516,6 +8604,32 @@ export class DaemonManager {
       availableToolNames: this.getAdvertisedToolNames(),
       defaultWorkingDirectory: this._hostWorkspacePath ?? undefined,
       workspaceAliasRoot: this._hostWorkspacePath ?? undefined,
+      scopedFilesystemRoot: this._hostWorkspacePath ?? undefined,
+      resolveWorkspaceContext: async () => {
+        if (this._hostWorkspacePathPinned) {
+          return {
+            defaultWorkingDirectory: this._hostWorkspacePath ?? undefined,
+            workspaceAliasRoot: this._hostWorkspacePath ?? undefined,
+            scopedFilesystemRoot: this._hostWorkspacePath ?? undefined,
+          };
+        }
+
+        const workspaceRoot =
+          (typeof webChat.loadSessionWorkspaceRoot === "function"
+            ? await webChat.loadSessionWorkspaceRoot(sessionId)
+            : undefined) ??
+          this._hostWorkspacePath ??
+          undefined;
+        if (!workspaceRoot) {
+          return undefined;
+        }
+        return {
+          defaultWorkingDirectory: workspaceRoot,
+          workspaceAliasRoot: workspaceRoot,
+          scopedFilesystemRoot: workspaceRoot,
+          additionalAllowedPaths: [workspaceRoot],
+        };
+      },
       desktopRouterFactory: this._desktopRouterFactory ?? undefined,
       routerId: sessionId,
       send: (m) => webChat.pushToSession(sessionId, m),
@@ -9991,6 +10105,7 @@ Concise and action-oriented.
       this._latestDelegationSurfaceContextBySession.clear();
       this._foregroundSessionLocks.clear();
       this._hostWorkspacePath = null;
+      this._hostWorkspacePathPinned = false;
       if (this.gateway !== null) {
         await this.gateway.stop();
         this.gateway = null;
@@ -10067,7 +10182,7 @@ Concise and action-oriented.
       uptimeMs: this.startedAt > 0 ? Date.now() - this.startedAt : 0,
       gatewayStatus:
         this.gateway !== null
-          ? this.buildGatewayStatusSnapshot(this.gateway)
+          ? this.gateway.getStatus()
           : null,
       memoryUsage: {
         heapUsedMB: Math.round((mem.heapUsed / 1024 / 1024) * 100) / 100,

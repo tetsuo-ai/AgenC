@@ -179,6 +179,46 @@ describe("Gateway", () => {
       expect(statusAfter.controlPlanePort).toBe(9100);
       expect(statusAfter.channels).toEqual([]);
     });
+
+    it("allows a status provider to augment control-plane snapshots", async () => {
+      gateway.setStatusProvider((baseStatus) => ({
+        ...baseStatus,
+        backgroundRuns: {
+          enabled: true,
+          operatorAvailable: true,
+          inspectAvailable: true,
+          controlAvailable: true,
+          multiAgentEnabled: false,
+          activeTotal: 0,
+          queuedSignalsTotal: 0,
+          stateCounts: {
+            pending: 0,
+            running: 0,
+            working: 0,
+            blocked: 0,
+            paused: 0,
+            completed: 0,
+            failed: 0,
+            cancelled: 0,
+            suspended: 0,
+          },
+          recentAlerts: [],
+          metrics: {
+            startedTotal: 0,
+            completedTotal: 0,
+            failedTotal: 0,
+            blockedTotal: 0,
+            recoveredTotal: 0,
+          },
+        },
+      }));
+
+      await gateway.start();
+
+      const status = gateway.getStatus();
+      expect(status.backgroundRuns?.enabled).toBe(true);
+      expect(status.backgroundRuns?.operatorAvailable).toBe(true);
+    });
   });
 
   describe("webhook routes", () => {

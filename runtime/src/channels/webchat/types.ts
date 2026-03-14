@@ -11,8 +11,10 @@
 export type { WebChatHandler } from "../../gateway/types.js";
 import type { GatewayStatus } from "../../gateway/types.js";
 import type {
+  BackgroundRunOperatorAvailability,
   BackgroundRunControlAction,
   BackgroundRunOperatorDetail,
+  BackgroundRunOperatorErrorPayload,
   BackgroundRunOperatorSummary,
 } from "../../gateway/background-run-operator.js";
 import type {
@@ -97,6 +99,10 @@ export interface WebChatDeps {
   listBackgroundRuns?: (
     sessionIds: readonly string[],
   ) => Promise<readonly BackgroundRunOperatorSummary[]>;
+  /** Optional capability snapshot helper for durable-run operator features. */
+  getBackgroundRunAvailability?: (
+    sessionId?: string,
+  ) => BackgroundRunOperatorAvailability;
   /** Optional detail helper for one durable background run. */
   inspectBackgroundRun?: (
     sessionId: string,
@@ -180,6 +186,7 @@ export interface ChatMessageRequest {
     content: string;
     clientKey?: string;
     ownerToken?: string;
+    workspaceRoot?: string;
     policyContext?: {
       tenantId?: string;
       projectId?: string;
@@ -197,25 +204,35 @@ export interface ChatTypingRequest {
 
 export interface ChatHistoryRequest {
   type: "chat.history";
-  payload?: { limit?: number; clientKey?: string; ownerToken?: string };
+  payload?: {
+    limit?: number;
+    clientKey?: string;
+    ownerToken?: string;
+    workspaceRoot?: string;
+  };
   id?: string;
 }
 
 export interface ChatResumeRequest {
   type: "chat.resume";
-  payload: { sessionId: string; clientKey?: string; ownerToken?: string };
+  payload: {
+    sessionId: string;
+    clientKey?: string;
+    ownerToken?: string;
+    workspaceRoot?: string;
+  };
   id?: string;
 }
 
 export interface ChatNewRequest {
   type: "chat.new";
-  payload?: { clientKey?: string; ownerToken?: string };
+  payload?: { clientKey?: string; ownerToken?: string; workspaceRoot?: string };
   id?: string;
 }
 
 export interface ChatSessionsRequest {
   type: "chat.sessions";
-  payload?: { clientKey?: string; ownerToken?: string };
+  payload?: { clientKey?: string; ownerToken?: string; workspaceRoot?: string };
   id?: string;
 }
 
@@ -420,6 +437,7 @@ export interface ChatResumedResponse {
   payload: {
     sessionId: string;
     messageCount: number;
+    workspaceRoot?: string;
   };
   id?: string;
 }
@@ -698,6 +716,7 @@ export interface SubagentLifecycleResponse {
 export interface ErrorResponse {
   type: "error";
   error: string;
+  payload?: BackgroundRunOperatorErrorPayload | Record<string, unknown>;
   id?: string;
 }
 

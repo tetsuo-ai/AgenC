@@ -101,6 +101,8 @@ export class Gateway {
   private readonly wsClients = new Map<string, WsWebSocket>();
   private readonly authenticatedClients = new Set<string>();
   private webChatHandler: WebChatHandler | null = null;
+  private statusProvider: ((baseStatus: GatewayStatus) => GatewayStatus) | null =
+    null;
   private readonly webhookRoutes = new WebhookRouteRegistry();
 
   constructor(config: GatewayConfig, options?: GatewayOptions) {
@@ -190,12 +192,24 @@ export class Gateway {
   // --------------------------------------------------------------------------
 
   getStatus(): GatewayStatus {
-    return Object.freeze({
+    const baseSnapshot: GatewayStatus = {
       state: this._state,
       uptimeMs: this._state === "running" ? Date.now() - this.startedAt : 0,
       channels: [...this.channels.keys()],
       activeSessions: this.wsClients.size,
       controlPlanePort: this._config.gateway.port,
+    };
+    const snapshot = this.statusProvider
+      ? this.statusProvider(baseSnapshot)
+      : baseSnapshot;
+    return Object.freeze({
+      ...snapshot,
+      state: snapshot.state ?? baseSnapshot.state,
+      uptimeMs: snapshot.uptimeMs ?? baseSnapshot.uptimeMs,
+      channels: [...(snapshot.channels ?? baseSnapshot.channels)],
+      activeSessions: snapshot.activeSessions ?? baseSnapshot.activeSessions,
+      controlPlanePort:
+        snapshot.controlPlanePort ?? baseSnapshot.controlPlanePort,
     });
   }
 
@@ -209,6 +223,12 @@ export class Gateway {
    */
   setWebChatHandler(handler: WebChatHandler | null): void {
     this.webChatHandler = handler;
+  }
+
+  setStatusProvider(
+    provider: ((baseStatus: GatewayStatus) => GatewayStatus) | null,
+  ): void {
+    this.statusProvider = provider;
   }
 
   registerWebhookRoute(route: WebhookRoute): void {

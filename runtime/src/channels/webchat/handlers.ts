@@ -16,7 +16,10 @@
 
 import type { ControlResponse } from '../../gateway/types.js';
 import type { WebChatDeps } from './types.js';
-import type { BackgroundRunControlAction } from '../../gateway/background-run-operator.js';
+import type {
+  BackgroundRunControlAction,
+  BackgroundRunOperatorErrorPayload,
+} from '../../gateway/background-run-operator.js';
 import type { ObservabilitySummary } from '../../observability/types.js';
 import { createProgram } from '../../idl.js';
 import { OnChainTaskStatus, taskStatusToString } from '../../task/types.js';
@@ -968,6 +971,17 @@ function resolveOwnedRunSessionId(
     : undefined;
 }
 
+function buildBackgroundRunErrorPayload(
+  deps: WebChatDeps,
+  code: BackgroundRunOperatorErrorPayload['code'],
+  sessionId?: string,
+): BackgroundRunOperatorErrorPayload {
+  const availability = deps.getBackgroundRunAvailability?.(sessionId);
+  return availability
+    ? { code, sessionId, backgroundRunAvailability: availability }
+    : { code, sessionId };
+}
+
 export async function handleRunsList(
   deps: WebChatDeps,
   payload: Record<string, unknown> | undefined,
@@ -976,7 +990,15 @@ export async function handleRunsList(
   request: HandlerRequestContext,
 ): Promise<void> {
   if (!deps.listBackgroundRuns) {
-    send({ type: 'error', error: 'Background run operator API not available', id });
+    send({
+      type: 'error',
+      error: 'Durable background run operator is not available for this runtime.',
+      payload: buildBackgroundRunErrorPayload(
+        deps,
+        'background_run_unavailable',
+      ),
+      id,
+    });
     return;
   }
   const explicitSessionId =
@@ -1003,19 +1025,40 @@ export async function handleRunInspect(
   send: SendFn,
   request: HandlerRequestContext,
 ): Promise<void> {
-  if (!deps.inspectBackgroundRun) {
-    send({ type: 'error', error: 'Background run operator API not available', id });
-    return;
-  }
   const sessionId = resolveOwnedRunSessionId(payload, request);
   if (!sessionId) {
     send({ type: 'error', error: 'Missing or unauthorized run sessionId', id });
     return;
   }
+  const availability = deps.getBackgroundRunAvailability?.(sessionId);
+  if (!deps.inspectBackgroundRun || availability?.inspectAvailable === false) {
+    send({
+      type: 'error',
+      error:
+        availability?.disabledReason ??
+        'Durable background run inspection is not available for this runtime.',
+      payload: buildBackgroundRunErrorPayload(
+        deps,
+        'background_run_unavailable',
+        sessionId,
+      ),
+      id,
+    });
+    return;
+  }
   await safeAsync(send, id, 'error', 'Failed to inspect background run', async () => {
     const detail = await deps.inspectBackgroundRun!(sessionId);
     if (!detail) {
-      send({ type: 'error', error: `Background run "${sessionId}" not found`, id });
+      send({
+        type: 'error',
+        error: `No active durable background run for session "${sessionId}"`,
+        payload: buildBackgroundRunErrorPayload(
+          deps,
+          'background_run_missing',
+          sessionId,
+        ),
+        id,
+      });
       return;
     }
     send({ type: 'run.inspect', payload: detail, id });
@@ -1029,10 +1072,6 @@ export async function handleRunControl(
   send: SendFn,
   request: HandlerRequestContext,
 ): Promise<void> {
-  if (!deps.controlBackgroundRun) {
-    send({ type: 'error', error: 'Background run operator API not available', id });
-    return;
-  }
   if (!payload || typeof payload !== 'object') {
     send({ type: 'error', error: 'Missing run control payload', id });
     return;
@@ -1043,6 +1082,22 @@ export async function handleRunControl(
       : request.activeSessionId;
   if (!sessionId || !request.isSessionOwned(sessionId)) {
     send({ type: 'error', error: 'Missing or unauthorized run sessionId', id });
+    return;
+  }
+  const availability = deps.getBackgroundRunAvailability?.(sessionId);
+  if (!deps.controlBackgroundRun || availability?.controlAvailable === false) {
+    send({
+      type: 'error',
+      error:
+        availability?.disabledReason ??
+        'Durable background run controls are not available for this runtime.',
+      payload: buildBackgroundRunErrorPayload(
+        deps,
+        'background_run_unavailable',
+        sessionId,
+      ),
+      id,
+    });
     return;
   }
   const action = {
@@ -1056,7 +1111,16 @@ export async function handleRunControl(
       channel: request.channel,
     });
     if (!detail) {
-      send({ type: 'error', error: `Background run "${sessionId}" not found`, id });
+      send({
+        type: 'error',
+        error: `No active durable background run for session "${sessionId}"`,
+        payload: buildBackgroundRunErrorPayload(
+          deps,
+          'background_run_missing',
+          sessionId,
+        ),
+        id,
+      });
       return;
     }
     send({ type: 'run.updated', payload: detail, id });

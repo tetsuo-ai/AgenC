@@ -5,7 +5,15 @@ import {
   WS_RUN_CONTROL,
   WS_RUN_UPDATED,
 } from '../constants';
-import type { RunControlAction, RunDetail, RunSummary, WSMessage } from '../types';
+import type {
+  GatewayStatus,
+  RunControlAction,
+  RunDetail,
+  RunOperatorAvailability,
+  RunOperatorErrorPayload,
+  RunSummary,
+  WSMessage,
+} from '../types';
 
 const POLL_INTERVAL_MS = 8_000;
 const NOTIFICATION_PREF_KEY = 'agenc-run-browser-notifications';
@@ -13,6 +21,7 @@ const NOTIFICATION_PREF_KEY = 'agenc-run-browser-notifications';
 interface UseRunsOptions {
   send: (msg: Record<string, unknown>) => void;
   connected: boolean;
+  backgroundRunStatus?: GatewayStatus['backgroundRuns'] | null;
 }
 
 export interface UseRunsReturn {
@@ -21,6 +30,8 @@ export interface UseRunsReturn {
   selectedSessionId: string | null;
   loading: boolean;
   error: string | null;
+  runNotice: string | null;
+  operatorAvailability: RunOperatorAvailability | null;
   browserNotificationsEnabled: boolean;
   notificationPermission: NotificationPermission | 'unsupported';
   setSelectedSessionId: (sessionId: string | null) => void;
@@ -31,25 +42,75 @@ export interface UseRunsReturn {
   handleMessage: (msg: WSMessage) => void;
 }
 
-function supportsNotifications(): boolean {
-  return typeof window !== 'undefined' && 'Notification' in window;
+function getBrowserStorage(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage ?? null;
+  } catch {
+    return null;
+  }
 }
 
-export function useRuns({ send, connected }: UseRunsOptions): UseRunsReturn {
+function getNotificationApi(): typeof window.Notification | null {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return null;
+  }
+  return window.Notification;
+}
+
+function toOperatorAvailability(
+  status: GatewayStatus['backgroundRuns'] | null | undefined,
+): RunOperatorAvailability | null {
+  if (!status) return null;
+  return {
+    enabled: status.enabled,
+    operatorAvailable: status.operatorAvailable,
+    inspectAvailable: status.inspectAvailable,
+    controlAvailable: status.controlAvailable,
+    disabledCode: status.disabledCode,
+    disabledReason: status.disabledReason,
+  };
+}
+
+function operatorAvailabilityEquals(
+  left: RunOperatorAvailability | null,
+  right: RunOperatorAvailability | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.enabled === right.enabled
+    && left.operatorAvailable === right.operatorAvailable
+    && left.inspectAvailable === right.inspectAvailable
+    && left.controlAvailable === right.controlAvailable
+    && left.disabledCode === right.disabledCode
+    && left.disabledReason === right.disabledReason
+  );
+}
+
+export function useRuns({
+  send,
+  connected,
+  backgroundRunStatus = null,
+}: UseRunsOptions): UseRunsReturn {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [runNotice, setRunNotice] = useState<string | null>(null);
+  const [operatorAvailability, setOperatorAvailability] = useState<RunOperatorAvailability | null>(
+    () => toOperatorAvailability(backgroundRunStatus),
+  );
   const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(() => {
     try {
-      return localStorage.getItem(NOTIFICATION_PREF_KEY) === 'true';
+      return getBrowserStorage()?.getItem(NOTIFICATION_PREF_KEY) === 'true';
     } catch {
       return false;
     }
   });
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
-    supportsNotifications() ? Notification.permission : 'unsupported',
+    getNotificationApi()?.permission ?? 'unsupported',
   );
   const previousRunsRef = useRef<Map<string, { state: string; explanation: string }>>(new Map());
   const nextRequestIdRef = useRef(1);
@@ -82,15 +143,16 @@ export function useRuns({ send, connected }: UseRunsOptions): UseRunsReturn {
   }, [issueRequest]);
 
   const enableBrowserNotifications = useCallback(async () => {
-    if (!supportsNotifications()) {
+    const notificationApi = getNotificationApi();
+    if (!notificationApi) {
       setNotificationPermission('unsupported');
       return;
     }
-    const permission = await Notification.requestPermission();
+    const permission = await notificationApi.requestPermission();
     setNotificationPermission(permission);
     if (permission === 'granted') {
       setBrowserNotificationsEnabled(true);
-      localStorage.setItem(NOTIFICATION_PREF_KEY, 'true');
+      getBrowserStorage()?.setItem(NOTIFICATION_PREF_KEY, 'true');
     }
   }, []);
 
@@ -102,8 +164,28 @@ export function useRuns({ send, connected }: UseRunsOptions): UseRunsReturn {
   }, [connected, refresh]);
 
   useEffect(() => {
-    if (!supportsNotifications()) return;
-    setNotificationPermission(Notification.permission);
+    const nextAvailability = toOperatorAvailability(backgroundRunStatus);
+    if (nextAvailability) {
+      setOperatorAvailability((current) =>
+        operatorAvailabilityEquals(current, nextAvailability) ? current : nextAvailability,
+      );
+      if (!nextAvailability.enabled || !nextAvailability.operatorAvailable) {
+        setRunNotice(
+          nextAvailability.disabledReason ??
+            'Durable background runs are not available for this runtime.',
+        );
+      } else {
+        setRunNotice(null);
+      }
+      return;
+    }
+    setOperatorAvailability((current) => (current === null ? current : null));
+  }, [backgroundRunStatus]);
+
+  useEffect(() => {
+    const notificationApi = getNotificationApi();
+    if (!notificationApi) return;
+    setNotificationPermission(notificationApi.permission);
   }, []);
 
   useEffect(() => {
@@ -119,13 +201,20 @@ export function useRuns({ send, connected }: UseRunsOptions): UseRunsReturn {
       );
       return;
     }
+    const notificationApi = getNotificationApi();
+    if (!notificationApi) {
+      previousRunsRef.current = new Map(
+        runs.map((run) => [run.sessionId, { state: run.state, explanation: run.explanation }]),
+      );
+      return;
+    }
     for (const run of runs) {
       const previous = previousRunsRef.current.get(run.sessionId);
       if (!previous) continue;
       if (previous.state === run.state && previous.explanation === run.explanation) {
         continue;
       }
-      void new Notification(`Run ${run.state}: ${run.objective}`, {
+      void new notificationApi(`Run ${run.state}: ${run.objective}`, {
         body: run.explanation,
         tag: `run:${run.sessionId}`,
       });
@@ -139,9 +228,25 @@ export function useRuns({ send, connected }: UseRunsOptions): UseRunsReturn {
     if (msg.type === WS_RUNS_LIST) {
       if (msg.id) pendingRequestIdsRef.current.delete(msg.id);
       const nextRuns = (msg.payload as RunSummary[]) ?? [];
+      const nextAvailability = nextRuns[0]?.availability;
+      if (nextAvailability) {
+        setOperatorAvailability((current) =>
+          operatorAvailabilityEquals(current, nextAvailability) ? current : nextAvailability,
+        );
+      }
       setRuns(nextRuns);
       setLoading(false);
       setError(null);
+      if (nextRuns.length > 0) {
+        setRunNotice(null);
+      } else if (nextAvailability && (!nextAvailability.enabled || !nextAvailability.operatorAvailable)) {
+        setRunNotice(
+          nextAvailability.disabledReason ??
+            'Durable background runs are not available for this runtime.',
+        );
+      } else {
+        setRunNotice(null);
+      }
       setSelectedSessionId((current) => {
         if (current && nextRuns.some((run) => run.sessionId === current)) {
           return current;
@@ -154,6 +259,12 @@ export function useRuns({ send, connected }: UseRunsOptions): UseRunsReturn {
       if (msg.id) pendingRequestIdsRef.current.delete(msg.id);
       const detail = (msg.payload as RunDetail | undefined) ?? null;
       setSelectedRun(detail);
+      if (detail?.availability) {
+        const detailAvailability = detail.availability;
+        setOperatorAvailability((current) =>
+          operatorAvailabilityEquals(current, detailAvailability) ? current : detailAvailability,
+        );
+      }
       if (detail?.sessionId) {
         setSelectedSessionId(detail.sessionId);
         setRuns((current) => {
@@ -164,6 +275,7 @@ export function useRuns({ send, connected }: UseRunsOptions): UseRunsReturn {
       }
       setLoading(false);
       setError(null);
+      setRunNotice(null);
       return;
     }
     if (msg.type === 'error') {
@@ -172,6 +284,25 @@ export function useRuns({ send, connected }: UseRunsOptions): UseRunsReturn {
       }
       pendingRequestIdsRef.current.delete(msg.id);
       setLoading(false);
+      const details = (msg.payload as RunOperatorErrorPayload | undefined) ?? undefined;
+      if (details?.backgroundRunAvailability) {
+        const backgroundRunAvailability = details.backgroundRunAvailability;
+        setOperatorAvailability((current) =>
+          operatorAvailabilityEquals(current, backgroundRunAvailability)
+            ? current
+            : backgroundRunAvailability,
+        );
+      }
+      if (
+        details?.code === 'background_run_missing' ||
+        details?.code === 'background_run_unavailable'
+      ) {
+        setSelectedRun(null);
+        setError(null);
+        setRunNotice(msg.error ?? 'Run operation unavailable');
+        return;
+      }
+      setRunNotice(null);
       setError(msg.error ?? 'Run operation failed');
     }
   }, []);
@@ -192,6 +323,8 @@ export function useRuns({ send, connected }: UseRunsOptions): UseRunsReturn {
     selectedSessionId,
     loading,
     error,
+    runNotice,
+    operatorAvailability,
     browserNotificationsEnabled,
     notificationPermission,
     setSelectedSessionId,

@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import { createLogger } from "../utils/logger.js";
 import { getDefaultConfigPath, loadGatewayConfig } from "../gateway/config-watcher.js";
 import { getDefaultPidPath, isProcessAlive, readPidFile } from "../gateway/daemon.js";
@@ -63,6 +64,7 @@ export interface OperatorConsoleDeps {
     },
   ) => Promise<readonly DaemonIdentityMatch[]>;
   readonly resolveConsoleEntryPath: () => string | null;
+  readonly resolveOperatorEventsModulePath: () => string | null;
   readonly spawnProcess: (
     command: string,
     args: string[],
@@ -83,6 +85,7 @@ const DEFAULT_DEPS: OperatorConsoleDeps = {
   runStartCommand,
   findDaemonProcessesByIdentity,
   resolveConsoleEntryPath,
+  resolveOperatorEventsModulePath,
   spawnProcess: spawn,
   processExecPath: process.execPath,
   cwd: process.cwd(),
@@ -90,11 +93,41 @@ const DEFAULT_DEPS: OperatorConsoleDeps = {
   createLogger,
 };
 
+function deriveProjectWatchClientKey(launchCwd: string): string {
+  const resolvedCwd = resolve(launchCwd);
+  const normalizedCwd = existsSync(resolvedCwd)
+    ? realpathSync.native(resolvedCwd)
+    : resolvedCwd;
+  const baseName = basename(normalizedCwd)
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase() || "workspace";
+  const digest = createHash("sha256")
+    .update(normalizedCwd)
+    .digest("hex")
+    .slice(0, 12);
+  return `agenc-${baseName}-${digest}`;
+}
+
 function resolveConsoleEntryPath(): string | null {
   const candidates = [
     resolve(dirname(__filename), "..", "bin", "agenc-watch.js"),
     resolve(dirname(__filename), "..", "..", "..", "scripts", "agenc-watch.mjs"),
     resolve(process.cwd(), "scripts", "agenc-watch.mjs"),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function resolveOperatorEventsModulePath(): string | null {
+  const candidates = [
+    resolve(dirname(__filename), "..", "operator-events.mjs"),
+    resolve(process.cwd(), "runtime", "dist", "operator-events.mjs"),
+    resolve(process.cwd(), "dist", "operator-events.mjs"),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
@@ -216,18 +249,33 @@ async function launchConsoleProcess(
       "unable to locate the operator console entrypoint (expected scripts/agenc-watch.mjs)",
     );
   }
+  const operatorEventsModulePath = deps.resolveOperatorEventsModulePath();
+  if (!operatorEventsModulePath) {
+    throw new Error(
+      "unable to locate the built operator event contract (expected runtime/dist/operator-events.mjs); run `npm --prefix runtime run build`",
+    );
+  }
+
+  const launchCwd = resolve(options.cwd ?? deps.cwd);
+  const mergedEnv: NodeJS.ProcessEnv = {
+    ...deps.env,
+    ...options.env,
+    AGENC_WATCH_WS_URL: `ws://127.0.0.1:${port}`,
+    AGENC_WATCH_OPERATOR_EVENTS_MODULE: operatorEventsModulePath,
+    AGENC_WATCH_PROJECT_ROOT: launchCwd,
+  };
+  const explicitClientKey = mergedEnv.AGENC_WATCH_CLIENT_KEY?.trim();
+  if (!explicitClientKey) {
+    mergedEnv.AGENC_WATCH_CLIENT_KEY = deriveProjectWatchClientKey(launchCwd);
+  }
 
   const child = deps.spawnProcess(
     deps.processExecPath,
     [consoleEntryPath],
     {
       stdio: "inherit",
-      cwd: options.cwd ?? deps.cwd,
-      env: {
-        ...deps.env,
-        ...options.env,
-        AGENC_WATCH_WS_URL: `ws://127.0.0.1:${port}`,
-      },
+      cwd: launchCwd,
+      env: mergedEnv,
     },
   );
 

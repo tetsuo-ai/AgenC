@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import WebSocket from "../node_modules/ws/wrapper.mjs";
 import {
   buildAutonomyStages,
   evaluateAutonomyStage,
@@ -11,6 +10,10 @@ import {
   pickTrackedSession,
   pickLatestTrace,
 } from "./lib/agenc-autonomy-ladder.mjs";
+import { validateAutonomyRunnerConfig } from "./lib/agenc-autonomy-config.mjs";
+import { loadWebSocketConstructor } from "./lib/agenc-websocket.mjs";
+
+const WebSocket = await loadWebSocketConstructor();
 
 const DEFAULT_WS_URL = "ws://127.0.0.1:3100";
 const DEFAULT_TMUX_TARGET = "agenc-watch:live.0";
@@ -20,6 +23,15 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_PANE_CAPTURE_LINES = 220;
 const DEFAULT_DAEMON_CONFIG = "/home/tetsuo/.agenc/config.json";
 const DEFAULT_DAEMON_PID_PATH = "/home/tetsuo/.agenc/daemon.pid";
+
+function defaultWatchStateFile(clientKey) {
+  const sanitized = String(clientKey ?? "tmux-live-watch").replace(/[^a-zA-Z0-9._-]+/g, "_");
+  return resolve(
+    process.env.HOME ?? "/tmp",
+    ".agenc",
+    `watch-state-${sanitized}.json`,
+  );
+}
 
 function nextRunToken() {
   const date = new Date();
@@ -70,10 +82,13 @@ function execFileOutput(command, args, options = {}) {
 }
 
 class WebchatInspector {
-  constructor({ wsUrl, clientKey, requestTimeoutMs }) {
+  constructor({ wsUrl, clientKey, requestTimeoutMs, ownerToken = null }) {
     this.wsUrl = wsUrl;
     this.clientKey = clientKey;
     this.requestTimeoutMs = requestTimeoutMs;
+    this.ownerToken = typeof ownerToken === "string" && ownerToken.trim().length > 0
+      ? ownerToken.trim()
+      : null;
     this.socket = null;
     this.openPromise = null;
     this.pending = new Map();
@@ -102,6 +117,16 @@ class WebchatInspector {
         try {
           message = JSON.parse(raw);
         } catch {
+          return;
+        }
+        if (message?.type === "chat.owner") {
+          const nextOwnerToken =
+            typeof message.payload?.ownerToken === "string"
+              ? message.payload.ownerToken.trim()
+              : "";
+          if (nextOwnerToken.length > 0) {
+            this.ownerToken = nextOwnerToken;
+          }
           return;
         }
         if (!message?.id) return;
@@ -136,7 +161,16 @@ class WebchatInspector {
   async request(type, payload) {
     await this.connect();
     const id = `${type}-${++this.requestCounter}`;
-    const frame = JSON.stringify({ type, payload, id });
+    const mergedPayload =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? {
+            ...payload,
+            ...(this.ownerToken && typeof payload.ownerToken !== "string"
+              ? { ownerToken: this.ownerToken }
+              : {}),
+          }
+        : payload;
+    const frame = JSON.stringify({ type, payload: mergedPayload, id });
     return new Promise((resolveRequest, rejectRequest) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
@@ -173,7 +207,7 @@ class WebchatInspector {
   async listTraces(sessionId) {
     const response = await this.request("observability.traces", {
       sessionId,
-      limit: 10,
+      limit: 50,
     });
     return Array.isArray(response.payload) ? response.payload : [];
   }
@@ -193,7 +227,7 @@ class WebchatInspector {
 }
 
 function parseArgs(argv) {
-  const options = {
+    const options = {
     scenario: "baseline",
     wsUrl: DEFAULT_WS_URL,
     tmuxTarget: DEFAULT_TMUX_TARGET,
@@ -203,9 +237,10 @@ function parseArgs(argv) {
     paneCaptureLines: DEFAULT_PANE_CAPTURE_LINES,
     daemonConfig: DEFAULT_DAEMON_CONFIG,
     daemonPidPath: DEFAULT_DAEMON_PID_PATH,
+    watchStateFile: null,
     resetSession: true,
     runToken: nextRunToken(),
-    stages: "0-8",
+    stages: "all",
     artifactsDir: resolve(
       process.cwd(),
       ".tmp",
@@ -264,6 +299,10 @@ function parseArgs(argv) {
       options.daemonPidPath = argv[++index];
       continue;
     }
+    if (arg === "--watch-state-file" && argv[index + 1]) {
+      options.watchStateFile = argv[++index];
+      continue;
+    }
     if (arg === "--no-reset") {
       options.resetSession = false;
       continue;
@@ -277,7 +316,7 @@ function parseArgs(argv) {
           `  --tmux-target <pane>        Default: ${DEFAULT_TMUX_TARGET}`,
           `  --client-key <key>         Default: ${DEFAULT_CLIENT_KEY}`,
           `  --ws-url <url>             Default: ${DEFAULT_WS_URL}`,
-          "  --scenario <name>          baseline | server | spreadsheet | office-document | productivity",
+          "  --scenario <name>          baseline | server | spreadsheet | office-document | productivity | delegation",
           "  --stages <ids>             Example: 0-4,6,8",
           "  --run-token <token>        Reuse a stable stage token",
           "  --artifacts-dir <path>     Output directory for JSON/txt artifacts",
@@ -286,6 +325,7 @@ function parseArgs(argv) {
           "  --pane-capture-lines <n>   tmux capture depth",
           "  --daemon-config <path>     Config used for restart stage",
           "  --daemon-pid-path <path>   PID file used for restart stage",
+          "  --watch-state-file <path>  Persisted agenc-watch state for owner/session reuse",
           "  --no-reset                 Keep the current chat session instead of /new",
         ].join("\n"),
       );
@@ -296,7 +336,32 @@ function parseArgs(argv) {
   if (!options.artifactsDir.endsWith(options.runToken)) {
     options.artifactsDir = resolve(options.artifactsDir, options.runToken);
   }
+  if (!options.watchStateFile) {
+    options.watchStateFile = defaultWatchStateFile(options.clientKey);
+  }
   return options;
+}
+
+async function readWatchStateHints(watchStateFile) {
+  if (typeof watchStateFile !== "string" || watchStateFile.trim().length === 0) {
+    return { ownerToken: null, sessionId: null };
+  }
+  try {
+    const raw = await readFile(watchStateFile, "utf8");
+    const parsed = JSON.parse(raw);
+    return {
+      ownerToken:
+        typeof parsed?.ownerToken === "string" && parsed.ownerToken.trim().length > 0
+          ? parsed.ownerToken.trim()
+          : null,
+      sessionId:
+        typeof parsed?.sessionId === "string" && parsed.sessionId.trim().length > 0
+          ? parsed.sessionId.trim()
+          : null,
+    };
+  } catch {
+    return { ownerToken: null, sessionId: null };
+  }
 }
 
 async function verifyTmuxTarget(tmuxTarget) {
@@ -353,14 +418,15 @@ async function collectEvidence(inspector, options, stageStartedAt, context) {
   const paneText = await capturePane(options.tmuxTarget, options.paneCaptureLines);
   const sessions = await inspector.listSessions();
   const session = pickTrackedSession(sessions, context.sessionId);
-  const sessionId = session?.sessionId;
+  const sessionId = session?.sessionId ?? context.sessionId;
   let runDetail;
   let traceSummary;
   let traceDetail;
+  let traceSummaries = [];
   if (sessionId) {
     runDetail = await inspector.inspectRun(sessionId);
-    const traces = await inspector.listTraces(sessionId);
-    traceSummary = pickLatestTrace(traces, stageStartedAt);
+    traceSummaries = await inspector.listTraces(sessionId);
+    traceSummary = pickLatestTrace(traceSummaries, stageStartedAt);
     if (traceSummary?.traceId) {
       traceDetail = await inspector.getTrace(traceSummary.traceId);
     }
@@ -371,10 +437,13 @@ async function collectEvidence(inspector, options, stageStartedAt, context) {
     sessionId,
     session,
     runDetail,
+    traceSummaries,
     traceSummary,
     traceDetail,
     paneText,
     runText: runDetail ? JSON.stringify(runDetail, null, 2) : "",
+    traceSummariesText:
+      traceSummaries.length > 0 ? JSON.stringify(traceSummaries, null, 2) : "",
     traceText: traceDetail ? JSON.stringify(traceDetail, null, 2) : "",
     context,
   };
@@ -450,6 +519,7 @@ async function runStage(stage, inspector, options, context) {
       runState: result.evidence.runDetail?.state,
       paneText: result.evidence.paneText,
       runDetail: result.evidence.runDetail,
+      traceSummaries: result.evidence.traceSummaries,
       traceSummary: result.evidence.traceSummary,
       traceDetail: result.evidence.traceDetail,
     });
@@ -484,13 +554,16 @@ async function main() {
     options.stages,
     buildAutonomyStages(options.runToken, options.scenario),
   );
+  await validateAutonomyRunnerConfig(options.daemonConfig, stages);
   await verifyTmuxTarget(options.tmuxTarget);
   await mkdir(options.artifactsDir, { recursive: true });
+  const watchStateHints = await readWatchStateHints(options.watchStateFile);
 
   const inspector = new WebchatInspector({
     wsUrl: options.wsUrl,
     clientKey: options.clientKey,
     requestTimeoutMs: options.requestTimeoutMs,
+    ownerToken: watchStateHints.ownerToken,
   });
 
   const runArtifact = {
@@ -499,14 +572,20 @@ async function main() {
     wsUrl: options.wsUrl,
     scenario: options.scenario,
     clientKey: options.clientKey,
+    watchStateFile: options.watchStateFile,
     startedAt: Date.now(),
     stages: [],
   };
-  const context = {};
+  const context = {
+    sessionId: watchStateHints.sessionId ?? undefined,
+  };
 
   try {
     if (options.resetSession) {
       await sendTmuxInput(options.tmuxTarget, "/new");
+      context.sessionId = undefined;
+      context.runId = undefined;
+      context.traceId = undefined;
       await sleep(1_000);
     }
 
