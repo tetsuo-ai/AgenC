@@ -28,6 +28,29 @@ export interface BackgroundRunEventRecord {
   readonly data: Record<string, unknown>;
 }
 
+export type BackgroundRunOperatorAvailabilityCode =
+  | "autonomy_disabled"
+  | "background_runs_feature_disabled"
+  | "background_runs_kill_switch"
+  | "operator_unavailable";
+
+export interface BackgroundRunOperatorAvailability {
+  readonly enabled: boolean;
+  readonly operatorAvailable: boolean;
+  readonly inspectAvailable: boolean;
+  readonly controlAvailable: boolean;
+  readonly disabledCode?: BackgroundRunOperatorAvailabilityCode;
+  readonly disabledReason?: string;
+}
+
+export interface BackgroundRunOperatorErrorPayload {
+  readonly code:
+    | "background_run_unavailable"
+    | "background_run_missing";
+  readonly sessionId?: string;
+  readonly backgroundRunAvailability?: BackgroundRunOperatorAvailability;
+}
+
 export interface BackgroundRunOperatorSummary {
   readonly runId: string;
   readonly sessionId: string;
@@ -58,6 +81,7 @@ export interface BackgroundRunOperatorSummary {
   readonly preferredWorkerId?: string;
   readonly workerAffinityKey?: string;
   readonly checkpointAvailable: boolean;
+  readonly availability?: BackgroundRunOperatorAvailability;
 }
 
 export interface BackgroundRunOperatorDetail

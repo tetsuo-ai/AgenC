@@ -26,19 +26,19 @@ vi.mock("../utils/logger.js", () => {
 
 // Mock gateway.js to avoid @coral-xyz/anchor dependency chain
 vi.mock("./gateway.js", () => {
-  const MockGateway = vi.fn().mockImplementation(() => ({
-    start: vi.fn(async () => {}),
-    stop: vi.fn(async () => {}),
-    state: "running",
-    getStatus: vi.fn(() => ({
+  const MockGateway = vi.fn(class MockGateway {
+    start = vi.fn(async () => {});
+    stop = vi.fn(async () => {});
+    state = "running";
+    getStatus = vi.fn(() => ({
       state: "running",
       uptimeMs: 1000,
       channels: [],
       activeSessions: 0,
       controlPlanePort: 9000,
-    })),
-    reloadConfig: vi.fn(() => ({ safe: [], unsafe: [] })),
-  }));
+    }));
+    reloadConfig = vi.fn(() => ({ safe: [], unsafe: [] }));
+  });
   return { Gateway: MockGateway };
 });
 
@@ -53,17 +53,17 @@ vi.mock("./config-watcher.js", () => ({
 }));
 
 vi.mock("../desktop/manager.js", () => ({
-  DesktopSandboxManager: vi.fn().mockImplementation(() => ({
-    start: mockDesktopManagerStart,
-    stop: mockDesktopManagerStop,
-  })),
+  DesktopSandboxManager: vi.fn(class DesktopSandboxManager {
+    start = mockDesktopManagerStart;
+    stop = mockDesktopManagerStop;
+  }),
 }));
 
 vi.mock("../desktop/health.js", () => ({
-  DesktopSandboxWatchdog: vi.fn().mockImplementation(() => ({
-    start: mockWatchdogStart,
-    stop: mockWatchdogStop,
-  })),
+  DesktopSandboxWatchdog: vi.fn(class DesktopSandboxWatchdog {
+    start = mockWatchdogStart;
+    stop = mockWatchdogStop;
+  }),
 }));
 
 import {
@@ -111,6 +111,7 @@ import type { ToolCallRecord } from "../llm/chat-executor.js";
 import type { ChatExecutorResult } from "../llm/chat-executor.js";
 import { didToolCallFail } from "../llm/chat-executor-tool-utils.js";
 import { resolveToolContractExecutionBlock } from "../llm/chat-executor-contract-guidance.js";
+import { SESSION_ALLOWED_ROOTS_ARG } from "../tools/system/filesystem.js";
 import {
   SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY,
   SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY,
@@ -2741,6 +2742,87 @@ describe("DaemonManager", () => {
     });
   });
 
+  it("uses the session workspace root for webchat tool calls when workspace.hostPath is not pinned", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const sessionWorkspaceRoot = await mkdtemp(
+      join(tmpdir(), "agenc-daemon-session-root-"),
+    );
+    (dm as any)._hostWorkspacePath = "/tmp/daemon-root";
+    (dm as any)._hostWorkspacePathPinned = false;
+    (dm as any)._llmTools = [];
+    const baseToolHandler = vi.fn(async () => JSON.stringify({ ok: true }));
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+      loadSessionWorkspaceRoot: vi.fn(async () => sessionWorkspaceRoot),
+    } as any;
+
+    try {
+      const handler = (dm as any).createWebChatSessionToolHandler({
+        sessionId: "session-project-root",
+        webChat,
+        hooks,
+        baseToolHandler,
+        traceLabel: "webchat",
+        traceConfig: { enabled: false },
+        traceId: "trace-project-root",
+      });
+
+      await handler("system.writeFile", {
+        path: "src/app.ts",
+        content: "export const ok = true;\n",
+      });
+    } finally {
+      await rm(sessionWorkspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseToolHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: `${sessionWorkspaceRoot}/src/app.ts`,
+      content: "export const ok = true;\n",
+      [SESSION_ALLOWED_ROOTS_ARG]: [sessionWorkspaceRoot],
+    });
+  });
+
+  it("keeps the configured host workspace root authoritative when workspace.hostPath is pinned", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any)._hostWorkspacePath = "/tmp/pinned-workspace";
+    (dm as any)._hostWorkspacePathPinned = true;
+    (dm as any)._llmTools = [];
+    const baseToolHandler = vi.fn(async () => JSON.stringify({ ok: true }));
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+      loadSessionWorkspaceRoot: vi.fn(async () => "/tmp/other-project"),
+    } as any;
+
+    const handler = (dm as any).createWebChatSessionToolHandler({
+      sessionId: "session-pinned-root",
+      webChat,
+      hooks,
+      baseToolHandler,
+      traceLabel: "webchat",
+      traceConfig: { enabled: false },
+      traceId: "trace-pinned-root",
+    });
+
+    await handler("system.writeFile", {
+      path: "src/app.ts",
+      content: "export const pinned = true;\n",
+    });
+
+    expect(baseToolHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: "/tmp/pinned-workspace/src/app.ts",
+      content: "export const pinned = true;\n",
+    });
+    expect(webChat.loadSessionWorkspaceRoot).not.toHaveBeenCalled();
+  });
+
   it("adds provider-native web_search to research routing but not interactive browser routing", () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
     (dm as any)._primaryLlmConfig = {
@@ -4078,6 +4160,120 @@ describe("DaemonManager", () => {
         state: "completed",
         currentPhase: "completed",
         unsafeToContinue: false,
+      },
+    });
+  });
+
+  it("reports disabled durable-run capability in gateway status snapshots", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+
+    (dm as any).gateway = {
+      config: {
+        autonomy: {
+          enabled: true,
+          featureFlags: { backgroundRuns: false },
+        },
+      },
+    };
+
+    const status = (dm as any).buildBackgroundRunStatusSummary();
+
+    expect(status).toMatchObject({
+      enabled: false,
+      operatorAvailable: false,
+      inspectAvailable: false,
+      controlAvailable: false,
+      disabledCode: "background_runs_feature_disabled",
+    });
+    expect(status.disabledReason).toContain("disabled");
+  });
+
+  it("annotates inspected runs with durable-run availability", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+
+    (dm as any).gateway = {
+      config: {
+        autonomy: {
+          enabled: true,
+          featureFlags: { backgroundRuns: true },
+        },
+      },
+    };
+    (dm as any)._backgroundRunSupervisor = {
+      getOperatorDetail: vi.fn().mockResolvedValue({
+        runId: "run-session-owned",
+        sessionId: "session-owned",
+        objective: "Watch the managed process.",
+        state: "working",
+        currentPhase: "active",
+        explanation: "Run is active.",
+        unsafeToContinue: false,
+        createdAt: 1,
+        updatedAt: 2,
+        cycleCount: 1,
+        contractKind: "finite",
+        contractDomain: "generic",
+        requiresUserStop: false,
+        pendingSignals: 0,
+        watchCount: 1,
+        fenceToken: 1,
+        approvalRequired: false,
+        approvalState: "none",
+        checkpointAvailable: true,
+        contract: {
+          domain: "generic",
+          kind: "finite",
+          successCriteria: ["Observe completion."],
+          completionCriteria: ["Verify terminal evidence."],
+          blockedCriteria: ["Missing evidence."],
+          nextCheckMs: 4_000,
+          heartbeatMs: 12_000,
+          requiresUserStop: false,
+          managedProcessPolicy: { mode: "none" },
+        },
+        approval: { status: "none", summary: undefined },
+        budget: {
+          runtimeStartedAt: 1,
+          lastActivityAt: 2,
+          lastProgressAt: 2,
+          totalTokens: 4,
+          lastCycleTokens: 2,
+          managedProcessCount: 1,
+          maxRuntimeMs: 60_000,
+          maxCycles: 32,
+          maxIdleMs: 10_000,
+          nextCheckIntervalMs: 4_000,
+          heartbeatIntervalMs: 12_000,
+          firstAcknowledgedAt: 1,
+          firstVerifiedUpdateAt: 2,
+          stopRequestedAt: undefined,
+        },
+        compaction: {
+          lastCompactedAt: undefined,
+          lastCompactedCycle: 0,
+          refreshCount: 0,
+          lastHistoryLength: 4,
+          lastMilestoneAt: undefined,
+          lastCompactionReason: undefined,
+          repairCount: 0,
+          lastProviderAnchorAt: undefined,
+        },
+        artifacts: [],
+        observedTargets: [],
+        watchRegistrations: [],
+        recentEvents: [],
+      }),
+    };
+
+    const detail = await (dm as any).inspectOwnedBackgroundRun("session-owned");
+
+    expect(detail).toMatchObject({
+      sessionId: "session-owned",
+      availability: {
+        enabled: true,
+        operatorAvailable: true,
+        inspectAvailable: true,
+        controlAvailable: true,
       },
     });
   });

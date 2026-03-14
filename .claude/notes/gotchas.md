@@ -150,3 +150,128 @@
 - `cargo-build-sbf --tools-version v1.52` surfaced 4 KB frame overflows that the older local toolchain was not blocking on.
 - The minimal fix in this repo was to `Box<Account<...>>` the large accounts in heavy validation structs instead of pretending the old `.so` was still acceptable.
 - If local deploys suddenly fail on `try_accounts` frame size, inspect the failing `#[derive(Accounts)]` struct first.
+
+## 2026-03-13 - Hooks that mirror object props into state must short-circuit equal snapshots
+
+- `web/src/hooks/useRuns.ts` hit a render loop because a `useEffect([backgroundRunStatus])` mirrored a freshly allocated capability object into local state on every render.
+- This is easy to miss in tests because `renderHook(() => useHook({ someObject: makeObject() }))` recreates the prop object every pass even when the values are identical.
+- Safe pattern:
+  - avoid storing pure derived objects in state when possible
+  - if you do mirror them, compare the meaningful fields and return the existing state when nothing changed
+  - in hook tests, prefer stable fixtures or `renderHook` props over inline `makeObject()` calls for object inputs
+
+## 2026-03-13 - Web tests on Node 25 should not touch bare storage globals
+
+- Node 25 exposes experimental web-storage globals, and touching the wrong getter during Vitest/jsdom setup can emit `--localstorage-file was provided without a valid path`.
+- In this repo, the safe pattern is:
+  - install a deterministic in-memory shim in `web/src/test-setup.ts`
+  - read/write browser storage via `window.localStorage` or a helper that resolves from `window`
+  - avoid probing bare `localStorage` during setup-file evaluation
+
+## 2026-03-13 - File-link display text and hyperlink targets must be normalized separately
+
+- In the watch TUI, visible file references should preserve the operator-facing suffix style they already carry, such as `path/to/file.ts:18`.
+- Hyperlink targets need stricter normalization, for example `file:///...#L18`, so terminals can open the right file location reliably.
+- If the same normalization step is reused for both display text and href generation, the UI regresses from familiar `:line` suffixes to raw `#Lline` fragments and breaks existing expectations.
+
+## 2026-03-13 - Watch transcript cards must not reuse the first preview line as both headline and body
+
+- In `agenc-watch`, agent and user cards derive their visible headline from the first preview line when available.
+- If that line is not consumed from the body preview, the transcript shows a duplicated card with the headline repeated immediately below it behind a body guide, which reads like a rendering bug rather than useful emphasis.
+- Generic meta rows like `Agent Reply` and `Prompt` also add visual noise when the headline already captures the useful content, so suppress them for the default card shapes.
+
+## 2026-03-13 - Stream completion and final message reconciliation are two separate watch states
+
+- The websocket `chat.stream` `done` signal means the chunk stream ended, not that the transcript card is safe to finalize.
+- If the watch surface flips the live agent event to `complete` before the subsequent `chat.message` reconciles the final body, the final message path cannot find the live card and creates a duplicate agent event.
+- Keep a pending-final state until `chat.message` commits the final body into the existing live card.
+
+## 2026-03-13 - Watch `@file` tags should stay literal and watch-local until there is a real multi-kind mention contract
+
+- For the operator TUI, `@runtime/src/foo.ts` is currently a UI convenience, not a runtime protocol object.
+- Keep the stored prompt/history/export text literal, drive autocomplete from a bounded repo-local file index, and reuse the existing file-link/terminal renderer for display styling.
+- Do not introduce hidden mention IDs, generalized plugin/app tags, or cross-workspace lookup just to support file tags in the watch surface.
+
+## 2026-03-14 - Inline watch file links need render metadata before wrapping
+
+- If inline `@file` tags or plain file references are compacted to display text like `@runtime/…/types.ts:12`, render-time regex alone no longer has enough information to build a reliable OSC 8 href.
+- The safe pattern is:
+  - attach inline file-reference metadata during normalization/compaction
+  - preserve that metadata through wrapping
+  - inject styling and hyperlinks from the preserved render object in `renderDisplayLine()`
+- Do not try to reconstruct hyperlink targets from already-compacted display text after wrapping.
+
+## 2026-03-14 - Watch inline file rendering must keep one canonical segment model
+
+- The watch TUI now has two distinct file-reference sources:
+  - structured file-link metadata on events
+  - inline file-reference segments derived from literal transcript text
+- The render layer must not keep both `inlineFileReferences` and `inlineSegments` alive at the same time for text-bearing lines.
+- Keep `file-link` entries authoritative when explicit event metadata exists, and use `inlineSegments` as the only inline render model for compaction, wrapping, styling, and OSC 8 hyperlink emission.
+
+## 2026-03-14 - Wrapped watch lines must not rebuild cwd-sensitive inline file links
+
+- `wrapRichDisplayLines()` may receive already-normalized lines with inline file-reference metadata and hrefs built from a specific `cwd`.
+- If wrapping re-runs file-link normalization on those lines without the original options, relative or compacted quoted paths can be rebuilt against `process.cwd()` and silently point at the wrong file.
+- Preserve existing `inlineSegments` and only normalize lines that have not already gone through the file-link compaction path.
+
+## 2026-03-14 - Watch controller extractions should own timers and event-family logic, not leak it back into the entrypoint
+
+- For the operator console, pulling code into a helper file is not enough if `agenc-watch.mjs` still manually owns the same reconnect timers, bootstrap retries, or event-family switch logic.
+- The safer pattern in this repo is:
+  - keep `agenc-watch.mjs` as the composition root
+  - move command/input/transport/planner/subagent behavior behind explicit controller factories
+  - pass state and callback dependencies into those controllers instead of re-importing globals from the entrypoint
+- This keeps the watch surface aligned with `REFACTOR-MASTER-PROGRAM.md` and makes later package/repo extraction plausible instead of cosmetic.
+
+## 2026-03-14 - A refactor is not complete while the old hotspot still lives in the entrypoint
+
+- For the watch TUI, landing a new controller module without deleting the old inline frame/layout logic left two sources of truth and made the refactor look finished when it was only half wired.
+- The safe close-out rule is:
+  - instantiate the extracted controller in the real entrypoint
+  - switch the entrypoint to thin delegation wrappers
+  - physically remove the displaced inline implementation
+- add at least one direct seam test so the new boundary is proved independently of the giant top-level suite
+- If the old hotspot is still present in the entrypoint, the refactor is still in progress.
+
+## 2026-03-14 - Copying a large entrypoint into a new module can silently revive stale helper dependencies
+
+- When `scripts/agenc-watch.mjs` was copied into `scripts/lib/agenc-watch-app.mjs`, the new module still referenced helper names that had already been extracted elsewhere (`activePlanEntries`, `activeAgentEntries`, and the old transcript mutators).
+- A boundary move is not complete just because the file path changes; copied modules must be audited for stale helper references before the new seam is considered real.
+- The safe pattern is:
+  - convert the copied file into the new lifecycle/module shell
+  - replace old inline helpers with the new seam objects immediately (`eventStore`, frame controller helpers, wrapper lifecycle)
+  - run direct seam tests before trusting the full watch matrix
+
+## 2026-03-14 - Frame-level watch regressions show up first in header row count and snapshot drift
+
+- The operator-console header is now dense enough that adding a chip row or active-status row changes `headerRows`, which changes body height and every downstream layout assertion.
+- When changing watch chrome, update the pure frame snapshot expectations and any layout tests in the same pass instead of treating those deltas as incidental fallout.
+- The safe pattern is:
+  - keep one shared visible-frame builder for render and snapshot tests
+  - freeze time/animation in the frame harness
+- let exact snapshot failures drive intentional fixture updates instead of weakening the assertions
+
+## 2026-03-14 - Live replay fixtures must stay at the daemon envelope layer
+
+- The watch replay harness can look end-to-end while still missing the real production seam if tests inject already-normalized `surfaceEvent` objects.
+- For operator-console replay coverage, the minimum acceptable input is the raw websocket envelope shape:
+  - direct control-plane messages like `status.update`, `chat.session`, and `chat.stream`
+  - wrapped `events.event` payloads with `{ eventType, data, timestamp }`
+- The harness should load the real operator-event helpers by default so replay tests fail if normalization drifts or the runtime artifact is missing.
+
+## 2026-03-14 - Diff navigation is safest on control characters, not printable keys
+
+- The watch composer stays active while detail is open, so printable diff-navigation shortcuts would steal normal typing when an operator wants to keep composing with detail visible.
+- `ctrl+p` / `ctrl+n` work better for hunk navigation because they do not collide with ordinary prompt text and can be gated cleanly on diff-detail mode.
+- Keep explicit non-regression tests proving the shortcuts are ignored outside diff detail mode.
+
+## 2026-03-14 - Watch live replay harnesses must inject the same timer functions the app uses
+
+- The first replay harness pass looked wired correctly but still failed to submit prompt input because `createOperatorInputBatcher(...)` was quietly using global timers instead of the fake replay clock.
+- For watch-app replay, it is not enough to fake websocket and stdout. Every queued path that affects lifecycle or input dispatch must share the same injected timer source:
+  - app startup timers
+  - reconnect/bootstrap timers
+  - frame render timers
+  - operator input batching timers
+- If one of those paths keeps real timers, replay checkpoints can look deterministic while missing actual queued work.

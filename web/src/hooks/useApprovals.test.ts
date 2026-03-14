@@ -10,7 +10,7 @@ type UseApprovalsHook = ReturnType<typeof useApprovals> & {
 describe('useApprovals', () => {
   it('adds incoming approval requests when not auto-approving', () => {
     const send = vi.fn();
-    localStorage.setItem('agenc-auto-approve', 'false');
+    window.localStorage.setItem('agenc-auto-approve', 'false');
 
     const { result } = renderHook(() => useApprovals({ send }));
 
@@ -31,7 +31,7 @@ describe('useApprovals', () => {
 
   it('auto-approves when enabled and does not keep request in pending', () => {
     const send = vi.fn();
-    localStorage.setItem('agenc-auto-approve', 'true');
+    window.localStorage.setItem('agenc-auto-approve', 'true');
 
     const { result } = renderHook(() => useApprovals({ send }));
 

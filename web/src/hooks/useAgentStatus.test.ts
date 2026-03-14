@@ -30,6 +30,10 @@ describe('useAgentStatus', () => {
           controlPlanePort: 4000,
           agentName: 'alpha',
           backgroundRuns: {
+            enabled: true,
+            operatorAvailable: true,
+            inspectAvailable: true,
+            controlAvailable: true,
             multiAgentEnabled: true,
             activeTotal: 1,
             queuedSignalsTotal: 0,

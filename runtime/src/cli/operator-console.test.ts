@@ -30,6 +30,9 @@ function createDeps(
     resolveConsoleEntryPath: vi
       .fn()
       .mockReturnValue("/repo/scripts/agenc-watch.mjs"),
+    resolveOperatorEventsModulePath: vi
+      .fn()
+      .mockReturnValue("/repo/runtime/dist/operator-events.mjs"),
     spawnProcess: vi.fn(),
     processExecPath: process.execPath,
     cwd: "/repo",
@@ -95,6 +98,12 @@ describe("operator console launcher", () => {
         cwd: "/repo",
         env: expect.objectContaining({
           AGENC_WATCH_WS_URL: "ws://127.0.0.1:3200",
+          AGENC_WATCH_OPERATOR_EVENTS_MODULE:
+            "/repo/runtime/dist/operator-events.mjs",
+          AGENC_WATCH_PROJECT_ROOT: "/repo",
+          AGENC_WATCH_CLIENT_KEY: expect.stringMatching(
+            /^agenc-repo-[a-f0-9]{12}$/,
+          ),
         }),
       }),
     );
@@ -129,6 +138,47 @@ describe("operator console launcher", () => {
       expect.objectContaining({
         env: expect.objectContaining({
           AGENC_WATCH_WS_URL: "ws://127.0.0.1:4100",
+          AGENC_WATCH_OPERATOR_EVENTS_MODULE:
+            "/repo/runtime/dist/operator-events.mjs",
+          AGENC_WATCH_PROJECT_ROOT: "/repo",
+          AGENC_WATCH_CLIENT_KEY: expect.stringMatching(
+            /^agenc-repo-[a-f0-9]{12}$/,
+          ),
+        }),
+      }),
+    );
+  });
+
+  it("preserves an explicitly configured watch client key", async () => {
+    const child = new FakeChildProcess();
+    const spawnProcess = vi.fn().mockImplementation(() => {
+      queueMicrotask(() => child.exit(0));
+      return child;
+    });
+    const deps = createDeps({
+      readPidFile: vi.fn().mockResolvedValue({
+        pid: 7654,
+        port: 4100,
+        configPath: "/tmp/agenc.json",
+      }),
+      isProcessAlive: vi.fn().mockReturnValue(true),
+      spawnProcess,
+      env: {
+        PATH: process.env.PATH ?? "",
+        AGENC_WATCH_CLIENT_KEY: "manual-watch-key",
+      },
+    });
+
+    const code = await runOperatorConsole({}, deps);
+
+    expect(code).toBe(0);
+    expect(spawnProcess).toHaveBeenCalledWith(
+      process.execPath,
+      ["/repo/scripts/agenc-watch.mjs"],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          AGENC_WATCH_CLIENT_KEY: "manual-watch-key",
+          AGENC_WATCH_PROJECT_ROOT: "/repo",
         }),
       }),
     );
@@ -236,7 +286,6 @@ describe("operator console launcher", () => {
       "daemon already running with config /tmp/other.json; stop it or use the matching --config",
     );
   });
-
   it("fails when the operator console entrypoint cannot be located", async () => {
     const readPidFile = vi.fn().mockResolvedValue({
       pid: 7654,
@@ -251,6 +300,23 @@ describe("operator console launcher", () => {
 
     await expect(runOperatorConsole({}, deps)).rejects.toThrow(
       "unable to locate the operator console entrypoint",
+    );
+  });
+
+  it("fails when the built operator event contract cannot be located", async () => {
+    const readPidFile = vi.fn().mockResolvedValue({
+      pid: 7654,
+      port: 3100,
+      configPath: "/tmp/agenc.json",
+    });
+    const deps = createDeps({
+      readPidFile,
+      isProcessAlive: vi.fn().mockReturnValue(true),
+      resolveOperatorEventsModulePath: vi.fn().mockReturnValue(null),
+    });
+
+    await expect(runOperatorConsole({}, deps)).rejects.toThrow(
+      "unable to locate the built operator event contract",
     );
   });
 });

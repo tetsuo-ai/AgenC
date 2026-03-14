@@ -10,7 +10,7 @@ describe('useTheme', () => {
   });
 
   it('toggle is a no-op and theme stays dark', () => {
-    localStorage.removeItem('agenc-theme');
+    window.localStorage.removeItem('agenc-theme');
 
     const { result } = renderHook(() => useTheme());
 

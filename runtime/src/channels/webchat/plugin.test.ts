@@ -5,6 +5,9 @@
  * handler dispatch, error handling, and chat history/resume.
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { WebChatChannel } from "./plugin.js";
 import type { WebChatDeps } from "./types.js";
@@ -30,6 +33,10 @@ function createDeps(overrides?: Partial<WebChatDeps>): WebChatDeps {
         activeSessions: 2,
         controlPlanePort: 9100,
         backgroundRuns: {
+          enabled: true,
+          operatorAvailable: true,
+          inspectAvailable: true,
+          controlAvailable: true,
           multiAgentEnabled: true,
           activeTotal: 1,
           queuedSignalsTotal: 2,
@@ -141,6 +148,10 @@ function createDesktopManager(
   } as unknown as DesktopManager;
 }
 
+function createWorkspaceRoot(prefix: string): string {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
+
 async function startDesktopChannel(
   desktopManager: DesktopManager,
   onMessage?: ChannelContext["onMessage"],
@@ -186,6 +197,12 @@ function makeRunSummary(sessionId = "session-owned") {
     approvalRequired: false,
     approvalState: "none",
     checkpointAvailable: true,
+    availability: {
+      enabled: true,
+      operatorAvailable: true,
+      inspectAvailable: true,
+      controlAvailable: true,
+    },
     preferredWorkerId: "worker-a",
     workerAffinityKey: sessionId,
   };
@@ -917,13 +934,13 @@ describe("WebChatChannel", () => {
         msg("chat.cancel", undefined, "cancel-bg"),
         send,
       );
-      await Promise.resolve();
-
-      expect(send).toHaveBeenCalledWith({
-        type: "chat.cancelled",
-        payload: { cancelled: true },
-        id: "cancel-bg",
-      });
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith({
+          type: "chat.cancelled",
+          payload: { cancelled: true },
+          id: "cancel-bg",
+        }),
+      );
     });
   });
 
@@ -1274,6 +1291,165 @@ describe("WebChatChannel", () => {
           sender: "agent",
         }),
       ]);
+    });
+
+    it("persists workspace roots and keeps session affinity when later requests arrive from another project", async () => {
+      const workspaceRootA = createWorkspaceRoot("agenc-webchat-root-a-");
+      const workspaceRootB = createWorkspaceRoot("agenc-webchat-root-b-");
+      const memoryBackend = new InMemoryBackend();
+      const store = new WebChatSessionStore({ memoryBackend });
+
+      try {
+        const send1 = vi.fn<(response: ControlResponse) => void>();
+        deps = createDeps({ memoryBackend });
+        context = createContext();
+        channel = new WebChatChannel(deps);
+        await channel.initialize(context);
+        await channel.start();
+
+        channel.handleMessage(
+          "client_1",
+          "chat.message",
+          msg("chat.message", {
+            content: "Hello",
+            clientKey: "browser-1",
+            workspaceRoot: workspaceRootA,
+          }),
+          send1,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const ownerToken = requireOwnerToken(send1);
+        const sessionId = vi.mocked(context.onMessage).mock.calls[0][0].sessionId;
+        expect(findResponse(send1, "chat.session")?.payload).toEqual(
+          expect.objectContaining({
+            sessionId,
+            workspaceRoot: workspaceRootA,
+          }),
+        );
+        await vi.waitFor(async () => {
+          expect(await store.loadSession(sessionId)).toMatchObject({
+            metadata: {
+              workspaceRoot: workspaceRootA,
+            },
+          });
+        });
+
+        await channel.stop();
+
+        const context2 = createContext();
+        const channel2 = new WebChatChannel(createDeps({ memoryBackend }));
+        await channel2.initialize(context2);
+        await channel2.start();
+        const send2 = vi.fn<(response: ControlResponse) => void>();
+
+        channel2.handleMessage(
+          "client_2",
+          "chat.sessions",
+          msg("chat.sessions", { ownerToken }, "req-sessions"),
+          send2,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(findResponse(send2, "chat.sessions", "req-sessions")?.payload).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              sessionId,
+              workspaceRoot: workspaceRootA,
+            }),
+          ]),
+        );
+
+        channel2.handleMessage(
+          "client_2",
+          "chat.resume",
+          msg(
+            "chat.resume",
+            { sessionId, ownerToken, workspaceRoot: workspaceRootB },
+            "req-resume",
+          ),
+          send2,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(findResponse(send2, "chat.resumed", "req-resume")?.payload).toEqual(
+          expect.objectContaining({
+            sessionId,
+            workspaceRoot: workspaceRootA,
+          }),
+        );
+
+        channel2.handleMessage(
+          "client_2",
+          "chat.message",
+          msg("chat.message", {
+            content: "Follow up",
+            ownerToken,
+            workspaceRoot: workspaceRootB,
+          }),
+          send2,
+        );
+        await vi.waitFor(async () => {
+          expect(await store.loadSession(sessionId)).toMatchObject({
+            metadata: {
+              workspaceRoot: workspaceRootA,
+            },
+          });
+        });
+      } finally {
+        rmSync(workspaceRootA, { recursive: true, force: true });
+        rmSync(workspaceRootB, { recursive: true, force: true });
+      }
+    });
+
+    it("backfills root-less durable sessions with the first valid resumed workspace root", async () => {
+      const workspaceRoot = createWorkspaceRoot("agenc-webchat-root-backfill-");
+      const memoryBackend = new InMemoryBackend();
+      const store = new WebChatSessionStore({ memoryBackend });
+
+      try {
+        const issued = await store.issueOwnerCredential();
+        await store.ensureSession({
+          sessionId: "session-backfill",
+          ownerKey: issued.credential.ownerKey,
+        });
+
+        const resumedChannel = new WebChatChannel(createDeps({ memoryBackend }));
+        const resumedContext = createContext();
+        await resumedChannel.initialize(resumedContext);
+        await resumedChannel.start();
+        const send = vi.fn<(response: ControlResponse) => void>();
+
+        resumedChannel.handleMessage(
+          "client_2",
+          "chat.resume",
+          msg(
+            "chat.resume",
+            {
+              sessionId: "session-backfill",
+              ownerToken: issued.ownerToken,
+              workspaceRoot,
+            },
+            "req-resume",
+          ),
+          send,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(findResponse(send, "chat.resumed", "req-resume")?.payload).toEqual(
+          expect.objectContaining({
+            sessionId: "session-backfill",
+            workspaceRoot,
+          }),
+        );
+        await vi.waitFor(async () => {
+          expect(await store.loadSession("session-backfill")).toMatchObject({
+            metadata: {
+              workspaceRoot,
+            },
+          });
+        });
+      } finally {
+        rmSync(workspaceRoot, { recursive: true, force: true });
+      }
     });
   });
 
@@ -1668,6 +1844,62 @@ describe("WebChatChannel", () => {
           error: "Missing or unauthorized run sessionId",
         }),
       );
+    });
+
+    it("returns structured durable-run availability on inspect misses", async () => {
+      const inspectBackgroundRun = vi.fn(async () => undefined);
+      deps = createDeps({
+        inspectBackgroundRun,
+        getBackgroundRunAvailability: () => ({
+          enabled: false,
+          operatorAvailable: false,
+          inspectAvailable: false,
+          controlAvailable: false,
+          disabledCode: "background_runs_feature_disabled",
+          disabledReason:
+            "Durable background runs are disabled in autonomy feature flags.",
+        }),
+      });
+      context = createContext();
+      channel = new WebChatChannel(deps);
+      await channel.initialize(context);
+      await channel.start();
+
+      const send = vi.fn<(response: ControlResponse) => void>();
+      const ownedSessionId = openChatSession(
+        channel,
+        context,
+        "client_1",
+        send,
+        "owned session",
+      );
+
+      channel.handleMessage(
+        "client_1",
+        "run.inspect",
+        msg("run.inspect", { sessionId: ownedSessionId }, "req-run-inspect"),
+        send,
+      );
+
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "error",
+            id: "req-run-inspect",
+            error:
+              "Durable background runs are disabled in autonomy feature flags.",
+            payload: expect.objectContaining({
+              code: "background_run_unavailable",
+              sessionId: ownedSessionId,
+              backgroundRunAvailability: expect.objectContaining({
+                enabled: false,
+                operatorAvailable: false,
+              }),
+            }),
+          }),
+        ),
+      );
+      expect(inspectBackgroundRun).not.toHaveBeenCalled();
     });
 
     it("should handle events.subscribe", () => {
@@ -2220,8 +2452,10 @@ describe("WebChatChannel", () => {
           payload: expect.objectContaining({ sessionId: boundSessionId }),
         }),
       );
-      expect(send).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "desktop.created" }),
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "desktop.created" }),
+        ),
       );
     });
 
@@ -2301,8 +2535,10 @@ describe("WebChatChannel", () => {
         maxMemory: undefined,
         maxCpu: undefined,
       });
-      expect(send).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "desktop.created" }),
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "desktop.created" }),
+        ),
       );
     });
 

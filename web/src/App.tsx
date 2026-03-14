@@ -125,7 +125,11 @@ export default function App() {
   const activityFeed = useActivityFeed({ send, connected });
   const agentsData = useAgents({ send, connected }) as WithHandler<ReturnType<typeof useAgents>>;
   const desktop = useDesktop({ send, connected });
-  const runs = useRuns({ send, connected }) as WithHandler<ReturnType<typeof useRuns>>;
+  const runs = useRuns({
+    send,
+    connected,
+    backgroundRunStatus: agentStatus.status?.backgroundRuns ?? null,
+  }) as WithHandler<ReturnType<typeof useRuns>>;
   const observability = useObservability({ send, connected }) as WithHandler<
     ReturnType<typeof useObservability>
   >;
@@ -290,6 +294,8 @@ export default function App() {
               selectedSessionId={runs.selectedSessionId}
               loading={runs.loading}
               error={runs.error}
+              runNotice={runs.runNotice}
+              operatorAvailability={runs.operatorAvailability}
               browserNotificationsEnabled={runs.browserNotificationsEnabled}
               notificationPermission={runs.notificationPermission}
               onSelectRun={runs.setSelectedSessionId}

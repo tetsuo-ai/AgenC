@@ -3,6 +3,16 @@ import type { ApprovalRequest, WSMessage } from '../types';
 
 const AUTO_APPROVE_KEY = 'agenc-auto-approve';
 
+function getBrowserStorage(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage ?? null;
+  } catch (error) {
+    logStorageWarning('failed to access browser storage', error);
+    return null;
+  }
+}
+
 function logStorageWarning(context: string, error: unknown): void {
   const isDev = (import.meta as { env?: Record<string, unknown> }).env?.DEV === true;
   if (!isDev) return;
@@ -25,7 +35,7 @@ export function useApprovals({ send }: UseApprovalsOptions): UseApprovalsReturn 
   const [pending, setPending] = useState<ApprovalRequest[]>([]);
   const [autoApprove, setAutoApproveState] = useState(() => {
     try {
-      return localStorage.getItem(AUTO_APPROVE_KEY) === 'true';
+      return getBrowserStorage()?.getItem(AUTO_APPROVE_KEY) === 'true';
     } catch (error) {
       logStorageWarning('failed to read auto-approve setting', error);
       return false;
@@ -38,7 +48,7 @@ export function useApprovals({ send }: UseApprovalsOptions): UseApprovalsReturn 
     setAutoApproveState(v);
     autoApproveRef.current = v;
     try {
-      localStorage.setItem(AUTO_APPROVE_KEY, String(v));
+      getBrowserStorage()?.setItem(AUTO_APPROVE_KEY, String(v));
     } catch (error) {
       logStorageWarning('failed to persist auto-approve setting', error);
     }

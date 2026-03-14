@@ -8,6 +8,7 @@
  */
 
 import type { GatewayAuthConfig } from "./remote-types.js";
+import type { BackgroundRunOperatorAvailabilityCode } from "./background-run-operator.js";
 import type { DesktopSandboxConfig } from "../desktop/types.js";
 import type { SocialPeerDirectoryEntry } from "../social/types.js";
 
@@ -679,6 +680,12 @@ export interface GatewayBackgroundRunMetrics {
 }
 
 export interface GatewayBackgroundRunStatus {
+  readonly enabled: boolean;
+  readonly operatorAvailable: boolean;
+  readonly inspectAvailable: boolean;
+  readonly controlAvailable: boolean;
+  readonly disabledCode?: BackgroundRunOperatorAvailabilityCode;
+  readonly disabledReason?: string;
   readonly multiAgentEnabled: boolean;
   readonly activeTotal: number;
   readonly queuedSignalsTotal: number;

@@ -102,6 +102,13 @@ export function AgentStatusView({ status, onRefresh }: AgentStatusViewProps) {
   const verifierTone = backgroundRuns
     ? rateTone(backgroundRuns.metrics.verifierAccuracyRate, { success: 0.95, warn: 0.85 })
     : 'default';
+  const backgroundRunsTone: MetricTone = !backgroundRuns
+    ? 'default'
+    : !backgroundRuns.enabled
+      ? 'warn'
+      : backgroundRuns.operatorAvailable
+        ? 'success'
+        : 'danger';
 
   return (
     <div className="flex flex-col h-full bg-bbs-black text-bbs-lightgray font-mono animate-chat-enter">
@@ -247,15 +254,45 @@ export function AgentStatusView({ status, onRefresh }: AgentStatusViewProps) {
             <section className="space-y-4 animate-panel-enter">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-[10px] uppercase tracking-[0.18em] text-bbs-gray">Background Runs</div>
-                <div className={`text-xs font-bold ${backgroundRuns.multiAgentEnabled ? 'text-bbs-green' : 'text-bbs-gray'}`}>
-                  {backgroundRuns.multiAgentEnabled ? '[MULTI-AGENT ON]' : '[MULTI-AGENT OFF]'}
+                <div className={`text-xs font-bold ${
+                  !backgroundRuns.enabled
+                    ? 'text-bbs-yellow'
+                    : backgroundRuns.operatorAvailable
+                      ? 'text-bbs-green'
+                      : 'text-bbs-red'
+                }`}>
+                  {!backgroundRuns.enabled
+                    ? '[DURABLE RUNS DISABLED]'
+                    : backgroundRuns.operatorAvailable
+                      ? '[OPERATOR READY]'
+                      : '[OPERATOR UNAVAILABLE]'}
                 </div>
               </div>
 
+              {!backgroundRuns.enabled || !backgroundRuns.operatorAvailable ? (
+                <div className={`border px-4 py-3 text-xs font-mono ${
+                  backgroundRuns.enabled
+                    ? 'border-bbs-red/40 bg-bbs-dark text-bbs-red'
+                    : 'border-bbs-yellow/40 bg-bbs-dark text-bbs-yellow'
+                }`}>
+                  <div className="font-bold">
+                    {backgroundRuns.enabled ? '[UNAVAILABLE]' : '[DISABLED]'}
+                  </div>
+                  <div className="mt-1 text-bbs-gray leading-relaxed">
+                    {backgroundRuns.disabledReason ?? 'Durable background run supervision is not available.'}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+                <StatCard label="Durable Runs" value={backgroundRuns.enabled ? 'ON' : 'OFF'} subtext="runtime supervision capability" tone={backgroundRunsTone} />
+                <StatCard label="Operator" value={backgroundRuns.operatorAvailable ? 'READY' : 'OFFLINE'} subtext="inspect/control availability" tone={backgroundRuns.operatorAvailable ? 'success' : 'danger'} />
                 <StatCard label="Multi-Agent" value={backgroundRuns.multiAgentEnabled ? 'ON' : 'OFF'} subtext="runtime orchestration mode" tone={backgroundRuns.multiAgentEnabled ? 'success' : 'default'} />
                 <StatCard label="Active" value={backgroundRuns.activeTotal} subtext="runs currently executing" tone={activeTone} />
                 <StatCard label="Queued Signals" value={backgroundRuns.queuedSignalsTotal} subtext="pending wake signals" tone={queueTone} />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-3">
                 <StatCard label="Recovered" value={backgroundRuns.metrics.recoveredTotal} subtext="runs restored after interruption" tone={recoveredTone} />
                 <StatCard label="Blocked" value={backgroundRuns.stateCounts.blocked} subtext="runs waiting for operator or verifier" tone={blockedTone} />
               </div>
