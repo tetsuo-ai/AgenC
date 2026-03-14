@@ -267,7 +267,7 @@ const SERVICE_COMMAND_OPTIONS = new Set(["macos", "yolo"]);
 const JOBS_COMMAND_OPTIONS = new Set<string>([]);
 
 const CONFIG_INIT_OPTIONS = new Set(["non-interactive", "force"]);
-const INIT_COMMAND_OPTIONS = new Set(["force", "path"]);
+const INIT_COMMAND_OPTIONS = new Set(["force", "path", "pid-path", "port"]);
 const CONFIG_VALIDATE_OPTIONS = new Set<string>([]);
 const CONFIG_SHOW_OPTIONS = new Set<string>([]);
 const SESSIONS_OPTIONS = new Set(["pid-path", "port"]);
@@ -655,6 +655,8 @@ function buildHelp(): string {
     "init options:",
     "      --force                               Overwrite an existing AGENC.md",
     "      --path <dir>                          Target project root (default: current working directory)",
+    "      --pid-path <path>                     Custom PID file path",
+    "      --port <port>                         Override control plane port",
     "",
     "sessions options:",
     "      --pid-path <path>                         Custom PID file path",
@@ -2027,6 +2029,11 @@ async function dispatchBootstrapCommands(
         ...global,
         force: normalizeCommandFlag(parsed.flags.force),
         path: parseOptionalString(parsed.flags.path),
+        configPath:
+          parseOptionalString(parsed.flags.config) ?? getDefaultConfigPath(),
+        pidPath:
+          parseOptionalString(parsed.flags["pid-path"]) ?? getDefaultPidPath(),
+        controlPlanePort: parseIntValue(parsed.flags.port),
       };
       return await runInitCommand(context, initOpts);
     } catch (error) {

@@ -1441,6 +1441,126 @@ describe("buildDesktopContext", () => {
   });
 });
 
+describe("project init", () => {
+  it("routes slash /init through the shared init operation", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const runProjectInitOperation = vi
+      .spyOn(dm as any, "runProjectInitOperation")
+      .mockResolvedValue({
+        status: "created",
+        filePath: "/repo/AGENC.md",
+        content: "# Repository Guidelines",
+        attempts: 1,
+        delegatedInvestigations: 3,
+        result: null,
+      });
+    const pushToSession = vi.fn();
+    (dm as any)._webChatChannel = {
+      loadSessionWorkspaceRoot: vi.fn(async () => "/repo"),
+      pushToSession,
+    };
+    (dm as any).gateway = { config: {} };
+
+    const registry = (dm as any).createCommandRegistry(
+      {} as any,
+      (sessionKey: string) => sessionKey,
+      [],
+      {} as any,
+      {} as any,
+      [],
+      [],
+      { dispatch: vi.fn() } as any,
+      vi.fn(),
+      null,
+    );
+
+    const reply = vi.fn(async () => undefined);
+    const handled = await registry.dispatch(
+      "/init --force",
+      "session-init",
+      "sender-init",
+      "webchat",
+      reply,
+    );
+
+    expect(handled).toBe(true);
+    expect(runProjectInitOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceRoot: "/repo",
+        force: true,
+        sessionId: "session-init",
+        channel: "webchat",
+      }),
+    );
+    expect(reply).toHaveBeenCalledWith(
+      expect.stringContaining("Starting AGENC.md generation"),
+    );
+    expect(reply).toHaveBeenLastCalledWith(
+      expect.stringContaining("Created AGENC.md at /repo/AGENC.md"),
+    );
+    expect(pushToSession).toHaveBeenCalledWith(
+      "session-init",
+      expect.objectContaining({
+        type: "chat.typing",
+      }),
+    );
+  });
+
+  it("returns a structured payload for init.run control messages", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const runProjectInitOperation = vi
+      .spyOn(dm as any, "runProjectInitOperation")
+      .mockResolvedValue({
+        status: "updated",
+        filePath: "/repo/AGENC.md",
+        content: "# Repository Guidelines",
+        attempts: 2,
+        delegatedInvestigations: 4,
+        result: {
+          provider: "grok",
+          model: "grok-code-fast-1",
+          usedFallback: false,
+        },
+      });
+    (dm as any).gateway = { config: {} };
+    const sendResponse = vi.fn();
+
+    const handled = await (dm as any).handleGatewayControlMessage({
+      clientId: "client-7",
+      message: {
+        type: "init.run",
+        payload: { path: "/repo", force: true },
+      },
+      sendResponse,
+    });
+
+    expect(handled).toBe(true);
+    expect(runProjectInitOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceRoot: "/repo",
+        force: true,
+        channel: "control",
+      }),
+    );
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "init.run",
+        payload: expect.objectContaining({
+          projectRoot: "/repo",
+          filePath: "/repo/AGENC.md",
+          result: "updated",
+          delegatedInvestigations: 4,
+          attempts: 2,
+          modelBacked: true,
+          provider: "grok",
+          model: "grok-code-fast-1",
+          usedFallback: false,
+        }),
+      }),
+    );
+  });
+});
+
 describe("webchat background-run routing", () => {
   it("routes durable server prompts with natural until-stop phrasing into background supervision", async () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
