@@ -81,3 +81,10 @@
 - **What worked:** Reproduced delegated full-codebase generation in isolated `/workspace` sandboxes, fixed noisy retry lifecycle emissions, surfaced tool-result `isError` on both client and subagent events, gated Grok `previous_response_id` continuation behind `store:true`, and then centralized fallback-reason defaults so stateful summary accounting no longer relies on a hand-maintained mirror map.
 - **What didn't:** The live verification used focused daemon probes and targeted Vitest coverage rather than a full repo-wide test pass, so broader runtime confidence still depends on the existing larger suite.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1464: recover daemon attach for spaced paths
+- **Date:** 2026-03-14
+- **Files changed:** runtime/src/cli/{daemon,daemon.test,operator-console,operator-console.test}.ts, .claude/notes/{pr-log,techdebt-2026-03-14-operator-console-daemon-attach}.md
+- **What worked:** Replaced flat `ps` flag scraping with structured argv parsing from `/proc/<pid>/cmdline` plus a fallback parser, and taught `agenc` operator-console to attach to an already-running matching daemon when PID-file discovery is missing instead of trying to start a duplicate daemon.
+- **What didn't:** Non-`/proc` platforms still fall back to best-effort process-string parsing, and daemon identity resolution still lives in both `daemon.ts` and `operator-console.ts` instead of one shared decision point.
+- **Rule added to CLAUDE.md:** yes, `Process Discovery: Do not parse process identity from flat \`ps\` text when argv fidelity matters`

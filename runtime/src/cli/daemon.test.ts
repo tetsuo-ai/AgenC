@@ -7,6 +7,7 @@ import { generateSystemdUnit } from "../gateway/daemon.js";
 const {
   execFileMock,
   forkMock,
+  readFileMock,
   checkStalePidMock,
   readPidFileMock,
   removePidFileMock,
@@ -16,6 +17,7 @@ const {
 } = vi.hoisted(() => ({
   execFileMock: vi.fn(),
   forkMock: vi.fn(),
+  readFileMock: vi.fn(),
   checkStalePidMock: vi.fn(),
   readPidFileMock: vi.fn(),
   removePidFileMock: vi.fn(),
@@ -27,6 +29,10 @@ const {
 vi.mock("node:child_process", () => ({
   execFile: execFileMock,
   fork: forkMock,
+}));
+
+vi.mock("node:fs/promises", () => ({
+  readFile: readFileMock,
 }));
 
 vi.mock("../gateway/daemon.js", () => ({
@@ -60,7 +66,7 @@ vi.mock("../utils/logger.js", () => ({
   })),
 }));
 
-import { runStartCommand } from "./daemon.js";
+import { findDaemonProcessesByIdentity, runStartCommand } from "./daemon.js";
 import { runServiceInstallCommand } from "./daemon.js";
 
 class FakeChildProcess extends EventEmitter {
@@ -98,6 +104,7 @@ describe("daemon: runStartCommand", () => {
     removePidFileMock.mockResolvedValue(undefined);
     pidFileExistsMock.mockResolvedValue(false);
     readPidFileMock.mockResolvedValue(null);
+    readFileMock.mockRejectedValue(Object.assign(new Error("missing /proc"), { code: "ENOENT" }));
     sleepMock.mockResolvedValue(undefined);
   });
 
@@ -229,6 +236,86 @@ describe("daemon: runStartCommand", () => {
     });
     expect(forkMock).toHaveBeenCalledTimes(1);
     expect(forkMock.mock.calls[0]?.[1]).toContain("--yolo");
+  });
+});
+
+describe("daemon: process identity parsing", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it("reads spaced config and pid paths from /proc argv", async () => {
+    execFileMock.mockImplementation(
+      (
+        _command: string,
+        _args: string[],
+        _options: Record<string, unknown>,
+        callback: (error: Error | null, stdout: string) => void,
+      ) => {
+        callback(
+          null,
+          "4242 node /runtime/dist/bin/daemon.js --config /tmp/config with spaces.json --pid-path /tmp/pid with spaces.pid\n",
+        );
+      },
+    );
+    readFileMock.mockResolvedValue(
+      Buffer.from(
+        [
+          "node",
+          "/runtime/dist/bin/daemon.js",
+          "--config",
+          "/tmp/config with spaces.json",
+          "--pid-path=/tmp/pid with spaces.pid",
+          "",
+        ].join("\u0000"),
+      ),
+    );
+
+    const matches = await findDaemonProcessesByIdentity({
+      configPath: "/tmp/config with spaces.json",
+      pidPath: "/tmp/pid with spaces.pid",
+    });
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatchObject({
+      pid: 4242,
+      configPath: "/tmp/config with spaces.json",
+      pidPath: "/tmp/pid with spaces.pid",
+      matchedConfigPath: true,
+      matchedPidPath: true,
+    });
+  });
+
+  it("falls back to shell-like parsing when /proc argv is unavailable", async () => {
+    execFileMock.mockImplementation(
+      (
+        _command: string,
+        _args: string[],
+        _options: Record<string, unknown>,
+        callback: (error: Error | null, stdout: string) => void,
+      ) => {
+        callback(
+          null,
+          "5252 node /runtime/dist/bin/daemon.js --config \"/tmp/config with spaces.json\" --pid-path='/tmp/pid with spaces.pid'\n",
+        );
+      },
+    );
+    readFileMock.mockRejectedValue(Object.assign(new Error("missing /proc"), { code: "ENOENT" }));
+
+    const matches = await findDaemonProcessesByIdentity({
+      configPath: "/tmp/config with spaces.json",
+      pidPath: "/tmp/pid with spaces.pid",
+    });
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatchObject({
+      pid: 5252,
+      configPath: "/tmp/config with spaces.json",
+      pidPath: "/tmp/pid with spaces.pid",
+      matchedConfigPath: true,
+      matchedPidPath: true,
+    });
   });
 });
 

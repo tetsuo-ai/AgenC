@@ -4,7 +4,11 @@ import { dirname, resolve } from "node:path";
 import { createLogger } from "../utils/logger.js";
 import { getDefaultConfigPath, loadGatewayConfig } from "../gateway/config-watcher.js";
 import { getDefaultPidPath, isProcessAlive, readPidFile } from "../gateway/daemon.js";
-import { runStartCommand } from "./daemon.js";
+import {
+  findDaemonProcessesByIdentity,
+  runStartCommand,
+  type DaemonIdentityMatch,
+} from "./daemon.js";
 import type {
   CliLogger,
   CliOutputFormat,
@@ -52,6 +56,12 @@ export interface OperatorConsoleDeps {
     context: CliRuntimeContext,
     options: DaemonStartOptions,
   ) => Promise<CliStatusCode>;
+  readonly findDaemonProcessesByIdentity: (
+    params: {
+      pidPath?: string;
+      configPath?: string;
+    },
+  ) => Promise<readonly DaemonIdentityMatch[]>;
   readonly resolveConsoleEntryPath: () => string | null;
   readonly spawnProcess: (
     command: string,
@@ -71,6 +81,7 @@ const DEFAULT_DEPS: OperatorConsoleDeps = {
   readPidFile,
   isProcessAlive,
   runStartCommand,
+  findDaemonProcessesByIdentity,
   resolveConsoleEntryPath,
   spawnProcess: spawn,
   processExecPath: process.execPath,
@@ -148,6 +159,29 @@ async function ensureDaemon(
       port: running.port ?? config.gateway.port,
       configPath: running.configPath,
     };
+  }
+
+  const existingDaemons = await deps.findDaemonProcessesByIdentity({
+    pidPath,
+    configPath,
+  });
+  if (existingDaemons.length > 1) {
+    throw new Error(
+      `multiple daemon processes already match this config/pid-path (${existingDaemons.map((entry) => entry.pid).join(", ")}); run \`restart\` to recover`,
+    );
+  }
+  const existingDaemon = existingDaemons[0];
+  if (existingDaemon) {
+    if (existingDaemon.matchedConfigPath) {
+      return {
+        pid: existingDaemon.pid,
+        port: config.gateway.port,
+        configPath,
+      };
+    }
+    throw new Error(
+      `daemon already running with config ${existingDaemon.configPath ?? "<unknown>"}; stop it or use the matching --config`,
+    );
   }
 
   const logger = deps.createLogger("warn", "[AgenC]");
