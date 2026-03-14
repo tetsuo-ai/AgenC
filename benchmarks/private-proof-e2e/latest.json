@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "private-task-e2e",
+  "status": "not-run",
+  "message": "No benchmark has been published yet. Run `npm run benchmark:private:e2e` and commit the generated artifact to publish it here.",
+  "generatedAt": null
+}

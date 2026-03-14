@@ -16,7 +16,7 @@ import {
   RISC0_JOURNAL_LEN,
   RISC0_SEAL_BORSH_LEN,
   TRUSTED_RISC0_SELECTOR,
-} from "@agenc/sdk";
+} from "../../../sdk/src/constants.ts";
 import { toAnchorBytes } from "../utils/encoding.js";
 import anchor, { type Program } from "@coral-xyz/anchor";
 import type { AgencCoordination } from "../types/agenc_coordination.js";

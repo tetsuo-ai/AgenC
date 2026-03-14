@@ -8,8 +8,8 @@ import type { PublicKey } from "@solana/web3.js";
 import type { Logger } from "../utils/logger.js";
 import type { MetricsProvider } from "../task/types.js";
 
-// Re-export HashResult from SDK for convenience
-export type { HashResult } from "@agenc/sdk";
+// Re-export HashResult from SDK source for convenience
+export type { HashResult } from "../../../sdk/src/proofs.ts";
 
 export type ProverBackend = "remote";
 
