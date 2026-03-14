@@ -129,3 +129,10 @@
 - **What worked:** Replaced synthetic replay inputs with raw daemon websocket envelopes, made the shared replay harness load the built runtime operator-event contract by default, and kept the replay checkpoints stable through the same normalization path the live console uses.
 - **What didn't:** Replay still uses curated deterministic envelope fixtures rather than exported live daemon recordings, so transcript realism is now at the protocol boundary but not yet at full captured-session fidelity.
 - **Rule added to CLAUDE.md:** yes, `Runtime Rule: Watch Live Replay Must Use Raw Daemon WebSocket Envelopes`
+
+## PR #1471: refresh README runtime and TUI guidance
+- **Date:** 2026-03-14
+- **Files changed:** README.md, runtime/src/bin/agenc.ts, .claude/notes/pr-log.md
+- **What worked:** Rewrote the root README around the current runtime-centric repo surface, removed stale and broken launch/docs fragments, added the devnet/testnet-only warning, and restored the missing `agenc` bin wrapper so the documented `runtime/dist/bin/agenc.js` launcher is produced by the runtime build.
+- **What didn't:** Verifying the launcher in a clean worktree required package-local `npm install` first because the worktree does not inherit `node_modules`, so the build proof depends on local dependency hydration rather than an already warm checkout.
+- **Rule added to CLAUDE.md:** no
