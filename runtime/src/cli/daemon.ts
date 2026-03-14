@@ -6,6 +6,7 @@
 
 import { execFile, fork } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import {
@@ -55,6 +56,14 @@ function getDaemonLogPath(): string {
 interface DaemonProcessEntry {
   readonly pid: number;
   readonly args: string;
+  readonly argv: readonly string[];
+}
+
+export interface DaemonIdentityMatch extends DaemonProcessEntry {
+  readonly configPath?: string;
+  readonly pidPath?: string;
+  readonly matchedConfigPath: boolean;
+  readonly matchedPidPath: boolean;
 }
 
 interface DaemonReadyMessage {
@@ -101,58 +110,166 @@ async function listProcesses(): Promise<readonly DaemonProcessEntry[]> {
           .map((line) => line.trim())
           .filter((line) => line.length > 0);
 
-        const entries: DaemonProcessEntry[] = [];
-        for (const row of rows) {
-          const match = /^(\d+)\s+(.+)$/.exec(row);
-          if (!match) continue;
-          const pid = Number.parseInt(match[1], 10);
-          if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) continue;
-          entries.push({ pid, args: match[2] });
-        }
+        void (async () => {
+          const entries = (await Promise.all(rows.map(async (row) => {
+            const match = /^(\d+)\s+(.+)$/.exec(row);
+            if (!match) return null;
+            const pid = Number.parseInt(match[1], 10);
+            if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) {
+              return null;
+            }
+            const args = match[2];
+            return {
+              pid,
+              args,
+              argv: await readProcessArgv(pid, args),
+            } satisfies DaemonProcessEntry;
+          }))).filter((entry): entry is DaemonProcessEntry => entry !== null);
 
-        resolvePromise(entries);
+          resolvePromise(entries);
+        })();
       },
     );
   });
 }
 
-function looksLikeRuntimeDaemonProcess(args: string): boolean {
+async function readProcessArgv(pid: number, args: string): Promise<readonly string[]> {
+  try {
+    const raw = await readFile(`/proc/${pid}/cmdline`);
+    const argv = raw
+      .toString("utf8")
+      .split("\u0000")
+      .filter((value) => value.length > 0);
+    if (argv.length > 0) {
+      return argv;
+    }
+  } catch {
+    // Fall back to best-effort parsing of the ps command string on platforms
+    // without /proc or when the process exits mid-scan.
+  }
+  return parseProcessArgsString(args);
+}
+
+function parseProcessArgsString(args: string): string[] {
+  const argv: string[] = [];
+  let current = "";
+  let quote: "\"" | "'" | null = null;
+  let escaped = false;
+
+  const pushCurrent = (): void => {
+    if (current.length > 0) {
+      argv.push(current);
+      current = "";
+    }
+  };
+
+  for (const char of args) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === "'") {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (quote === "\"") {
+      if (char === "\"") {
+        quote = null;
+      } else if (char === "\\") {
+        escaped = true;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "'" || char === "\"") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      pushCurrent();
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaped) {
+    current += "\\";
+  }
+  pushCurrent();
+  return argv;
+}
+
+function looksLikeRuntimeDaemonProcess(entry: Pick<DaemonProcessEntry, "args" | "argv">): boolean {
   return (
-    args.includes("/runtime/dist/bin/daemon.js") ||
-    args.includes("/runtime/src/bin/daemon.ts")
+    entry.args.includes("/runtime/dist/bin/daemon.js") ||
+    entry.args.includes("/runtime/src/bin/daemon.ts") ||
+    entry.argv.some((value) =>
+      value.includes("/runtime/dist/bin/daemon.js") ||
+      value.includes("/runtime/src/bin/daemon.ts")
+    )
   );
 }
 
-function commandLineHasFlagValue(args: string, flag: string, value: string): boolean {
-  if (!value) return false;
-  return (
-    args.includes(`${flag} ${value}`) ||
-    args.includes(`${flag}=${value}`)
-  );
+function readCommandLineFlagValue(
+  argv: readonly string[],
+  flag: string,
+): string | undefined {
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
+    if (value === flag) {
+      return argv[index + 1];
+    }
+    if (value.startsWith(`${flag}=`)) {
+      return value.slice(flag.length + 1);
+    }
+  }
+  return undefined;
+}
+
+export async function findDaemonProcessesByIdentity(params: {
+  pidPath?: string;
+  configPath?: string;
+}): Promise<readonly DaemonIdentityMatch[]> {
+  const entries = await listProcesses();
+  const matching: DaemonIdentityMatch[] = [];
+  for (const entry of entries) {
+    if (!looksLikeRuntimeDaemonProcess(entry)) continue;
+    const entryPidPath = readCommandLineFlagValue(entry.argv, "--pid-path");
+    const entryConfigPath = readCommandLineFlagValue(entry.argv, "--config");
+    const matchedPidPath =
+      !!params.pidPath && entryPidPath === params.pidPath;
+    const matchedConfigPath =
+      !!params.configPath && entryConfigPath === params.configPath;
+    if (!matchedPidPath && !matchedConfigPath) {
+      continue;
+    }
+    matching.push({
+      ...entry,
+      ...(entryConfigPath ? { configPath: entryConfigPath } : {}),
+      ...(entryPidPath ? { pidPath: entryPidPath } : {}),
+      matchedConfigPath,
+      matchedPidPath,
+    });
+  }
+  return matching;
 }
 
 async function findDaemonPidsByIdentity(params: {
   pidPath?: string;
   configPath?: string;
 }): Promise<readonly number[]> {
-  const entries = await listProcesses();
-  const matching = entries.filter((entry) => {
-    if (!looksLikeRuntimeDaemonProcess(entry.args)) return false;
-    if (
-      params.pidPath &&
-      commandLineHasFlagValue(entry.args, "--pid-path", params.pidPath)
-    ) {
-      return true;
-    }
-    if (
-      params.configPath &&
-      commandLineHasFlagValue(entry.args, "--config", params.configPath)
-    ) {
-      return true;
-    }
-    return false;
-  });
-  return matching.map((entry) => entry.pid);
+  const matches = await findDaemonProcessesByIdentity(params);
+  return matches.map((entry) => entry.pid);
 }
 
 async function signalPids(

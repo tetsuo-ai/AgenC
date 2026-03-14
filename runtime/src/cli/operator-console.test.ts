@@ -4,6 +4,7 @@ import {
   runOperatorConsole,
   type OperatorConsoleDeps,
 } from "./operator-console.js";
+import type { DaemonIdentityMatch } from "./daemon.js";
 
 class FakeChildProcess extends EventEmitter {
   exit(code: number | null, signal: NodeJS.Signals | null = null): void {
@@ -25,6 +26,7 @@ function createDeps(
     readPidFile: vi.fn().mockResolvedValue(null),
     isProcessAlive: vi.fn().mockReturnValue(false),
     runStartCommand: vi.fn().mockResolvedValue(0),
+    findDaemonProcessesByIdentity: vi.fn().mockResolvedValue([]),
     resolveConsoleEntryPath: vi
       .fn()
       .mockReturnValue("/repo/scripts/agenc-watch.mjs"),
@@ -132,6 +134,59 @@ describe("operator console launcher", () => {
     );
   });
 
+  it("attaches to an existing matching daemon when the pid file is missing", async () => {
+    const child = new FakeChildProcess();
+    const runStartCommand = vi.fn().mockResolvedValue(0);
+    const spawnProcess = vi.fn().mockImplementation(() => {
+      queueMicrotask(() => child.exit(0));
+      return child;
+    });
+    const findDaemonProcesses = vi
+      .fn<OperatorConsoleDeps["findDaemonProcessesByIdentity"]>()
+      .mockResolvedValue([
+        {
+          pid: 1929004,
+          args: "node /runtime/dist/bin/daemon.js --config /tmp/agenc.json --pid-path /tmp/agenc.pid",
+          argv: [
+            "node",
+            "/runtime/dist/bin/daemon.js",
+            "--config",
+            "/tmp/agenc.json",
+            "--pid-path",
+            "/tmp/agenc.pid",
+          ],
+          configPath: "/tmp/agenc.json",
+          pidPath: "/tmp/agenc.pid",
+          matchedConfigPath: true,
+          matchedPidPath: true,
+        } satisfies DaemonIdentityMatch,
+      ]);
+    const deps = createDeps({
+      readPidFile: vi.fn().mockResolvedValue(null),
+      runStartCommand,
+      findDaemonProcessesByIdentity: findDaemonProcesses,
+      spawnProcess,
+    });
+
+    const code = await runOperatorConsole({}, deps);
+
+    expect(code).toBe(0);
+    expect(runStartCommand).not.toHaveBeenCalled();
+    expect(findDaemonProcesses).toHaveBeenCalledWith({
+      pidPath: "/tmp/agenc.pid",
+      configPath: "/tmp/agenc.json",
+    });
+    expect(spawnProcess).toHaveBeenCalledWith(
+      process.execPath,
+      ["/repo/scripts/agenc-watch.mjs"],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          AGENC_WATCH_WS_URL: "ws://127.0.0.1:3100",
+        }),
+      }),
+    );
+  });
+
   it("fails fast when a different-config daemon is already running", async () => {
     const deps = createDeps({
       readPidFile: vi.fn().mockResolvedValue({
@@ -150,6 +205,34 @@ describe("operator console launcher", () => {
         deps,
       ),
     ).rejects.toThrow(
+      "daemon already running with config /tmp/other.json; stop it or use the matching --config",
+    );
+  });
+
+  it("fails fast when a process-scan finds a different-config daemon on the same pid path", async () => {
+    const deps = createDeps({
+      readPidFile: vi.fn().mockResolvedValue(null),
+      findDaemonProcessesByIdentity: vi.fn().mockResolvedValue([
+        {
+          pid: 1234,
+          args: "node /runtime/dist/bin/daemon.js --config /tmp/other.json --pid-path /tmp/agenc.pid",
+          argv: [
+            "node",
+            "/runtime/dist/bin/daemon.js",
+            "--config",
+            "/tmp/other.json",
+            "--pid-path",
+            "/tmp/agenc.pid",
+          ],
+          configPath: "/tmp/other.json",
+          pidPath: "/tmp/agenc.pid",
+          matchedConfigPath: false,
+          matchedPidPath: true,
+        } satisfies DaemonIdentityMatch,
+      ]),
+    });
+
+    await expect(runOperatorConsole({}, deps)).rejects.toThrow(
       "daemon already running with config /tmp/other.json; stop it or use the matching --config",
     );
   });
