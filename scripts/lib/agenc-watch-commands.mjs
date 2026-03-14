@@ -176,6 +176,17 @@ export function createWatchCommandController(dependencies = {}) {
         return true;
       }
 
+      if (canonicalName === "/init") {
+        pushEvent(
+          "operator",
+          "Project Guide Init",
+          "Requested AGENC.md generation for the active workspace.",
+          "teal",
+        );
+        send("chat.message", authPayload({ content: value }));
+        return true;
+      }
+
       if (canonicalName === "/new") {
         resetLiveRunSurface();
         resetDelegationState();

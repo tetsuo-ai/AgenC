@@ -396,9 +396,9 @@ describe("SlashCommandRegistry", () => {
 });
 
 describe("createDefaultCommands", () => {
-  it("returns 14 default commands", () => {
+  it("returns 15 default commands", () => {
     const commands = createDefaultCommands();
-    expect(commands).toHaveLength(14);
+    expect(commands).toHaveLength(15);
   });
 
   it("includes all expected command names", () => {
@@ -408,6 +408,7 @@ describe("createDefaultCommands", () => {
     expect(names).toContain("help");
     expect(names).toContain("status");
     expect(names).toContain("new");
+    expect(names).toContain("init");
     expect(names).toContain("reset");
     expect(names).toContain("stop");
     expect(names).toContain("start");
@@ -440,7 +441,7 @@ describe("createDefaultCommands", () => {
     for (const cmd of commands) {
       registry.register(cmd);
     }
-    expect(registry.size).toBe(14);
+    expect(registry.size).toBe(15);
   });
 
   it("registry without defaults starts empty", () => {
@@ -493,5 +494,11 @@ describe("createDefaultCommands", () => {
     const helpLine = `/${model.name}${model.args ? ` ${model.args}` : ""} — ${model.description}`;
 
     expect(helpLine).toContain("/model [name]");
+  });
+
+  it("/init has args pattern [--force]", () => {
+    const commands = createDefaultCommands();
+    const init = commands.find((c) => c.name === "init");
+    expect(init!.args).toBe("[--force]");
   });
 });

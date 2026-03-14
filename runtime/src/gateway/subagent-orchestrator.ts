@@ -2359,11 +2359,12 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       }
     }
 
-    if (candidates.size === 1) {
+    const dependencyCandidateCount = candidates.size;
+    if (dependencyCandidateCount === 1) {
       return [...candidates.values()][0];
     }
 
-    if (candidates.size === 0) {
+    if (dependencyCandidateCount === 0) {
       for (const plannerStep of plannerSteps) {
         if (plannerStep.stepType !== "subagent_task") continue;
         const candidate = this.normalizeAnchoredDelegatedWorkingDirectory(
@@ -2379,7 +2380,8 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           candidates.set(candidate.path, candidate);
         }
       }
-      if (candidates.size === 1) {
+      const globalCandidateCount = candidates.size;
+      if (globalCandidateCount === 1) {
         return [...candidates.values()][0];
       }
     }

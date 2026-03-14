@@ -71,6 +71,7 @@ import {
   runConfigValidateCommand,
   runConfigShowCommand,
 } from "./wizard.js";
+import { runInitCommand } from "./init.js";
 import { runSessionsListCommand, runSessionsKillCommand } from "./sessions.js";
 import { runLogsCommand } from "./logs.js";
 import { getDefaultConfigPath } from "../gateway/config-watcher.js";
@@ -81,6 +82,7 @@ import type {
   DaemonStatusOptions,
   ServiceInstallOptions,
   WizardOptions,
+  InitOptions,
   ConfigValidateOptions,
   ConfigShowOptions,
   SessionsListOptions,
@@ -265,6 +267,7 @@ const SERVICE_COMMAND_OPTIONS = new Set(["macos", "yolo"]);
 const JOBS_COMMAND_OPTIONS = new Set<string>([]);
 
 const CONFIG_INIT_OPTIONS = new Set(["non-interactive", "force"]);
+const INIT_COMMAND_OPTIONS = new Set(["force", "path"]);
 const CONFIG_VALIDATE_OPTIONS = new Set<string>([]);
 const CONFIG_SHOW_OPTIONS = new Set<string>([]);
 const SESSIONS_OPTIONS = new Set(["pid-path", "port"]);
@@ -507,6 +510,7 @@ function buildHelp(): string {
     "health [--help] [options]",
     "doctor [--help] [options]",
     "doctor security [--help] [options]",
+    "init [--help] [options]",
     "config <init|validate|show> [--help] [options]",
     "start [--help] [options]",
     "stop [--help] [options]",
@@ -525,6 +529,7 @@ function buildHelp(): string {
     "  health    Report RPC, store, wallet, and config status",
     "  doctor    Run all health checks and provide remediation guidance",
     "  doctor security  Security posture checks",
+    "  init      Generate an AGENC.md contributor guide for the current repo",
     "",
     "Config commands:",
     "  config init      Generate gateway config and scaffold workspace",
@@ -647,6 +652,10 @@ function buildHelp(): string {
     "      --non-interactive                     Skip interactive prompts (CI-friendly)",
     "      --force                               Overwrite existing config file",
     "",
+    "init options:",
+    "      --force                               Overwrite an existing AGENC.md",
+    "      --path <dir>                          Target project root (default: current working directory)",
+    "",
     "sessions options:",
     "      --pid-path <path>                         Custom PID file path",
     "      --port <port>                             Override control plane port",
@@ -681,6 +690,8 @@ function buildHelp(): string {
     "  agenc-runtime health --deep",
     "  agenc-runtime doctor --deep --fix",
     "  agenc-runtime doctor security --deep --fix",
+    "  agenc-runtime init",
+    "  agenc-runtime init --force",
     "  agenc-runtime replay backfill --to-slot 12345 --page-size 500",
     "  agenc-runtime replay compare --local-trace-path ./trace.json --task-pda AGENTpda",
     "  agenc-runtime replay incident --task-pda AGENTpda --from-slot 100 --to-slot 200",
@@ -1997,6 +2008,27 @@ async function dispatchBootstrapCommands(
       };
 
       return await runOnboardCommand(context, onboardOpts);
+    } catch (error) {
+      return reportCliError(context, error);
+    }
+  }
+
+  if (parsed.positional[0] === "init") {
+    try {
+      validateUnknownStandaloneOptions(parsed.flags, INIT_COMMAND_OPTIONS);
+      if (parsed.positional.length > 1) {
+        throw createCliError(
+          "init does not accept positional arguments; use --path <dir> instead",
+          ERROR_CODES.INVALID_VALUE,
+        );
+      }
+      const { global } = resolveLenientGlobalFlags(parsed);
+      const initOpts: InitOptions = {
+        ...global,
+        force: normalizeCommandFlag(parsed.flags.force),
+        path: parseOptionalString(parsed.flags.path),
+      };
+      return await runInitCommand(context, initOpts);
     } catch (error) {
       return reportCliError(context, error);
     }

@@ -239,6 +239,13 @@ export interface WizardOptions extends BaseCliOptions {
   configPath?: string;
 }
 
+export interface InitOptions extends BaseCliOptions {
+  /** Overwrite an existing AGENC.md file. */
+  force?: boolean;
+  /** Target directory to inspect. Defaults to the current working directory. */
+  path?: string;
+}
+
 export interface ConfigValidateOptions extends BaseCliOptions {
   configPath?: string;
 }
