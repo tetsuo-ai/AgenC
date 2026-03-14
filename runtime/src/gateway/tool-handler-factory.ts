@@ -11,6 +11,7 @@ import type { ControlResponse } from './types.js';
 import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve as resolvePath } from 'node:path';
 import type { ToolHandler } from '../llm/types.js';
+import { SESSION_ALLOWED_ROOTS_ARG } from "../tools/system/filesystem.js";
 import {
   didToolCallFail,
   normalizeToolCallArguments,
@@ -46,6 +47,28 @@ const TOOL_DEFAULT_CWD_NAMES = new Set([
   "desktop.bash",
   "system.processStart",
   "system.serverStart",
+]);
+const SESSION_ALLOWED_ROOT_TOOL_NAMES = new Set([
+  "system.readFile",
+  "system.writeFile",
+  "system.appendFile",
+  "system.listDir",
+  "system.stat",
+  "system.mkdir",
+  "system.delete",
+  "system.move",
+  "system.pdfInfo",
+  "system.pdfExtractText",
+  "system.officeDocumentInfo",
+  "system.officeDocumentExtractText",
+  "system.emailMessageInfo",
+  "system.emailMessageExtractText",
+  "system.calendarInfo",
+  "system.calendarRead",
+  "system.sqliteSchema",
+  "system.sqliteQuery",
+  "system.spreadsheetInfo",
+  "system.spreadsheetRead",
 ]);
 const TOOL_PATH_ARG_KEYS: Readonly<Record<string, readonly string[]>> = {
   "desktop.text_editor": ["path"],
@@ -110,6 +133,35 @@ const WORKSPACE_ALIAS_ROOT = "/workspace";
 function normalizeToolName(name: string): string {
   const alias = TOOL_NAME_ALIASES[name];
   return typeof alias === "string" ? alias : name;
+}
+
+function stripInternalToolArgs(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!(SESSION_ALLOWED_ROOTS_ARG in args)) {
+    return args;
+  }
+  const nextArgs = { ...args };
+  delete nextArgs[SESSION_ALLOWED_ROOTS_ARG];
+  return nextArgs;
+}
+
+function applySessionAllowedRoots(
+  toolName: string,
+  args: Record<string, unknown>,
+  additionalAllowedPaths: readonly string[] | undefined,
+): Record<string, unknown> {
+  if (
+    !SESSION_ALLOWED_ROOT_TOOL_NAMES.has(toolName) ||
+    !additionalAllowedPaths ||
+    additionalAllowedPaths.length === 0
+  ) {
+    return args;
+  }
+  return {
+    ...args,
+    [SESSION_ALLOWED_ROOTS_ARG]: [...additionalAllowedPaths],
+  };
 }
 
 function isRelativeLocalPath(value: string): boolean {
@@ -1245,6 +1297,21 @@ export interface SessionToolHandlerConfig {
   workspaceAliasRoot?: string;
   /** Optional delegated workspace root. Absolute/tilde path escapes are rejected when set. */
   scopedFilesystemRoot?: string;
+  /** Optional callback resolving per-call workspace overrides for this session. */
+  resolveWorkspaceContext?: () =>
+    | {
+        defaultWorkingDirectory?: string;
+        workspaceAliasRoot?: string;
+        scopedFilesystemRoot?: string;
+        additionalAllowedPaths?: readonly string[];
+      }
+    | Promise<{
+        defaultWorkingDirectory?: string;
+        workspaceAliasRoot?: string;
+        scopedFilesystemRoot?: string;
+        additionalAllowedPaths?: readonly string[];
+      } | undefined>
+    | undefined;
   /** Extra metadata attached to tool hook payloads for this handler. */
   hookMetadata?: Record<string, unknown>;
   /** Optional session credential broker for structured secret injection. */
@@ -1288,6 +1355,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     hookMetadata,
     credentialBroker,
     resolvePolicyScope,
+    resolveWorkspaceContext,
   } = config;
   let toolCallSeq = 0;
   // Per-message duplicate guard to avoid opening the same GUI app twice when
@@ -1298,10 +1366,16 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
     const toolName = normalizeToolName(name);
+    const workspaceContext = (await resolveWorkspaceContext?.()) ?? {};
+    const defaultWorkingDirectory =
+      workspaceContext.defaultWorkingDirectory ?? config.defaultWorkingDirectory;
+    const scopedFilesystemRoot =
+      workspaceContext.scopedFilesystemRoot ?? config.scopedFilesystemRoot;
     const workspaceAliasRoot =
+      workspaceContext.workspaceAliasRoot ??
       config.workspaceAliasRoot ??
-      config.scopedFilesystemRoot ??
-      config.defaultWorkingDirectory;
+      scopedFilesystemRoot ??
+      defaultWorkingDirectory;
     const {
       args: normalizedArgs,
       missingDefaultWorkingDirectory,
@@ -1309,10 +1383,10 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
       toolName,
       applyWorkspaceAliasTranslation(
         toolName,
-        normalizeToolCallArguments(toolName, args),
+        stripInternalToolArgs(normalizeToolCallArguments(toolName, args)),
         workspaceAliasRoot,
       ),
-      config.defaultWorkingDirectory,
+      defaultWorkingDirectory,
     );
     if (
       missingDefaultWorkingDirectory &&
@@ -1328,7 +1402,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     const scopedRootViolation = validateScopedFilesystemRoot(
       toolName,
       normalizedArgs,
-      config.scopedFilesystemRoot,
+      scopedFilesystemRoot,
     );
     if (scopedRootViolation) {
       return JSON.stringify({ error: scopedRootViolation });
@@ -1542,6 +1616,11 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
       }
       executionArgs = injectionResult.args;
     }
+    executionArgs = applySessionAllowedRoots(
+      toolName,
+      executionArgs,
+      workspaceContext.additionalAllowedPaths,
+    );
 
     // 5. Select handler: delegation executor or desktop-aware/base handler
     const routedHandler = desktopRouterFactory
@@ -1558,7 +1637,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
           lifecycleEmitter,
           verifier,
           availableToolNames,
-          defaultWorkingDirectory: config.defaultWorkingDirectory,
+          defaultWorkingDirectory,
           unsafeBenchmarkMode,
         })
       : routedHandler;

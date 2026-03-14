@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import { silentLogger } from "../../utils/logger.js";
-import { safePath } from "./filesystem.js";
+import { resolveToolAllowedPaths, safePath } from "./filesystem.js";
 import type { SystemOfficeDocumentToolConfig } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -184,11 +184,12 @@ function normalizePositiveInteger(
 async function resolveDocumentPath(
   rawPath: unknown,
   allowedPaths: readonly string[],
+  args: Record<string, unknown>,
 ): Promise<string | ToolResult> {
   if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
     return errorResult("Missing or invalid path");
   }
-  const safe = await safePath(rawPath, allowedPaths);
+  const safe = await safePath(rawPath, resolveToolAllowedPaths(allowedPaths, args));
   if (!safe.safe) {
     return errorResult(
       safe.reason ?? "Office document path is outside allowed directories",
@@ -235,7 +236,7 @@ function createOfficeDocumentInfoTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolveDocumentPath(args.path, allowedPaths);
+      const resolved = await resolveDocumentPath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }
@@ -288,7 +289,7 @@ function createOfficeDocumentExtractTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolveDocumentPath(args.path, allowedPaths);
+      const resolved = await resolveDocumentPath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }

@@ -1,15 +1,32 @@
 # @agenc/docs-mcp
 
-MCP server serving AgenC architecture documentation and issue context to AI agents.
+MCP server serving AgenC documentation, architecture references, and contract artifacts to AI agents.
 
 ## Overview
 
-This server provides architecture knowledge from `docs/architecture/` as MCP tools, resources, and prompts. It enables AI agents to:
+This server indexes repo documentation and selected machine-readable contract artifacts as MCP tools, resources, and prompts. It enables AI agents to:
 
-- Search architecture documentation
+- Search repo docs, planning docs, runtime docs, and contract artifacts
 - Get implementation context for specific roadmap issues
 - View phase dependency graphs and implementation orders
-- Get module templates and coding conventions
+- Get runtime module templates and coding conventions
+
+Indexed corpus:
+
+- `docs/**/*.md`
+- `docs/**/*.json`
+- `runtime/docs/**/*.md`
+- `runtime/idl/**/*.json`
+- `runtime/benchmarks/**/*.json`
+- `scripts/idl/**/*.json`
+- package-local docs and changelogs under top-level packages, apps, platforms, programs, migrations, and `examples/**` when present
+- root docs: `README.md`, `AGENTS.md`, `CODEX.md`, and `REFACTOR-MASTER-PROGRAM.md` when present
+
+Important limits:
+
+- This server indexes documentation and contract artifacts, not source code.
+- `docs_get_issue_context` and `docs_get_phase_graph` still derive from `docs/architecture/issue-map.json` and `docs/ROADMAP.md`, and currently expose only the legacy runtime-roadmap issue/phase model.
+- `docs_get_module_template` and `docs_get_module_info` are runtime-module helpers, not whole-repository architecture tools.
 
 ## Usage
 
@@ -28,9 +45,9 @@ claude mcp add agenc-docs -e DOCS_ROOT=/path/to/AgenC -- node /path/to/AgenC/doc
 
 | Tool | Description |
 |------|-------------|
-| `docs_search` | Full-text search across architecture docs |
-| `docs_get_issue_context` | Implementation context for a specific issue (#1051-#1110) |
-| `docs_get_phase_graph` | Dependency graph + implementation order for a phase (1-10) |
+| `docs_search` | Full-text search across repo docs, planning docs, runtime docs, and contract artifacts |
+| `docs_get_issue_context` | Implementation context for a specific legacy runtime-roadmap issue (#1051-#1110) |
+| `docs_get_phase_graph` | Dependency graph + implementation order for a legacy runtime-roadmap phase (1-10) |
 | `docs_get_module_template` | Boilerplate template for creating a new runtime module |
 | `docs_get_module_info` | Architecture details about an existing runtime module |
 | `docs_get_conventions` | Type, testing, and error handling conventions |
@@ -44,12 +61,18 @@ claude mcp add agenc-docs -e DOCS_ROOT=/path/to/AgenC -- node /path/to/AgenC/doc
 
 ## Resources
 
-Each `docs/architecture/*.md` file is exposed as an MCP resource at `agenc-docs://architecture/<path>`.
+Indexed docs and contract artifacts are exposed as MCP resources. Resource prefixes include:
+
+- `agenc-docs://architecture/...` for `docs/architecture/**`
+- `agenc-docs://docs/...` for other `docs/**` content
+- `agenc-docs://runtime-docs/...` for `runtime/docs/**`
+- `agenc-docs://repo/...` for indexed repo-root docs and other indexed non-`docs/` surfaces
 
 Special aggregate resources:
 - `agenc-docs://issue-map` — full issue-map.json
 - `agenc-docs://roadmap` — full ROADMAP.md
 - `agenc-docs://conventions` — all guide docs concatenated
+- `agenc-docs://scope` — indexed scope manifest and current limits
 
 ## Environment Variables
 

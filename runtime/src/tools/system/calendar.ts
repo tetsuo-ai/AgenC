@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import { silentLogger } from "../../utils/logger.js";
-import { safePath } from "./filesystem.js";
+import { resolveToolAllowedPaths, safePath } from "./filesystem.js";
 import type { SystemCalendarToolConfig } from "./types.js";
 
 const DEFAULT_MAX_EVENTS = 50;
@@ -83,11 +83,12 @@ function normalizePositiveInteger(
 async function resolveCalendarPath(
   rawPath: unknown,
   allowedPaths: readonly string[],
+  args: Record<string, unknown>,
 ): Promise<string | ToolResult> {
   if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
     return errorResult("Missing or invalid path");
   }
-  const safe = await safePath(rawPath, allowedPaths);
+  const safe = await safePath(rawPath, resolveToolAllowedPaths(allowedPaths, args));
   if (!safe.safe) {
     return errorResult(
       safe.reason ?? "Calendar path is outside allowed directories",
@@ -283,7 +284,7 @@ function createCalendarInfoTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolveCalendarPath(args.path, allowedPaths);
+      const resolved = await resolveCalendarPath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }
@@ -338,7 +339,7 @@ function createCalendarReadTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolveCalendarPath(args.path, allowedPaths);
+      const resolved = await resolveCalendarPath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }

@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import { silentLogger } from "../../utils/logger.js";
-import { safePath } from "./filesystem.js";
+import { resolveToolAllowedPaths, safePath } from "./filesystem.js";
 import type { SystemSpreadsheetToolConfig } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -365,11 +365,12 @@ function normalizePositiveInteger(
 async function resolveSpreadsheetPath(
   rawPath: unknown,
   allowedPaths: readonly string[],
+  args: Record<string, unknown>,
 ): Promise<string | ToolResult> {
   if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
     return errorResult("Missing or invalid path");
   }
-  const safe = await safePath(rawPath, allowedPaths);
+  const safe = await safePath(rawPath, resolveToolAllowedPaths(allowedPaths, args));
   if (!safe.safe) {
     return errorResult(
       safe.reason ?? "Spreadsheet path is outside allowed directories",
@@ -447,7 +448,7 @@ function createSpreadsheetInfoTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolveSpreadsheetPath(args.path, allowedPaths);
+      const resolved = await resolveSpreadsheetPath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }
@@ -523,7 +524,7 @@ function createSpreadsheetReadTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolveSpreadsheetPath(args.path, allowedPaths);
+      const resolved = await resolveSpreadsheetPath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }

@@ -1,13 +1,13 @@
 /** A loaded documentation entry */
 export interface DocEntry {
-  /** Relative path from docs root (e.g. "architecture/overview.md") */
+  /** Repository-relative path (e.g. "docs/architecture/overview.md") */
   path: string;
   /** Document title (first # heading or filename) */
   title: string;
   /** Raw markdown content */
   content: string;
   /** Document category */
-  category: 'architecture' | 'flow' | 'phase' | 'guide' | 'other';
+  category: 'architecture' | 'flow' | 'phase' | 'guide' | 'runbook' | 'baseline' | 'artifact' | 'planning' | 'repo-meta' | 'other';
 }
 
 /** A roadmap issue entry from issue-map.json */

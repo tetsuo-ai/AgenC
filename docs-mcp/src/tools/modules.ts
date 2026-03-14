@@ -173,7 +173,7 @@ export function registerModuleTools(server: McpServer, docs: Map<string, DocEntr
       ];
 
       // Try to find related architecture doc
-      const relatedDoc = docs.get(`architecture/runtime-layers.md`);
+      const relatedDoc = docs.get('docs/architecture/runtime-layers.md');
       if (relatedDoc) {
         const moduleTag = `\`${moduleName}/\``;
         const moduleSection = relatedDoc.content
