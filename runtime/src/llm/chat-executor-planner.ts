@@ -3986,6 +3986,7 @@ export function buildPlannerSynthesisFallbackContent(
   plannerPlan: PlannerPlan,
   pipelineResult: PipelineResult,
   verificationDecision?: SubagentVerifierDecision,
+  verifierRounds?: number,
   failureDetail?: string,
 ): string {
   const deterministicSteps = plannerPlan.steps
@@ -4026,7 +4027,11 @@ export function buildPlannerSynthesisFallbackContent(
           .join(", ")}`
       : null,
     verificationDecision
-      ? `Verifier: ${verificationDecision.overall} (${verificationDecision.rounds} round${verificationDecision.rounds === 1 ? "" : "s"})`
+      ? (
+          typeof verifierRounds === "number" && verifierRounds > 0
+            ? `Verifier: ${verificationDecision.overall} (${verifierRounds} round${verifierRounds === 1 ? "" : "s"})`
+            : `Verifier: ${verificationDecision.overall}`
+        )
       : null,
     unresolvedItems.length > 0
       ? `Unresolved: ${unresolvedItems.join(", ")}`

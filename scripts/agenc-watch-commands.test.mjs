@@ -28,6 +28,7 @@ function createCommandHarness(overrides = {}) {
       { name: "/help", usage: "/help", description: "show help", aliases: [] },
       { name: "/clear", usage: "/clear", description: "clear console", aliases: [] },
       { name: "/export", usage: "/export", description: "export view", aliases: [] },
+      { name: "/init", usage: "/init", description: "init guide", aliases: [] },
     ],
     parseWatchSlashCommand(value) {
       const trimmed = String(value ?? "").trim();
@@ -40,6 +41,7 @@ function createCommandHarness(overrides = {}) {
           "/help",
           "/clear",
           "/export",
+          "/init",
           "/status",
           "/logs",
           "/new",
@@ -151,4 +153,25 @@ test("command controller serves daemon logs locally for /logs", () => {
 
   assert.ok(calls.some((entry) => entry.type === "logs" && entry.lines === 5));
   assert.ok(calls.some((entry) => entry.type === "event" && entry.kind === "logs"));
+});
+
+test("command controller forwards /init to the daemon chat surface", () => {
+  const { controller, calls } = createCommandHarness();
+
+  assert.equal(controller.dispatchOperatorInput("/init --force"), true);
+
+  assert.ok(
+    calls.some(
+      (entry) =>
+        entry.type === "send" &&
+        entry.frameType === "chat.message" &&
+        entry.payload?.content === "/init --force",
+    ),
+  );
+  assert.ok(
+    calls.some(
+      (entry) =>
+        entry.type === "event" && entry.title === "Project Guide Init",
+    ),
+  );
 });

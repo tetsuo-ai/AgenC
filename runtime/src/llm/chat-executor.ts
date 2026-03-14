@@ -4121,6 +4121,7 @@ export class ChatExecutor {
                 plannerPlan,
                 pipelineResult,
                 verificationDecision,
+                verifierRounds,
                 failureDetail,
               );
             } else {

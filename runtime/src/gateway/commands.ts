@@ -275,6 +275,17 @@ export function createDefaultCommands(): SlashCommandDef[] {
       },
     },
     {
+      name: "init",
+      description: "Generate an AGENC.md contributor guide",
+      args: "[--force]",
+      global: true,
+      handler: async (ctx) => {
+        await ctx.reply(
+          "Project guide init is not wired in this surface yet.",
+        );
+      },
+    },
+    {
       name: "reset",
       description: "Reset session and clear context",
       global: true,

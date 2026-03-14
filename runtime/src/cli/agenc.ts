@@ -49,6 +49,7 @@ function buildHelp(): string {
     "  agenc",
     "  agenc --config ~/.agenc/config.json",
     "  agenc console --yolo",
+    "  agenc init",
     "  agenc status",
     "  agenc start --foreground",
     "  agenc-runtime --help",

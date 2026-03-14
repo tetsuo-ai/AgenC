@@ -79,6 +79,7 @@ test("matchWatchCommands filters by prefix and aliases", () => {
     matchWatchCommands("/se").map((command) => command.name),
     ["/session", "/sessions"],
   );
+  assert.equal(findWatchCommandDefinition("/init")?.name, "/init");
   assert.equal(findWatchCommandDefinition("/commands")?.name, "/help");
   assert.equal(findWatchCommandDefinition("/copy")?.name, "/export");
   assert.equal(findWatchCommandDefinition("/models")?.name, "/model");

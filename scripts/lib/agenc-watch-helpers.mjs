@@ -13,6 +13,11 @@ export const WATCH_COMMANDS = Object.freeze([
     description: "Start a fresh chat session.",
   }),
   Object.freeze({
+    name: "/init",
+    usage: "/init [--force]",
+    description: "Generate an AGENC.md contributor guide for this repo.",
+  }),
+  Object.freeze({
     name: "/sessions",
     usage: "/sessions",
     description: "List resumable chat sessions for this operator.",

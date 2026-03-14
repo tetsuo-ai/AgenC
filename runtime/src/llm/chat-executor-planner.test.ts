@@ -4,6 +4,7 @@ import {
   assessPlannerDecision,
   buildPipelineFailureRepairRefinementHint,
   buildPlannerMessages,
+  buildPlannerSynthesisFallbackContent,
   buildPlannerVerificationRequirementsFailureMessage,
   buildPlannerVerificationRequirementsRefinementHint,
   extractPlannerVerificationCommandRequirements,
@@ -642,6 +643,46 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
       forcePlanner: true,
       exactResponseLiteral: "A1_R1_DONE",
     });
+  });
+
+  it("renders verifier rounds in planner synthesis fallback content from the summary state", () => {
+    const content = buildPlannerSynthesisFallbackContent(
+      {
+        reason: "delegated_investigation",
+        requiresSynthesis: true,
+        steps: [
+          {
+            name: "delegate_logs",
+            stepType: "subagent_task",
+          },
+        ],
+      } as any,
+      {
+        status: "completed",
+        context: {
+          results: {
+            delegate_logs: JSON.stringify({
+              status: "completed",
+              output: "Collected evidence",
+            }),
+          },
+        },
+        completedSteps: 1,
+        totalSteps: 1,
+      } as any,
+      {
+        overall: "pass",
+        confidence: 0.92,
+        unresolvedItems: [],
+        steps: [],
+        source: "model",
+      },
+      2,
+      "planner_synthesis model call failed (timeout)",
+    );
+
+    expect(content).toContain("Verifier: pass (2 rounds)");
+    expect(content).toContain("delegate_logs [source:delegate_logs]");
   });
 
   it("treats execute_with_agent as the explicit parent tool when child tool usage is nested", () => {

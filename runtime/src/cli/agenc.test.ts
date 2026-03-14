@@ -127,6 +127,7 @@ describe("agenc launcher CLI", () => {
 
     expect(code).toBe(0);
     expect(stdout.data()).toContain("agenc [console]");
+    expect(stdout.data()).toContain("agenc init");
     expect(stdout.data()).toContain("agenc status");
     expect(runOperatorConsole).not.toHaveBeenCalled();
     expect(runCli).not.toHaveBeenCalled();

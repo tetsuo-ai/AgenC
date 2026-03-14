@@ -222,6 +222,7 @@ import { formatForChannel } from "./format.js";
 import type { ChannelPlugin } from "./channel.js";
 import type { ProactiveCommunicator } from "./proactive.js";
 import { ToolRouter, type ToolRoutingDecision } from "./tool-routing.js";
+import { writeProjectGuide } from "../project-doc.js";
 import {
   filterLlmToolsByEnvironment,
   filterNamedToolsByEnvironment,
@@ -6303,6 +6304,33 @@ export class DaemonManager {
           progressTracker,
         });
         await ctx.reply("Session reset. Starting fresh conversation.");
+      },
+    });
+    commandRegistry.register({
+      name: "init",
+      description: "Generate an AGENC.md contributor guide",
+      args: "[--force]",
+      global: true,
+      handler: async (ctx) => {
+        const force = ctx.argv.includes("--force");
+        const workspaceRoot =
+          (typeof this._webChatChannel?.loadSessionWorkspaceRoot === "function"
+            ? await this._webChatChannel.loadSessionWorkspaceRoot(ctx.sessionId)
+            : undefined) ??
+          this._hostWorkspacePath ??
+          process.cwd();
+
+        const result = await writeProjectGuide(workspaceRoot, { force });
+        if (result.status === "skipped") {
+          await ctx.reply(
+            `AGENC.md already exists at ${result.filePath}. Use /init --force to overwrite it.`,
+          );
+          return;
+        }
+
+        await ctx.reply(
+          `${result.status === "updated" ? "Updated" : "Created"} AGENC.md at ${result.filePath}.`,
+        );
       },
     });
     commandRegistry.register({
