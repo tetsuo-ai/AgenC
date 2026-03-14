@@ -644,6 +644,43 @@ describe("chat-executor-planner explicit orchestration requirements", () => {
     });
   });
 
+  it("treats execute_with_agent as the explicit parent tool when child tool usage is nested", () => {
+    const requirements = extractExplicitDeterministicToolRequirements(
+      "Use the execute_with_agent tool exactly once. " +
+        "Delegate a child task that uses system.bash to run /bin/pwd with working directory /home/tetsuo/git/AgenC. " +
+        "The parent must not call system.bash directly. " +
+        "After the child finishes, reply with exactly `SUBAGENT_SMOKE::/home/tetsuo/git/AgenC`.",
+      ["execute_with_agent", "system.bash"],
+    );
+
+    expect(requirements).toEqual({
+      orderedToolNames: ["execute_with_agent"],
+      minimumToolCallsByName: { execute_with_agent: 1 },
+      forcePlanner: false,
+      exactResponseLiteral: "SUBAGENT_SMOKE::/home/tetsuo/git/AgenC",
+    });
+  });
+
+  it("keeps parent-level tools after delegated work when they are not nested child instructions", () => {
+    const requirements = extractExplicitDeterministicToolRequirements(
+      "Use the execute_with_agent tool exactly once. " +
+        "Delegate a child task that uses system.bash to inspect /tmp/example. " +
+        "After the child completes, use system.bash to run /usr/bin/printf DONE\\n. " +
+        "Reply with exactly `DONE`.",
+      ["execute_with_agent", "system.bash"],
+    );
+
+    expect(requirements).toEqual({
+      orderedToolNames: ["execute_with_agent", "system.bash"],
+      minimumToolCallsByName: {
+        execute_with_agent: 1,
+        "system.bash": 1,
+      },
+      forcePlanner: false,
+      exactResponseLiteral: "DONE",
+    });
+  });
+
   it("adds first-pass planner guidance for explicit deterministic tool contracts", () => {
     const requirements = extractExplicitDeterministicToolRequirements(
       "Run token: social-live-20260310f.\n" +

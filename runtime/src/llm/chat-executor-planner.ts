@@ -57,7 +57,10 @@ import {
   parseJsonObjectFromText,
   normalizeHistory,
 } from "./chat-executor-text.js";
-import { extractExplicitImperativeToolNames } from "./chat-executor-explicit-tools.js";
+import {
+  buildImperativeToolReferenceRegex,
+  extractExplicitImperativeToolNames,
+} from "./chat-executor-explicit-tools.js";
 import { didToolCallFail } from "./chat-executor-tool-utils.js";
 import { safeStringify } from "../tools/types.js";
 import {
@@ -983,10 +986,7 @@ function extractExplicitToolDirectiveSegment(
   toolName: string,
   orderedToolNames: readonly string[],
 ): string {
-  const invocationRe = new RegExp(
-    String.raw`\b(?:use|call|invoke|run)\s+\`?${escapeRegex(toolName)}\`?\b`,
-    "i",
-  );
+  const invocationRe = buildImperativeToolReferenceRegex(toolName, "i");
   const invocationMatch = invocationRe.exec(messageText);
   if (!invocationMatch) {
     return messageText;
@@ -1004,8 +1004,8 @@ function extractExplicitToolDirectiveSegment(
 
   for (const otherToolName of orderedToolNames) {
     if (otherToolName === toolName) continue;
-    const otherInvocationRe = new RegExp(
-      String.raw`\b(?:use|call|invoke|run)\s+\`?${escapeRegex(otherToolName)}\`?\b`,
+    const otherInvocationRe = buildImperativeToolReferenceRegex(
+      otherToolName,
       "ig",
     );
     let otherMatch: RegExpExecArray | null;
@@ -1099,10 +1099,6 @@ function normalizeExactLiteralCandidate(candidate: string): string | undefined {
   }
 
   return undefined;
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ============================================================================

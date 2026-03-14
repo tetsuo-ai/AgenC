@@ -4,11 +4,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { randomUUID } from "node:crypto";
-import WebSocket from "../node_modules/ws/wrapper.mjs";
 import {
   DEFAULT_READINESS_TIMEOUT_MS,
   waitForAllAgentRuntimesReady,
 } from "./agenc-social-readiness.mjs";
+import { loadWebSocketConstructor } from "./lib/agenc-websocket.mjs";
+
+const WebSocket = await loadWebSocketConstructor();
 
 const DEFAULT_SUMMARY_PATH = path.join(
   process.env.HOME ?? "/tmp",

@@ -5,7 +5,7 @@ import type { SearchIndex } from '../search.js';
 export function registerSearchTools(server: McpServer, searchIndex: SearchIndex): void {
   server.tool(
     'docs_search',
-    'Full-text search across AgenC architecture documentation. Returns ranked results with context snippets.',
+    'Full-text search across AgenC documentation, planning docs, and contract artifacts. Returns ranked results with context snippets.',
     { query: z.string().describe('Search query (e.g. "gateway", "dispute resolution", "tool registry")') },
     async ({ query }) => {
       const results = searchIndex.search(query, 10);
@@ -22,7 +22,7 @@ export function registerSearchTools(server: McpServer, searchIndex: SearchIndex)
 
       for (const result of results) {
         lines.push(`### ${result.title} (${Math.round(result.score * 100)}% match)`);
-        lines.push(`**Path:** \`docs/${result.path}\``);
+        lines.push(`**Path:** \`${result.path}\``);
         lines.push('');
         lines.push(result.snippet);
         lines.push('');

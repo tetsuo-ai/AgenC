@@ -11,6 +11,7 @@ import {
 } from "./delegation-runtime.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 import { SessionCredentialBroker } from "../policy/session-credentials.js";
+import { SESSION_ALLOWED_ROOTS_ARG } from "../tools/system/filesystem.js";
 
 function createTempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -367,6 +368,83 @@ describe("createSessionToolHandler", () => {
           content: "export const grid = true;\n",
         },
       },
+    });
+  });
+
+  it("resolves workspace context per call and injects the session root only into path-gated tool executions", async () => {
+    const sessionWorkspaceRoot = createTempDir("agenc-tool-handler-session-root-");
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+    const baseHandler = vi.fn(async () => '{"ok":true}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+      defaultWorkingDirectory: "/tmp/daemon-root",
+      resolveWorkspaceContext: async () => ({
+        defaultWorkingDirectory: sessionWorkspaceRoot,
+        workspaceAliasRoot: sessionWorkspaceRoot,
+        scopedFilesystemRoot: sessionWorkspaceRoot,
+        additionalAllowedPaths: [sessionWorkspaceRoot],
+      }),
+    });
+
+    try {
+      await handler("system.writeFile", {
+        path: "src/session.ts",
+        content: "export const sessionScoped = true;\n",
+      });
+    } finally {
+      rmSync(sessionWorkspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: `${sessionWorkspaceRoot}/src/session.ts`,
+      content: "export const sessionScoped = true;\n",
+      [SESSION_ALLOWED_ROOTS_ARG]: [sessionWorkspaceRoot],
+    });
+    expect(sentMessages[0]).toMatchObject({
+      type: "tools.executing",
+      payload: {
+        toolName: "system.writeFile",
+        args: {
+          path: `${sessionWorkspaceRoot}/src/session.ts`,
+          content: "export const sessionScoped = true;\n",
+        },
+      },
+    });
+    expect((sentMessages[0]?.payload as Record<string, unknown>)).not.toHaveProperty(
+      SESSION_ALLOWED_ROOTS_ARG,
+    );
+  });
+
+  it("strips spoofed internal allowed-root args from caller-controlled input", async () => {
+    const workspaceRoot = createTempDir("agenc-tool-handler-spoofed-root-");
+    const baseHandler = vi.fn(async () => '{"ok":true}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: workspaceRoot,
+    });
+
+    try {
+      await handler("system.writeFile", {
+        path: "src/index.ts",
+        content: "export const safe = true;\n",
+        [SESSION_ALLOWED_ROOTS_ARG]: ["/tmp/evil-root"],
+      });
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: `${workspaceRoot}/src/index.ts`,
+      content: "export const safe = true;\n",
     });
   });
 
