@@ -9,11 +9,11 @@ import {
   createLogger as sdkCreateLogger,
   type LogLevel,
   type Logger,
-} from "@agenc/sdk";
+} from "../../../sdk/src/logger.ts";
 
 // Re-export types and silentLogger directly — identical to SDK
-export { silentLogger } from "@agenc/sdk";
-export type { LogLevel, Logger } from "@agenc/sdk";
+export { silentLogger } from "../../../sdk/src/logger.ts";
+export type { LogLevel, Logger } from "../../../sdk/src/logger.ts";
 
 /**
  * Create a logger instance with the specified minimum level

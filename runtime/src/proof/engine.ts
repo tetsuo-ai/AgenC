@@ -12,8 +12,9 @@ import {
   generateProof as sdkGenerateProof,
   computeHashes as sdkComputeHashes,
   generateSalt as sdkGenerateSalt,
-} from "@agenc/sdk";
-import type { HashResult, ProverConfig as SdkProverConfig } from "@agenc/sdk";
+} from "../../../sdk/src/proofs.ts";
+import type { HashResult } from "../../../sdk/src/proofs.ts";
+import type { ProverConfig as SdkProverConfig } from "../../../sdk/src/prover.ts";
 import type { ProofGenerator } from "../task/proof-pipeline.js";
 import type {
   OnChainTask,

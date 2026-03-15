@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgenC Private Proof Benchmark</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --card: #ffffff;
+        --ink: #132033;
+        --muted: #5f6c7c;
+        --line: #d9e0ea;
+        --accent: #1769aa;
+        --good: #1f7a3d;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, #eef4fb 0%, var(--bg) 100%);
+        color: var(--ink);
+        font:
+          16px/1.5 "IBM Plex Sans",
+          "Segoe UI",
+          sans-serif;
+      }
+
+      main {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 48px 20px 72px;
+      }
+
+      h1,
+      h2 {
+        margin: 0 0 12px;
+      }
+
+      p {
+        margin: 0 0 16px;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        margin: 28px 0;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 18px;
+        box-shadow: 0 12px 30px rgba(19, 32, 51, 0.06);
+      }
+
+      .metric {
+        font-size: 30px;
+        font-weight: 700;
+        color: var(--accent);
+      }
+
+      .label {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+
+      .status {
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #e7f5ec;
+        color: var(--good);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .links {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 22px 0 28px;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 12px 30px rgba(19, 32, 51, 0.06);
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      th {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      code {
+        font:
+          12px/1.4 "IBM Plex Mono",
+          "SFMono-Regular",
+          monospace;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <span class="status">Public benchmark registry</span>
+      <h1>AgenC Private Proof Benchmark</h1>
+      <p>
+        This page publishes the latest end-to-end private task benchmark:
+        create task, claim task, generate a real proof through the remote prover,
+        and submit <code>completeTaskPrivate</code>.
+      </p>
+
+      <div class="links">
+        <a href="./latest.json">Raw JSON</a>
+        <a href="./latest.md">Markdown summary</a>
+        <a href="https://github.com/tetsuo-ai/AgenC">Repository</a>
+      </div>
+
+      <section class="grid" id="summary"></section>
+      <section id="details"></section>
+    </main>
+
+    <script type="module">
+      async function loadBenchmark() {
+        const response = await fetch("./latest.json", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("latest.json is not available yet");
+        }
+        return response.json();
+      }
+
+      function metric(label, value) {
+        return `
+          <article class="card">
+            <div class="label">${label}</div>
+            <div class="metric">${value}</div>
+          </article>
+        `;
+      }
+
+      function renderNotRun(data) {
+        document.getElementById("summary").innerHTML = `
+          <article class="card" style="grid-column: 1 / -1;">
+            <div class="label">Status</div>
+            <div class="metric" style="font-size:24px;color:#5f6c7c;">${data.message}</div>
+          </article>
+        `;
+      }
+
+      function renderArtifact(data) {
+        document.getElementById("summary").innerHTML = [
+          metric("Mean proof ms", data.aggregate.meanProofGenerationMs.toFixed(2)),
+          metric("Mean submit ms", data.aggregate.meanSubmitCompletionMs.toFixed(2)),
+          metric("Mean total ms", data.aggregate.meanTotalMs.toFixed(2)),
+          metric("Rounds", String(data.aggregate.rounds)),
+        ].join("");
+
+        const rows = data.rounds
+          .map(
+            (round) => `
+              <tr>
+                <td>${round.round}</td>
+                <td>${round.timingsMs.proofGeneration.toFixed(2)}</td>
+                <td>${round.timingsMs.submitCompletion.toFixed(2)}</td>
+                <td>${round.timingsMs.total.toFixed(2)}</td>
+                <td><code>${round.taskPda}</code></td>
+                <td><code>${round.signatures.completeTaskPrivate}</code></td>
+              </tr>
+            `,
+          )
+          .join("");
+
+        document.getElementById("details").innerHTML = `
+          <p>
+            Updated <strong>${data.generatedAt}</strong><br />
+            RPC: <code>${data.network.rpcUrl}</code><br />
+            Prover: <code>${data.prover.endpoint}</code>
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Round</th>
+                <th>Proof ms</th>
+                <th>Submit ms</th>
+                <th>Total ms</th>
+                <th>Task</th>
+                <th>Completion tx</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      }
+
+      try {
+        const data = await loadBenchmark();
+        if (data.status === "not-run") {
+          renderNotRun(data);
+        } else {
+          renderArtifact(data);
+        }
+      } catch (error) {
+        renderNotRun({
+          message:
+            error instanceof Error ? error.message : "No benchmark data is available yet.",
+        });
+      }
+    </script>
+  </body>
+</html>
