@@ -355,15 +355,16 @@ function printHelpAndExit(): never {
 function parseCliArgs(argv: string[]): CliOptions {
   const options = resolveDefaultOptions();
 
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
+  let index = 0;
+  while (index < argv.length) {
+    const arg = argv[index];
     if (arg === "--help") {
       printHelpAndExit();
     }
 
-    const parsedValue = readCliValue(argv, i, arg);
+    const parsedValue = readCliValue(argv, index, arg);
     applyCliOption(options, arg, parsedValue.value);
-    i = parsedValue.nextIndex;
+    index = parsedValue.nextIndex + 1;
   }
 
   if (!options.proverEndpoint) {
@@ -1138,12 +1139,10 @@ async function main(): Promise<void> {
   );
 }
 
-void (async () => {
-  try {
-    await main();
-  } catch (error) {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    console.error(`Private E2E benchmark failed: ${message}`);
-    process.exit(1);
-  }
-})();
+try {
+  await main();
+} catch (error) {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  console.error(`Private E2E benchmark failed: ${message}`);
+  process.exit(1);
+}

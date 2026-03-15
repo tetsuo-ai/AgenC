@@ -10,7 +10,7 @@
     "start": "tsx src/index.ts",
     "headless": "tsx src/index.ts --headless",
     "test": "vitest",
-    "benchmark:private:e2e": "npx tsx scripts/benchmark-private-e2e.ts"
+    "benchmark:private:e2e": "npx tsx scripts/benchmark-private-e2e.mts"
   },
   "dependencies": {
     "markdown-it": "^14.1.1",
