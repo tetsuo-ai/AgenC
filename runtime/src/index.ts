@@ -97,6 +97,8 @@ export {
   // Agent functions
   agentStatusToString,
   isValidAgentStatus,
+  Capability,
+  combineCapabilities,
   hasCapability,
   getCapabilityNames,
   createCapabilityMask,

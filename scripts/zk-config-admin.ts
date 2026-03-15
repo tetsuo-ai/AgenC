@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { createProgram } from "../runtime/src/idl.js";
+import { createProgram } from "../runtime/src/index.js";
 
 const DEFAULT_RPC_URL =
   process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";
