@@ -19,19 +19,25 @@ describe("normalizeGrokModel", () => {
     expect(normalizeGrokModel("grok-4-fast-reasoning")).toBe("grok-4-1-fast-reasoning");
     expect(normalizeGrokModel("grok-4-fast-non-reasoning")).toBe("grok-4-1-fast-non-reasoning");
   });
+
+  it("maps superseded 0304 experimental models to 0309 beta successors", () => {
+    expect(normalizeGrokModel("grok-4.20-experimental-beta-0304-reasoning")).toBe("grok-4.20-beta-0309-reasoning");
+    expect(normalizeGrokModel("grok-4.20-experimental-beta-0304-non-reasoning")).toBe("grok-4.20-beta-0309-non-reasoning");
+    expect(normalizeGrokModel("grok-4.20-multi-agent-experimental-beta-0304")).toBe("grok-4.20-multi-agent-beta-0309");
+  });
 });
 
 describe("inferGrokContextWindowTokens", () => {
-  it("resolves 2M windows for grok-4 fast models", () => {
+  it("resolves 2M windows for grok-4 fast and 0309 beta models", () => {
     expect(inferGrokContextWindowTokens("grok-4-1-fast")).toBe(2_000_000);
     expect(inferGrokContextWindowTokens("grok-4-1-fast-reasoning")).toBe(2_000_000);
     expect(inferGrokContextWindowTokens("grok-4-1-fast-non-reasoning")).toBe(2_000_000);
     expect(inferGrokContextWindowTokens("grok-4-fast")).toBe(2_000_000);
     expect(inferGrokContextWindowTokens("grok-4-fast-reasoning")).toBe(2_000_000);
     expect(inferGrokContextWindowTokens("grok-4-fast-non-reasoning")).toBe(2_000_000);
-    expect(inferGrokContextWindowTokens("grok-4.20-experimental-beta-0304-reasoning")).toBe(2_000_000);
-    expect(inferGrokContextWindowTokens("grok-4.20-experimental-beta-0304-non-reasoning")).toBe(2_000_000);
-    expect(inferGrokContextWindowTokens("grok-4.20-multi-agent-experimental-beta-0304")).toBe(2_000_000);
+    expect(inferGrokContextWindowTokens("grok-4.20-beta-0309-reasoning")).toBe(2_000_000);
+    expect(inferGrokContextWindowTokens("grok-4.20-beta-0309-non-reasoning")).toBe(2_000_000);
+    expect(inferGrokContextWindowTokens("grok-4.20-multi-agent-beta-0309")).toBe(2_000_000);
   });
 
   it("resolves model-specific windows for non-fast variants", () => {
@@ -39,7 +45,6 @@ describe("inferGrokContextWindowTokens", () => {
     expect(inferGrokContextWindowTokens("grok-code-fast-1")).toBe(256_000);
     expect(inferGrokContextWindowTokens("grok-3")).toBe(131_072);
     expect(inferGrokContextWindowTokens("grok-3-mini")).toBe(131_072);
-    expect(inferGrokContextWindowTokens("grok-2-vision-1212")).toBe(32_768);
   });
 });
 
@@ -54,6 +59,27 @@ describe("listKnownGrokModels", () => {
       id: "grok-3-mini",
       contextWindowTokens: 131_072,
     });
+  });
+
+  it("includes 0309 beta models with aliases from superseded 0304 variants", () => {
+    const models = listKnownGrokModels();
+    const reasoning = models.find((e) => e.id === "grok-4.20-beta-0309-reasoning");
+    expect(reasoning).toBeDefined();
+    expect(reasoning!.contextWindowTokens).toBe(2_000_000);
+    expect(reasoning!.aliases).toContain("grok-4.20-experimental-beta-0304-reasoning");
+  });
+
+  it("includes media models with modality set and zero context window", () => {
+    const models = listKnownGrokModels();
+    const imagineImage = models.find((e) => e.id === "grok-imagine-image");
+    expect(imagineImage).toBeDefined();
+    expect(imagineImage!.contextWindowTokens).toBe(0);
+    expect(imagineImage!.modality).toBe("text, image → image");
+
+    const imagineVideo = models.find((e) => e.id === "grok-imagine-video");
+    expect(imagineVideo).toBeDefined();
+    expect(imagineVideo!.contextWindowTokens).toBe(0);
+    expect(imagineVideo!.modality).toBe("text, image, video → video");
   });
 });
 

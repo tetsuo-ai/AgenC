@@ -457,6 +457,7 @@ export class ChatExecutor {
   private readonly evaluator?: EvaluatorConfig;
   private readonly plannerEnabled: boolean;
   private readonly plannerMaxTokens: number;
+  private readonly delegationNestingDepth: number;
   private readonly pipelineExecutor?: DeterministicPipelineExecutor;
   private readonly delegationDecisionConfig: ResolvedDelegationDecisionConfig;
   private readonly resolveDelegationScoreThreshold?: () => number | undefined;
@@ -530,6 +531,10 @@ export class ChatExecutor {
     this.plannerMaxTokens = Math.max(
       32,
       Math.floor(config.plannerMaxTokens ?? DEFAULT_PLANNER_MAX_TOKENS),
+    );
+    this.delegationNestingDepth = Math.max(
+      0,
+      Math.floor(config.delegationNestingDepth ?? 0),
     );
     this.pipelineExecutor = config.pipelineExecutor;
     this.delegationDecisionConfig = resolveDelegationDecisionConfig(
@@ -3055,6 +3060,9 @@ export class ChatExecutor {
         this.resolveHostToolingProfile?.(),
         {
           maxSubagentFanout: this.delegationDecisionConfig.maxFanoutPerTurn,
+          currentDelegationDepth: this.delegationNestingDepth,
+          maxDelegationDepth: this.delegationDecisionConfig.maxDepth,
+          childCanDelegate: this.delegationNestingDepth + 1 < this.delegationDecisionConfig.maxDepth,
         },
       );
       const plannerResponse = await this.callModelForPhase(ctx, {

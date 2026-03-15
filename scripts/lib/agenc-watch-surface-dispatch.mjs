@@ -73,8 +73,11 @@ function handleSessionSurfaceEvent(surfaceEvent, state, api) {
       state.sessionId = payload.sessionId ?? state.sessionId;
       api.persistSessionId(state.sessionId);
       state.sessionAttachedAtMs = api.now();
+      state.runState = "idle";
+      state.runPhase = null;
       state.bootstrapReady = false;
       api.clearBootstrapTimer();
+      api.resetLiveRunSurface();
       api.setTransientStatus(`session resumed: ${state.sessionId}; restoring history`);
       api.send("chat.history", api.authPayload({ limit: 50 }));
       api.requestRunInspect("resume", { force: true });
@@ -351,12 +354,18 @@ function handleAgentSurfaceEvent(surfaceEvent, state, api) {
     return false;
   }
   state.runPhase = payload.phase ?? state.runPhase;
+  if (payload.phase === "idle") {
+    state.runState = "idle";
+    state.activeRunStartedAtMs = null;
+  }
   api.setTransientStatus(
     payload.phase
       ? `phase ${payload.phase}`
       : "agent status updated",
   );
-  api.requestRunInspect("agent status");
+  if (payload.phase !== "idle") {
+    api.requestRunInspect("agent status");
+  }
   return true;
 }
 

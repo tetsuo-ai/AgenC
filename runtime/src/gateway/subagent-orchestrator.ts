@@ -83,6 +83,7 @@ import { tokenizeShellCommand } from "../tools/system/command-line.js";
 interface SubAgentExecutionManager {
   spawn(config: SubAgentConfig): Promise<string>;
   getResult(sessionId: string): SubAgentResult | null;
+  cancel(sessionId: string): boolean;
 }
 
 interface ResolvedChildPromptBudget {
@@ -167,6 +168,7 @@ interface ExecuteSubagentAttemptParams {
   readonly diagnostics: SubagentContextDiagnostics;
   readonly tools: readonly string[];
   readonly lifecycleEmitter: SubAgentLifecycleEmitter | null;
+  readonly signal?: AbortSignal;
 }
 
 type ExecuteSubagentAttemptOutcome =
@@ -204,6 +206,7 @@ interface RuntimeNode {
 interface RunningNode {
   readonly promise: Promise<NodeExecutionOutcome>;
   readonly exclusive: boolean;
+  readonly abortController: AbortController;
 }
 
 interface DependencySatisfactionState {
@@ -888,12 +891,14 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
             args: traceArgs,
           });
         }
+        const nodeAbortController = new AbortController();
         const promise = this.executeNode(
           node.step,
           pipeline,
           mutableResults,
           budgetTracker,
           options,
+          nodeAbortController.signal,
         ).then((outcome) => {
           if (emitPlannerNodeTrace) {
             const event: {
@@ -927,7 +932,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
           }
           return outcome;
         });
-        running.set(node.step.name, { promise, exclusive: exclusiveNode });
+        running.set(node.step.name, { promise, exclusive: exclusiveNode, abortController: nodeAbortController });
         pending.delete(node.step.name);
         scheduledAny = true;
 
@@ -987,6 +992,14 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
       }
 
       if (completion.outcome.status === "halted") {
+        // Cancel all still-running siblings before returning
+        for (const [, handle] of running) {
+          handle.abortController.abort();
+        }
+        if (running.size > 0) {
+          await Promise.allSettled(Array.from(running.values()).map((h) => h.promise));
+          running.clear();
+        }
         return {
           status: "halted",
           context: { results: { ...mutableResults } },
@@ -999,6 +1012,14 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
 
       if (typeof completion.outcome.result === "string") {
         mutableResults[node.step.name] = completion.outcome.result;
+      }
+      // Cancel all still-running siblings before returning
+      for (const [, handle] of running) {
+        handle.abortController.abort();
+      }
+      if (running.size > 0) {
+        await Promise.allSettled(Array.from(running.values()).map((h) => h.promise));
+        running.clear();
       }
       return {
         status: "failed",
@@ -1408,12 +1429,16 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     results: Record<string, string>,
     budgetTracker: RequestTreeBudgetTracker,
     options?: PipelineExecutionOptions,
+    signal?: AbortSignal,
   ): Promise<NodeExecutionOutcome> {
+    if (signal?.aborted) {
+      return { status: "failed", error: "Step cancelled (sibling failure)", stopReasonHint: "cancelled" };
+    }
     if (step.stepType === "deterministic_tool") {
       return this.executeDeterministicStep(step, pipeline, results, options);
     }
     if (step.stepType === "subagent_task") {
-      return this.executeSubagentStep(step, pipeline, results, budgetTracker);
+      return this.executeSubagentStep(step, pipeline, results, budgetTracker, signal);
     }
     // Synthesis node is materialized as a no-op execution marker.
     return {
@@ -1482,6 +1507,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     pipeline: Pipeline,
     results: Record<string, string>,
     budgetTracker: RequestTreeBudgetTracker,
+    signal?: AbortSignal,
   ): Promise<NodeExecutionOutcome> {
     const subAgentManager = this.resolveSubAgentManager();
     if (!subAgentManager) {
@@ -1600,6 +1626,9 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     let taskPrompt = subagentTask.taskPrompt;
 
     while (true) {
+      if (signal?.aborted) {
+        return { status: "failed", error: "Step cancelled (sibling failure)", stopReasonHint: "cancelled" };
+      }
       attempt += 1;
       const reservationBreach = budgetTracker.reserveSpawn();
       if (reservationBreach) {
@@ -1641,6 +1670,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
         diagnostics: subagentTask.diagnostics,
         tools: toolScope.allowedTools,
         lifecycleEmitter,
+        signal,
       });
       if (attemptOutcome.status === "completed") {
         const acceptanceProbeFailure =
@@ -2588,6 +2618,18 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     });
 
     while (true) {
+      if (input.signal?.aborted) {
+        // Sibling step failed — cancel this child sub-agent and bail
+        input.subAgentManager.cancel(childSessionId);
+        return {
+          status: "failed",
+          failure: {
+            failureClass: "cancelled",
+            message: `Sub-agent for step "${input.step.name}" cancelled (sibling failure)`,
+            stopReasonHint: "cancelled",
+          },
+        };
+      }
       const result = input.subAgentManager.getResult(childSessionId);
       if (!result) {
         await sleep(this.pollIntervalMs);

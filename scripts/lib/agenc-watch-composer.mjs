@@ -1,4 +1,5 @@
 import { searchWorkspaceFileIndex } from "./agenc-watch-workspace-index.mjs";
+import { matchModelNames } from "./agenc-watch-helpers.mjs";
 
 const TOKEN_BOUNDARY_RE = /[\s([<{,;"']/;
 const TOKEN_TERMINATOR_RE = /[\s)\]}>,;"']/;
@@ -186,7 +187,23 @@ export function autocompleteSlashComposerInput(state, matchCommands) {
     return false;
   }
   const trimmed = input.trimStart();
-  const [commandToken = "/"] = trimmed.split(/\s+/, 1);
+  const parts = trimmed.split(/\s+/);
+  const commandToken = parts[0] ?? "/";
+
+  // If the command is already `/model` and there's a space after it,
+  // complete the model argument instead of the command name.
+  if ((commandToken === "/model" || commandToken === "/models") && trimmed.length > commandToken.length) {
+    const argStart = trimmed.indexOf(commandToken) + commandToken.length;
+    const argText = trimmed.slice(argStart).trimStart();
+    const matches = matchModelNames(argText, { limit: 1 });
+    if (matches.length === 0) return false;
+    const leadingWhitespace = input.match(/^\s*/)?.[0] ?? "";
+    const completed = `${leadingWhitespace}${commandToken} ${matches[0]}`;
+    state.composerInput = completed;
+    state.composerCursor = completed.length;
+    return true;
+  }
+
   const matches = matchCommands(commandToken, { limit: 1 });
   if (!Array.isArray(matches) || matches.length === 0) {
     return false;
@@ -202,14 +219,44 @@ export function buildComposerRenderLine({ input, cursor, prompt, width, visibleL
   const promptText = String(prompt ?? "");
   const promptWidth =
     typeof visibleLength === "function" ? visibleLength(promptText) : promptText.length;
-  const available = Math.max(1, Number(width) - promptWidth);
+  const lineWidth = Math.max(1, Number(width));
+  const firstLineAvailable = Math.max(1, lineWidth - promptWidth);
   const clampedCursor = clampCursor(value, cursor);
-  const maxStart = Math.max(0, value.length - available);
-  const start = Math.max(0, Math.min(maxStart, clampedCursor - available + 1));
-  const visibleInput = value.slice(start, start + available);
+
+  // Short input — single line (common fast path)
+  if (value.length <= firstLineAvailable) {
+    return {
+      line: `${promptText}${value}`,
+      lines: [`${promptText}${value}`],
+      cursorColumn: Math.max(1, promptWidth + clampedCursor + 1),
+      cursorRow: 0,
+    };
+  }
+
+  // Wrap: first line gets the prompt, continuation lines use full width
+  const maxWrappedLines = 4;
+  const wrappedLines = [];
+  wrappedLines.push(`${promptText}${value.slice(0, firstLineAvailable)}`);
+  let offset = firstLineAvailable;
+  while (offset < value.length && wrappedLines.length < maxWrappedLines) {
+    wrappedLines.push(value.slice(offset, offset + lineWidth));
+    offset += lineWidth;
+  }
+
+  // Find cursor position in the wrapped lines
+  let cursorRow = 0;
+  let cursorCol = promptWidth + clampedCursor + 1;
+  if (clampedCursor >= firstLineAvailable) {
+    const remaining = clampedCursor - firstLineAvailable;
+    cursorRow = Math.min(wrappedLines.length - 1, 1 + Math.floor(remaining / lineWidth));
+    cursorCol = (remaining % lineWidth) + 1;
+  }
+
   return {
-    line: `${promptText}${visibleInput}`,
-    cursorColumn: Math.max(1, promptWidth + (clampedCursor - start) + 1),
+    line: wrappedLines[0],
+    lines: wrappedLines,
+    cursorColumn: Math.max(1, cursorCol),
+    cursorRow,
   };
 }
 

@@ -3,7 +3,7 @@ import markdownit from "markdown-it";
 const MARKDOWN = markdownit({
   html: false,
   linkify: false,
-  breaks: false,
+  breaks: true,
   typographer: false,
 });
 
@@ -188,7 +188,7 @@ function renderInlineTokens(tokens = [], stopTypes = new Set(), startIndex = 0) 
         break;
       case "softbreak":
       case "hardbreak":
-        output += " ";
+        output += "\n";
         index += 1;
         break;
       case "code_inline":
@@ -299,23 +299,27 @@ function openListItem(context) {
 }
 
 function appendStructuredTextLine(lines, text, defaultMode, map, context, lastSourceEnd) {
-  const normalizedText = normalizeInlineWhitespace(text);
-  if (normalizedText.length === 0) {
+  // Split on embedded newlines (from softbreak/hardbreak tokens) so each
+  // line renders independently instead of being collapsed into one paragraph.
+  const segments = String(text ?? "").split("\n").map((s) => normalizeInlineWhitespace(s)).filter(Boolean);
+  if (segments.length === 0) {
     return nextSourceEnd(map, lastSourceEnd);
   }
   maybeInsertGapLine(lines, lastSourceEnd, map);
   const activeListItem = context.listItemStack.at(-1);
   if (activeListItem) {
     const continuationPrefix = `${activeListItem.indent}${" ".repeat(activeListItem.marker.length)}`;
-    const prefix =
-      activeListItem.paragraphCount === 0
-        ? `${activeListItem.indent}${activeListItem.marker}`
-        : continuationPrefix;
-    lines.push(
-      createDisplayLine(`${prefix}${normalizedText}`, "list", {
-        continuationPrefix,
-      }),
-    );
+    for (const [segIndex, segment] of segments.entries()) {
+      const prefix =
+        activeListItem.paragraphCount === 0 && segIndex === 0
+          ? `${activeListItem.indent}${activeListItem.marker}`
+          : continuationPrefix;
+      lines.push(
+        createDisplayLine(`${prefix}${segment}`, "list", {
+          continuationPrefix,
+        }),
+      );
+    }
     activeListItem.paragraphCount += 1;
     return nextSourceEnd(map, lastSourceEnd);
   }
@@ -324,14 +328,18 @@ function appendStructuredTextLine(lines, text, defaultMode, map, context, lastSo
       context.blockquoteDepth > 1
         ? `${"> ".repeat(context.blockquoteDepth - 1)}`
         : "";
-    lines.push(
-      createDisplayLine(`${quoteLead}${normalizedText}`, "quote", {
-        continuationPrefix: `${"  ".repeat(Math.max(1, context.blockquoteDepth))}`,
-      }),
-    );
+    for (const segment of segments) {
+      lines.push(
+        createDisplayLine(`${quoteLead}${segment}`, "quote", {
+          continuationPrefix: `${"  ".repeat(Math.max(1, context.blockquoteDepth))}`,
+        }),
+      );
+    }
     return nextSourceEnd(map, lastSourceEnd);
   }
-  lines.push(createDisplayLine(normalizedText, defaultMode));
+  for (const segment of segments) {
+    lines.push(createDisplayLine(segment, defaultMode));
+  }
   return nextSourceEnd(map, lastSourceEnd);
 }
 

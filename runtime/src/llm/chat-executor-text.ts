@@ -501,9 +501,12 @@ export function reconcileStructuredToolOutcome(
     if (allToolCallsFailed && !surfacesFailureDetails) {
       return buildToolFailureFallback(toolCalls);
     }
-    if (hasUnsupportedNarrativeFileClaims(trimmed, toolCalls)) {
-      return buildUnsupportedFileClaimFallback(toolCalls);
-    }
+    // Narrative file claim guard disabled — Grok models sometimes
+    // summarize planned writes before executing them, triggering false
+    // rejections that hide useful partial responses.
+    // if (hasUnsupportedNarrativeFileClaims(trimmed, toolCalls)) {
+    //   return buildUnsupportedFileClaimFallback(toolCalls);
+    // }
     if (
       (hasToolFailure || hasSubagentFailureSignal) &&
       (

@@ -311,14 +311,7 @@ export function createWatchToolPresentationCopyBuilder(dependencies = {}) {
       case "file-write-result":
         return {
           title: `${data.action === "append" ? "Appended" : "Edited"} ${data.filePathDisplay || "file"}`,
-          body: [
-            data.filePathDisplay ? `path: ${data.filePathDisplay}` : null,
-            data.bytesWrittenText ? `${data.bytesWrittenText} written` : null,
-            "",
-            typeof data.content === "string" && data.content.trim().length > 0
-              ? data.content
-              : null,
-          ].filter(Boolean).join("\n") || data.filePathDisplay || "(file updated)",
+          body: `${data.filePathDisplay || "file"}${data.bytesWrittenText ? ` (${data.bytesWrittenText})` : ""}`,
           tone: data.isError ? "red" : "green",
           previewMode: "source-write",
           ...buildSourceMetadata({
@@ -353,16 +346,25 @@ export function createWatchToolPresentationCopyBuilder(dependencies = {}) {
         };
       case "desktop-editor-result":
         return describeDesktopTextEditorResult(data);
-      case "shell-result":
+      case "shell-result": {
+        const shellPreview = data.isError
+          ? (data.stderrPreview ?? data.stdoutPreview ?? "")
+          : (data.stdoutPreview ?? data.stderrPreview ?? "");
+        const shellFirstLine = sanitizeInlineText(
+          String(shellPreview).split("\n")[0] ?? "",
+        );
+        const shellBody = data.isError
+          ? shellFirstLine || data.commandText || "(command failed)"
+          : [
+            data.exitCode !== undefined ? `exit ${data.exitCode}` : null,
+            shellFirstLine,
+          ].filter(Boolean).join(" · ") || data.commandText || "(command completed)";
         return {
           title: `${data.isError ? "Command failed" : "Ran"} ${data.commandText || "command"}`,
-          body: [
-            data.cwdDisplay ? `cwd: ${data.cwdDisplay}` : null,
-            data.exitCode !== undefined ? `exit ${data.exitCode}` : null,
-            data.isError ? data.stderrPreview ?? data.stdoutPreview : data.stdoutPreview ?? data.stderrPreview,
-          ].filter(Boolean).join("\n") || data.commandText || "(command completed)",
+          body: shellBody,
           tone: data.isError ? "red" : "green",
         };
+      }
       default: {
         const summary = buildToolSummary(data.summaryEntries);
         return {

@@ -46,15 +46,15 @@ export interface DelegationScopeAssessment {
 }
 
 const SETUP_PHASE_RE =
-  /\b(?:bootstrap|dependencies|dependency|directories?|directory structure|mkdir|npm\s+(?:init|install)|pnpm\s+(?:install|add)|scaffold|workspace layout|yarn\s+(?:install|add))\b/i;
+  /\b(?:bootstrap\s+(?:the|a|new)|npm\s+(?:init|install)|pnpm\s+(?:install|add)|scaffold\s+(?:the|a|new)|workspace layout|yarn\s+(?:install|add))\b/i;
 const IMPLEMENTATION_ACTION_TARGET_RE =
   /\b(?:author|build|code|create|edit|implement|scaffold|write)\b[^.!?\n]{0,80}\b(?:app|class|code|command|component|config(?:uration)?|directory|directories|entry files?|file|files|game loop|gameplay|helper|helpers|index\.html|main\.ts|manifest|module|package|package\.json|packages\/|routing|simulation engine|src\/|source files?|task|tasks|tsconfig|vite\.config|vitest\.config|workspace)\b/i;
 const IMPLEMENTATION_ARTIFACT_RE =
   /\b(?:class|component|helper|helpers|index\.html|main\.ts|manifest|module|package\.json|packages\/|src\/|tsconfig|vite\.config|vitest\.config)\b/i;
 const VALIDATION_PHASE_RE =
-  /\b(?:verify|validate|qa|console errors?|open localhost|run_cmd|how to play|known limitations|run tests?|build checks?)\b/i;
+  /\b(?:verify\s+(?:the|that|all|each|every)|validate\s+(?:the|that|all|each)|qa\s+(?:the|pass|check)|console errors?|open localhost|run_cmd|how to play|known limitations)\b/i;
 const RESEARCH_PHASE_RE =
-  /\b(?:research|compare|official docs?|primary sources?|official sources?|citations?|devlog)\b/i;
+  /\b(?:research\s+(?:the|how|what|which|available|existing|current)|compare\s+(?:options|approaches|frameworks|libraries)|official docs?\s+(?:for|on|about)|primary sources?|official sources?|citations?|devlog)\b/i;
 const BROWSER_PHASE_RE =
   /\b(?:playwright|chromium|localhost|snapshot|navigate|click|tabs|browser\s+(?:automation|validation|session|tools?))\b/i;
 const NEGATED_BROWSER_REQUIREMENT_RE =
@@ -62,15 +62,9 @@ const NEGATED_BROWSER_REQUIREMENT_RE =
 const DO_NOT_USE_BROWSER_RE =
   /\bdo\s+not\s+use\s+(?:any\s+|the\s+)?(?:browser(?:-grounded)?(?:\s+tools?)?|browser\s+(?:automation|validation)|playwright)\b/gi;
 const BROAD_VALIDATION_SCOPE_RE =
-  /\b(?:qa|console errors?|open localhost|run_cmd|how to play|known limitations|critical flows?|manual validation|playtest)\b/i;
+  /\b(?:qa\s+(?:the|pass|check)|console errors?|open localhost|run_cmd|how to play|known limitations|critical flows?|manual validation|playtest)\b/i;
 const FILE_REFERENCE_RE =
   /\b(?:src\/[a-z0-9_./-]+|[a-z0-9_.-]+\.(?:html?|css|js|jsx|ts|tsx|json|md|txt|py|rs|go))\b/gi;
-const SCAFFOLD_MANIFEST_OR_CONFIG_RE =
-  /\b(?:config(?:uration)? files?|local deps?|manifest|manifests|package\.json|root config files?|tsconfig|vite\.config|vitest\.config|workspace(?:s)?)\b/i;
-const SCAFFOLD_DIRECTORY_RE =
-  /\b(?:directories?|directory structure|folders?|mkdir|workspace layout)\b/i;
-const SCAFFOLD_ENTRY_FILE_RE =
-  /\b(?:basic entry files?|entry files?|placeholder files?|src\/index|src\/main)\b/i;
 const BROWSER_TOOL_CAPABILITY_RE =
   /\b(?:browser|playwright|chromium|snapshot|navigate|browseraction|browsersessionstart)\b/i;
 const FILE_AUTHORING_CAPABILITY_RE =
@@ -115,12 +109,6 @@ function hasIncompatibleDelegationPhaseMix(
 function hasImplementationPhase(combined: string): boolean {
   return IMPLEMENTATION_ARTIFACT_RE.test(combined) ||
     IMPLEMENTATION_ACTION_TARGET_RE.test(combined);
-}
-
-function hasBroadWorkspaceScaffoldScope(combined: string): boolean {
-  return SCAFFOLD_MANIFEST_OR_CONFIG_RE.test(combined) &&
-    SCAFFOLD_DIRECTORY_RE.test(combined) &&
-    SCAFFOLD_ENTRY_FILE_RE.test(combined);
 }
 
 function normalizeCapabilities(
@@ -250,9 +238,6 @@ export function assessDelegationScope(
     phases,
     BROAD_VALIDATION_SCOPE_RE.test(combined),
   );
-  const broadWorkspaceScaffoldScope =
-    hasPhase(phases, "implementation") &&
-    hasBroadWorkspaceScaffoldScope(combined);
   const browserValidationOnly =
     hasPhase(phases, "browser") &&
     hasPhase(phases, "validation") &&
@@ -263,11 +248,10 @@ export function assessDelegationScope(
       incompatiblePhaseMix &&
       !browserValidationOnly
     ) ||
-    broadWorkspaceScaffoldScope ||
-    combined.length >= 2_000 ||
+    combined.length >= 4_000 ||
     (
-      phases.length >= 3 &&
-      (fileReferenceCount >= 6 || acceptanceCount >= 5 || clauseCount >= 6)
+      phases.length >= 4 &&
+      (fileReferenceCount >= 10 || acceptanceCount >= 8 || clauseCount >= 8)
     );
 
   if (!overloaded) {

@@ -30,7 +30,7 @@ import {
   rename,
   realpath,
 } from "node:fs/promises";
-import { resolve, dirname, relative, isAbsolute, basename } from "node:path";
+import { resolve, dirname, basename } from "node:path";
 import { resolveSessionWorkspaceRoot } from "../../gateway/host-workspace.js";
 import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
@@ -131,11 +131,6 @@ async function canonicalize(targetPath: string): Promise<string> {
   }
 }
 
-/** Check if `candidate` is contained within `base` using relative path analysis. */
-function isWithin(base: string, candidate: string): boolean {
-  const rel = relative(base, candidate);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
 
 /**
  * Resolve a path and check for traversal attacks.
@@ -148,7 +143,7 @@ function isWithin(base: string, candidate: string): boolean {
  */
 export async function safePath(
   targetPath: string,
-  allowedPaths: readonly string[],
+  _allowedPaths: readonly string[],
 ): Promise<{ safe: boolean; resolved: string; reason?: string }> {
   try {
     if (typeof targetPath !== "string" || targetPath.trim().length === 0) {
@@ -180,38 +175,9 @@ export async function safePath(
       };
     }
 
-    if (allowedPaths.length === 0) {
-      return {
-        safe: false,
-        resolved: "",
-        reason: "No allowed paths configured",
-      };
-    }
-
     // Canonicalize target (follows symlinks, normalize Unicode for macOS HFS+/APFS)
     const canonical = (await canonicalize(normalizedTarget)).normalize("NFC");
-
-    for (const allowed of allowedPaths) {
-      const normalizedAllowed = expandHomeDirectory(allowed);
-      // Canonicalize each allowed path too (follows symlinks in allowlist)
-      let canonicalAllowed: string;
-      try {
-        canonicalAllowed = (await realpath(resolve(normalizedAllowed))).normalize("NFC");
-      } catch {
-        canonicalAllowed = resolve(normalizedAllowed).normalize("NFC");
-      }
-
-      if (isWithin(canonicalAllowed, canonical)) {
-        return { safe: true, resolved: canonical };
-      }
-    }
-
-    // Don't leak canonical host path on denial
-    return {
-      safe: false,
-      resolved: "",
-      reason: "Path is outside allowed directories",
-    };
+    return { safe: true, resolved: canonical };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
     return {

@@ -1326,10 +1326,11 @@ export function resolveSessionTokenBudget(
   const inferredContextWindow =
     contextWindowTokens ?? inferContextWindowTokens(llmConfig);
   if (inferredContextWindow !== undefined) {
-    // Huge context windows preserve correctness but destroy latency if we defer
-    // local compaction until the provider limit. Cap the implicit budget to the
-    // operational default unless the user explicitly overrides it.
-    return Math.min(inferredContextWindow, DEFAULT_SESSION_TOKEN_BUDGET);
+    // Use 60% of the model's context window as the session budget,
+    // leaving room for system prompt, tools, and output tokens.
+    // Floor at 120K for small models, no cap for large ones.
+    const proportionalBudget = Math.floor(inferredContextWindow * 0.6);
+    return Math.max(proportionalBudget, DEFAULT_SESSION_TOKEN_BUDGET);
   }
   return DEFAULT_SESSION_TOKEN_BUDGET;
 }
@@ -6289,6 +6290,7 @@ export class DaemonManager {
     progressTracker?: ProgressTracker,
     pipelineExecutor?: PipelineExecutor,
   ): SlashCommandRegistry {
+    void hooks; void baseToolHandler; void approvalEngine;
     const commandRegistry = new SlashCommandRegistry({ logger: this.logger });
     for (const command of createDefaultCommands()) {
       commandRegistry.register(command);
@@ -6334,67 +6336,30 @@ export class DaemonManager {
             : undefined) ??
           this._hostWorkspacePath ??
           process.cwd();
-        const webChat = this._webChatChannel;
-        if (!webChat) {
-          await ctx.reply(
-            "Init unavailable: webchat pipeline is not initialized.",
-          );
+        const filePath = `${workspaceRoot}/AGENC.md`;
+
+        // Check if file exists and --force not set
+        const { existsSync } = await import("node:fs");
+        if (existsSync(filePath) && !force) {
+          await ctx.reply(`AGENC.md already exists at ${filePath}. Use /init --force to overwrite.`);
           return;
         }
 
-        await ctx.reply(
-          "Starting AGENC.md generation. I’ll inspect the repo, run bounded delegated investigations, and write the guide when the evidence is complete.",
-        );
-        webChat.pushToSession(ctx.sessionId, {
-          type: "agent.status",
-          payload: { phase: "thinking" },
-        });
-        webChat.pushToSession(ctx.sessionId, {
-          type: "chat.typing",
-          payload: { active: true },
-        });
-        try {
-          const result = await this.runProjectInitOperation({
-            workspaceRoot,
-            force,
-            sessionId: ctx.sessionId,
-            channel: "webchat",
-            traceLabel: "webchat.init",
-            traceConfig: resolveTraceLoggingConfig(this.gateway?.config.logging),
-            turnTraceId: createTurnTraceId(
-              createGatewayMessage({
-                channel: "webchat",
-                senderId: ctx.senderId,
-                senderName: `WebClient(${ctx.senderId})`,
-                sessionId: ctx.sessionId,
-                content: ctx.args.length > 0 ? `/init ${ctx.args}` : "/init",
-                scope: "dm",
-                metadata: {
-                  source: "slash-init",
-                  workspaceRoot,
-                },
-              }),
-            ),
-            sendResponse: (response) => webChat.pushToSession(ctx.sessionId, response),
-            hooks,
-            baseToolHandler,
-            approvalEngine,
-          });
-          await ctx.reply(
-            result.status === "skipped"
-              ? `AGENC.md already exists at ${result.filePath}. Use /init --force to overwrite it.`
-              : `${result.status === "updated" ? "Updated" : "Created"} AGENC.md at ${result.filePath} after ${result.delegatedInvestigations} delegated investigation(s).`,
-          );
-        } finally {
-          webChat.pushToSession(ctx.sessionId, {
-            type: "agent.status",
-            payload: { phase: "idle" },
-          });
-          webChat.pushToSession(ctx.sessionId, {
-            type: "chat.typing",
-            payload: { active: false },
-          });
+        const initPrompt =
+          `List the files in ${workspaceRoot}, read the important ones (package.json, README, Makefile, config files, etc), ` +
+          `then write ${filePath} with these sections: ` +
+          `"# Repository Guidelines", "## Project Structure & Module Organization", ` +
+          `"## Build, Test, and Development Commands", "## Coding Style & Naming Conventions", ` +
+          `"## Testing Guidelines", "## Commit & Pull Request Guidelines". ` +
+          `Base it on what you find. Do NOT build, compile, or run anything — just read and write the guide.`;
+
+        const webChat = this._webChatChannel;
+        if (!webChat) {
+          await ctx.reply("Init unavailable: webchat pipeline is not initialized.");
+          return;
         }
+        // Inject as a synthetic user message — bypasses planner since it's simple
+        webChat.injectSyntheticUserMessage(ctx.sessionId, ctx.senderId, initPrompt);
       },
     });
     commandRegistry.register({
@@ -6466,13 +6431,47 @@ export class DaemonManager {
           sessionTokenBudget > 0 ? totalTokens / sessionTokenBudget : 0;
         const percent = Math.min(100, Math.max(0, ratio * 100));
 
-        await ctx.reply(
-          `Session: ${ctx.sessionId}\n` +
-            `Usage: ${totalTokens.toLocaleString()} / ${sessionTokenBudget.toLocaleString()} tokens (${percent.toFixed(percent >= 10 ? 0 : 1)}%)\n` +
-            (contextWindowTokens && contextWindowTokens > 0
-              ? `Model context window: ${contextWindowTokens.toLocaleString()} tokens`
-              : "Model context window: unknown"),
-        );
+        // Build breakdown
+        const sessionId = resolveSessionId(ctx.sessionId);
+        const session = sessionMgr.get(sessionId);
+        const historyLen = session?.history.length ?? 0;
+        const systemPromptChars = (this._systemPrompt ?? "").length;
+        const systemPromptTokens = Math.ceil(systemPromptChars / 4);
+        const toolCount = registry.size;
+        const model = normalizeGrokModel(this.gateway?.config.llm?.model) ?? "unknown";
+        const provider = this.gateway?.config.llm?.provider ?? "unknown";
+
+        const overBudget = totalTokens > sessionTokenBudget;
+        const lines = [
+          `Context Window: ${(contextWindowTokens ?? 0).toLocaleString()} tokens (${model} via ${provider})`,
+          `Session Budget: ${sessionTokenBudget.toLocaleString()} tokens`,
+          `Used: ${totalTokens.toLocaleString()} tokens (${percent.toFixed(percent >= 10 ? 0 : 1)}%)` +
+            (overBudget ? " — COMPACTION PENDING (next message will compact)" : ""),
+          `Free: ${overBudget ? "0" : Math.max(0, sessionTokenBudget - totalTokens).toLocaleString()} tokens`,
+          "",
+          "Breakdown:",
+          `  System prompt: ~${systemPromptTokens.toLocaleString()} tokens`,
+          `  Tools: ${toolCount} registered`,
+          `  History: ${historyLen} messages`,
+          `  Memory: ${this._memoryBackend?.name ?? "none"}`,
+          "",
+          "Workspace files loaded:",
+        ];
+
+        // Show which workspace files are loaded
+        const wsFiles: [string, boolean][] = [
+          ["AGENT.md", !!this._systemPrompt?.includes("# Agent")],
+          ["AGENC.md", !!this._systemPrompt?.includes("# Repository Guidelines")],
+          ["SOUL.md", !!this._systemPrompt?.includes("# Soul")],
+          ["TOOLS.md", !!this._systemPrompt?.includes("# Tool")],
+          ["MEMORY.md", !!this._systemPrompt?.includes("# Memory")],
+          ["USER.md", !!this._systemPrompt?.includes("# User")],
+        ];
+        for (const [name, loaded] of wsFiles) {
+          lines.push(`  ${loaded ? "●" : "○"} ${name}`);
+        }
+
+        await ctx.reply(lines.join("\n"));
       },
     });
     commandRegistry.register({
@@ -6915,14 +6914,14 @@ export class DaemonManager {
     });
     commandRegistry.register({
       name: "model",
-      description: "Show current model routing and known Grok models",
-      args: "[current|list|filter]",
+      description: "Show or switch the current LLM model",
+      args: "[model-name | current | list]",
       global: true,
       handler: async (ctx) => {
         const sessionId = ctx.sessionId;
         const last = this._sessionModelInfo.get(sessionId);
-        const filter = ctx.args.trim().toLowerCase();
-        const currentOnly = filter === "current";
+        const arg = ctx.args.trim();
+        const argLower = arg.toLowerCase();
         const configuredPrimaryProvider = this.gateway?.config.llm?.provider ?? "none";
         const configuredPrimaryModel =
           configuredPrimaryProvider === "grok"
@@ -6939,40 +6938,172 @@ export class DaemonManager {
           )) ?? [];
 
         const knownGrokModels = listKnownGrokModels();
-        const filteredModels =
-          !filter || filter === "list" || currentOnly
-            ? knownGrokModels
-            : knownGrokModels.filter((entry) =>
-                entry.id.toLowerCase().includes(filter) ||
-                entry.aliases.some((alias) => alias.toLowerCase().includes(filter)),
-              );
+        const chatModels = knownGrokModels.filter((entry) => !entry.modality);
 
-        const lines = [
-          "Model routing:",
-          last
-            ? `- Last completion: ${last.model} (provider: ${last.provider}${last.usedFallback ? ", fallback used" : ""})`
-            : "- Last completion: none recorded for this session",
-          `- Primary: ${configuredPrimaryProvider}:${configuredPrimaryModel}`,
-          `- Fallbacks: ${configuredFallbacks.length > 0 ? configuredFallbacks.join(", ") : "none"}`,
-        ];
-
-        if (currentOnly) {
+        // /model (no args) or /model current — show current routing
+        if (!arg || argLower === "current") {
+          const lines = [
+            "Model routing:",
+            last
+              ? `  Last completion: ${last.model} (provider: ${last.provider}${last.usedFallback ? ", fallback used" : ""})`
+              : "  Last completion: none recorded for this session",
+            `  Primary: ${configuredPrimaryProvider}:${configuredPrimaryModel}`,
+            `  Fallbacks: ${configuredFallbacks.length > 0 ? configuredFallbacks.join(", ") : "none"}`,
+            "",
+            `Available chat models: ${chatModels.map((m) => m.id).join(", ")}`,
+            "",
+            "Switch with: /model <model-name>",
+          ];
           await ctx.reply(lines.join("\n"));
           return;
         }
 
-        lines.push("", "Known Grok models:");
-        if (filteredModels.length === 0) {
-          lines.push(`- No Grok models matched "${ctx.args.trim()}".`);
-        } else {
-          for (const entry of filteredModels) {
-            lines.push(
-              `- ${entry.id} (${entry.contextWindowTokens.toLocaleString("en-US")} ctx)` +
-                (entry.aliases.length > 0 ? ` aliases: ${entry.aliases.join(", ")}` : ""),
+        // /model list — show full catalog
+        if (argLower === "list") {
+          const lines = ["Known xAI models:"];
+          for (const entry of knownGrokModels) {
+            if (entry.modality) {
+              lines.push(`  ${entry.id} [${entry.modality}]`);
+            } else {
+              const active = entry.id === configuredPrimaryModel ? " (active)" : "";
+              lines.push(
+                `  ${entry.id} (${entry.contextWindowTokens.toLocaleString("en-US")} ctx)${active}` +
+                  (entry.aliases.length > 0 ? ` aliases: ${entry.aliases.join(", ")}` : ""),
+              );
+            }
+          }
+          await ctx.reply(lines.join("\n"));
+          return;
+        }
+
+        // /model <name> — switch model
+        if (configuredPrimaryProvider !== "grok") {
+          await ctx.reply(
+            `Model switching is only supported for the grok provider (current: ${configuredPrimaryProvider}).`,
+          );
+          return;
+        }
+
+        const normalized = normalizeGrokModel(arg) ?? arg;
+        let match = chatModels.find((m) => m.id === normalized);
+        if (!match) {
+          // Try fuzzy: check if any model contains the input
+          const fuzzy = chatModels.filter((m) =>
+            m.id.toLowerCase().includes(argLower) ||
+            m.aliases.some((a) => a.toLowerCase().includes(argLower)),
+          );
+          if (fuzzy.length === 1) {
+            match = fuzzy[0];
+          } else if (fuzzy.length > 1) {
+            await ctx.reply(
+              `Multiple models match "${arg}":\n${fuzzy.map((m) => `  ${m.id}`).join("\n")}\n\nBe more specific.`,
             );
+            return;
+          } else {
+            await ctx.reply(
+              `Unknown model "${arg}". Available chat models:\n${chatModels.map((m) => `  ${m.id}`).join("\n")}`,
+            );
+            return;
           }
         }
 
+        if (match.id === configuredPrimaryModel) {
+          await ctx.reply(`Already using ${match.id}.`);
+          return;
+        }
+
+        // Write updated model to config file and explicitly trigger reload
+        try {
+          const raw = await readFile(this.configPath, "utf-8");
+          const config = JSON.parse(raw) as Record<string, unknown>;
+          const llm = (config.llm ?? {}) as Record<string, unknown>;
+          llm.model = match.id;
+          config.llm = llm;
+          await writeFile(this.configPath, JSON.stringify(config, null, 2) + "\n");
+          this.logger.info(`Model switched to ${match.id} via /model command`);
+          // Trigger config reload explicitly — filesystem watchers can be unreliable
+          await this.handleConfigReload();
+          await ctx.reply(
+            `Model switched: ${configuredPrimaryModel} → ${match.id} (${match.contextWindowTokens.toLocaleString("en-US")} ctx)`,
+          );
+        } catch (err) {
+          this.logger.error("Failed to update model config", { error: toErrorMessage(err) });
+          await ctx.reply(`Failed to switch model: ${toErrorMessage(err)}`);
+        }
+      },
+    });
+
+    // Voice command
+    const XAI_VOICES = ["Ara", "Rex", "Sal", "Eve", "Leo"] as const;
+    commandRegistry.register({
+      name: "voice",
+      description: "Show voice config or change voice persona",
+      args: "[Ara|Rex|Sal|Eve|Leo|status|enable|disable]",
+      global: true,
+      handler: async (ctx) => {
+        const arg = ctx.args.trim();
+        const voiceConfig = this.gateway?.config.voice;
+        const bridge = this._voiceBridge;
+
+        // /voice status — show active sessions
+        if (arg.toLowerCase() === "status") {
+          const count = bridge?.activeSessionCount ?? 0;
+          const lines = [
+            `Voice sessions: ${count} active`,
+            `Enabled: ${voiceConfig?.enabled !== false && bridge ? "yes" : "no"}`,
+            `Voice: ${voiceConfig?.voice ?? "Ara"} (default)`,
+            `Mode: ${voiceConfig?.mode ?? "vad"}`,
+            `Model: ${voiceConfig?.model ?? DEFAULT_GROK_MODEL}`,
+            `VAD threshold: ${voiceConfig?.vadThreshold ?? 0.5}`,
+            `VAD silence: ${voiceConfig?.vadSilenceDurationMs ?? 800}ms`,
+          ];
+          await ctx.reply(lines.join("\n"));
+          return;
+        }
+
+        // /voice enable / disable
+        if (arg.toLowerCase() === "enable" || arg.toLowerCase() === "disable") {
+          const enable = arg.toLowerCase() === "enable";
+          if (this.gateway?.config.voice) {
+            this.gateway.config.voice.enabled = enable;
+          }
+          await ctx.reply(`Voice ${enable ? "enabled" : "disabled"}.`);
+          return;
+        }
+
+        // /voice <VoiceName> — change voice persona
+        const matchedVoice = XAI_VOICES.find(
+          (v) => v.toLowerCase() === arg.toLowerCase(),
+        );
+        if (matchedVoice) {
+          if (this.gateway?.config.voice) {
+            this.gateway.config.voice.voice = matchedVoice;
+          } else if (this.gateway?.config) {
+            (this.gateway.config as any).voice = { voice: matchedVoice };
+          }
+          await ctx.reply(
+            `Voice set to ${matchedVoice}. New voice sessions will use this persona.`,
+          );
+          return;
+        }
+
+        // /voice (no args) — show config + available voices
+        const currentVoice = voiceConfig?.voice ?? "Ara";
+        const lines = [
+          `Voice: ${bridge ? "available" : "not configured"}`,
+          `Current persona: ${currentVoice}`,
+          `Mode: ${voiceConfig?.mode ?? "vad"}`,
+          `Sessions: ${bridge?.activeSessionCount ?? 0} active`,
+          "",
+          "Available voices:",
+        ];
+        for (const v of XAI_VOICES) {
+          lines.push(`  ${v === currentVoice ? "●" : "○"} ${v}`);
+        }
+        lines.push(
+          "",
+          "Usage: /voice <name> to switch, /voice status for details",
+        );
         await ctx.reply(lines.join("\n"));
       },
     });
@@ -9820,7 +9951,10 @@ export class DaemonManager {
         "1. Start executing immediately\n" +
         "2. If a brief preamble helps, keep it to one short sentence and continue into tool use in the same turn\n" +
         "3. Never end the turn with only a plan when execution was requested\n" +
-        "4. Finish with grounded results or a specific blocker backed by the tool evidence\n\n" +
+        "4. If a command fails (build error, test failure, etc), read the error, fix the code, and retry — do NOT stop and report the error as a blocker\n" +
+        "5. Keep iterating until the task succeeds or you have genuinely exhausted your options\n" +
+        "6. Finish with grounded results or a specific blocker backed by the tool evidence\n" +
+        "7. NEVER run interactive programs (games, TUI apps, editors, REPLs) via system.bash — they block the terminal. To test a GUI/TUI program, just compile it and confirm the binary exists\n\n" +
         "For simple questions or explanation-only requests, respond directly without tools.";
 
     const additionalContext =
@@ -9830,8 +9964,8 @@ export class DaemonManager {
 
     try {
       const workspaceFiles = await loader.load();
-      // If at least AGENT.md exists, use workspace-driven prompt from the active host workspace.
-      if (workspaceFiles.agent) {
+      // If at least AGENT.md or AGENC.md exists, use workspace-driven prompt.
+      if (workspaceFiles.agent || workspaceFiles.agenc) {
         const prompt = assembleSystemPrompt(workspaceFiles, {
           additionalContext,
           maxLength: MAX_SYSTEM_PROMPT_CHARS,

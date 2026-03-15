@@ -330,15 +330,15 @@ export function createDefaultCommands(): SlashCommandDef[] {
     {
       name: "model",
       description: "Show or switch the current LLM model",
-      args: "[name]",
+      args: "[model-name | current | list]",
       global: true,
       handler: async (ctx) => {
         if (ctx.args) {
           await ctx.reply(
-            `Model switching not yet implemented. Requested: ${ctx.args}`,
+            `Model switching requires the daemon. Requested: ${ctx.args}`,
           );
         } else {
-          await ctx.reply("Current model info not yet available.");
+          await ctx.reply("Model info requires the daemon. Use /model in the operator console.");
         }
       },
     },

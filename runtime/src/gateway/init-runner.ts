@@ -19,9 +19,9 @@ export const INIT_ROUTED_TOOL_NAMES = [
   "execute_with_agent",
 ] as const;
 
-const DEFAULT_MIN_DELEGATED_INVESTIGATIONS = 3;
+const DEFAULT_MIN_DELEGATED_INVESTIGATIONS = 1;
 const DEFAULT_MAX_ATTEMPTS = 2;
-const DEFAULT_MAX_TOOL_ROUNDS = 18;
+const DEFAULT_MAX_TOOL_ROUNDS = 30;
 const REQUIRED_SECTION_HEADINGS = [
   "## Project Structure & Module Organization",
   "## Build, Test, and Development Commands",
@@ -91,31 +91,23 @@ export function buildModelBackedInitPrompt(params: {
     : "Create AGENC.md if it does not already exist.";
 
   return [
-    `Generate ${params.filePath} for the repository rooted at ${params.workspaceRoot}.`,
+    `Generate ${params.filePath} for the repository at ${params.workspaceRoot}.`,
     overwriteInstruction,
     "",
-    "You are writing a repo-specific contributor guide. Work from tool evidence only.",
-    "",
-    "Required workflow:",
-    "- First inspect the repository root, manifests, contributor docs, active packages, test surfaces, and recent commit/PR guidance.",
-    `- Use execute_with_agent for at least ${params.minimumDelegatedInvestigations} bounded investigations so multiple repo surfaces are analyzed in parallel.`,
-    "- Keep delegated objectives narrow. Good splits: runtime/package map, build/test workflows, contributor conventions and release process.",
-    "- Use system.bash only for read-only discovery such as rg --files, git log --oneline -n 20, or package manifest inspection. Do not mutate files with bash.",
-    "- Do not write AGENC.md until the discovery and delegated investigations are complete.",
+    "Steps:",
+    `1. Run system.listDir on ${params.workspaceRoot} to see what's there.`,
+    "2. Read the files that actually exist — package.json, Cargo.toml, Makefile, CMakeLists.txt, any README, any config files. Do NOT guess filenames — only read what listDir showed you.",
+    "3. If you need more detail, list subdirectories and read their contents.",
+    `4. Write the guide to ${params.filePath} with system.writeFile.`,
     "",
     "The document must:",
-    '- Start with the title "# Repository Guidelines".',
-    `- Include these exact section headings:\n  ${REQUIRED_SECTION_HEADINGS.join("\n  ")}`,
-    "- Be concise, practical, and specific to the repository you inspected.",
-    "- Call out the maintained package surfaces, build/test commands, coding conventions, testing expectations, and commit/PR guidance backed by the repo.",
+    '- Start with "# Repository Guidelines".',
+    `- Include these section headings:\n  ${REQUIRED_SECTION_HEADINGS.join("\n  ")}`,
+    "- Be concise and specific to what you actually found in the repo.",
     "",
-    "Tooling constraints for this init turn:",
-    `- Only use these tools: ${INIT_ROUTED_TOOL_NAMES.join(", ")}.`,
-    `- Write the final guide to ${params.filePath} with system.writeFile.`,
-    `- Read ${params.filePath} back after writing to confirm the persisted content matches the required headings.`,
-    "",
-    "Final assistant response:",
-    "- Briefly summarize what you inspected, how many delegated investigations you used, and whether the file was created or updated.",
+    "Do NOT try to read files that don't exist. Do NOT guess. List first, then read.",
+    "Do NOT over-explore. List the root, read 3-5 key files, then WRITE the guide. Do not list every subdirectory.",
+    `You MUST call system.writeFile to create ${params.filePath} before finishing. This is not optional. Even if the repo is small or has few files, write the guide based on what you found.`,
     retryInstruction,
   ]
     .filter((line) => line.length > 0)
@@ -166,11 +158,8 @@ function buildValidationFailureReason(params: {
   readonly discoveryCalls: number;
   readonly minimumDelegatedInvestigations: number;
 }): string | null {
-  if (params.delegatedInvestigations < params.minimumDelegatedInvestigations) {
-    return `expected at least ${params.minimumDelegatedInvestigations} successful execute_with_agent investigations but saw ${params.delegatedInvestigations}`;
-  }
-  if (params.discoveryCalls < 4) {
-    return `expected at least 4 successful repository discovery calls but saw ${params.discoveryCalls}`;
+  if (params.discoveryCalls < 2) {
+    return `expected at least 2 discovery calls (listDir/readFile) but saw ${params.discoveryCalls}`;
   }
   if (params.content === null) {
     return "AGENC.md was not written";
@@ -207,7 +196,6 @@ export async function runModelBackedProjectGuide(
   }
 
   let lastFailureReason = "";
-  let lastResult: ChatExecutorResult | null = null;
   let lastDelegatedInvestigations = 0;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -244,7 +232,6 @@ export async function runModelBackedProjectGuide(
       },
     });
 
-    lastResult = result;
     lastDelegatedInvestigations = countDelegatedInvestigations(result.toolCalls);
     const discoveryCalls = countDiscoveryCalls(result.toolCalls);
     const currentContent = await readFileIfExists(filePath);

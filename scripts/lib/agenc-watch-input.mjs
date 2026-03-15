@@ -32,6 +32,7 @@ export function createWatchInputController(dependencies = {}) {
     recordComposerHistory,
     operatorInputBatcher,
     setTransientStatus,
+    cancelActiveChat,
     scheduleRender,
   } = dependencies;
 
@@ -123,6 +124,8 @@ export function createWatchInputController(dependencies = {}) {
       watchState.expandedEventId = null;
       watchState.detailScrollOffset = 0;
       setTransientStatus("detail closed");
+    } else if (typeof cancelActiveChat === "function") {
+      cancelActiveChat();
     }
     return index + 1;
   }

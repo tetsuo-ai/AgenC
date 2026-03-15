@@ -21,49 +21,57 @@ const LEGACY_GROK_MODEL_ALIASES: Record<string, string> = {
   "grok-4": "grok-4-1-fast-reasoning",
   "grok-4-fast-reasoning": "grok-4-1-fast-reasoning",
   "grok-4-fast-non-reasoning": "grok-4-1-fast-non-reasoning",
+  // Superseded 0304 experimental models → 0309 beta successors
+  "grok-4.20-experimental-beta-0304-reasoning":
+    "grok-4.20-beta-0309-reasoning",
+  "grok-4.20-experimental-beta-0304-non-reasoning":
+    "grok-4.20-beta-0309-non-reasoning",
+  "grok-4.20-multi-agent-experimental-beta-0304":
+    "grok-4.20-multi-agent-beta-0309",
 };
 
 const KNOWN_GROK_MODEL_IDS = [
+  // Chat / language models (source: xAI docs, March 14 2026)
+  "grok-4.20-multi-agent-beta-0309",
+  "grok-4.20-beta-0309-reasoning",
+  "grok-4.20-beta-0309-non-reasoning",
   "grok-4-1-fast-reasoning",
   "grok-4-1-fast-non-reasoning",
-  "grok-4.20-experimental-beta-0304-reasoning",
-  "grok-4.20-experimental-beta-0304-non-reasoning",
-  "grok-4.20-multi-agent-experimental-beta-0304",
   "grok-code-fast-1",
   "grok-4-0709",
-  "grok-3-mini",
   "grok-3",
-  "grok-2-vision-1212",
+  "grok-3-mini",
+  // Image generation models
+  "grok-imagine-image",
+  "grok-imagine-image-pro",
+  // Video generation model
+  "grok-imagine-video",
+  // Voice / audio models
+  "grok-realtime-voice",
+  "grok-tts",
 ] as const;
 
 const GROK_CONTEXT_WINDOW_BY_PREFIX: ReadonlyArray<{
   readonly prefix: string;
   readonly contextWindowTokens: number;
 }> = [
-  // Source: xAI Docs MCP page developers/models (retrieved March 2, 2026)
+  // Source: xAI Docs MCP page developers/models (retrieved March 14, 2026)
+  { prefix: "grok-4.20-multi-agent-beta-0309", contextWindowTokens: 2_000_000 },
+  { prefix: "grok-4.20-beta-0309-reasoning", contextWindowTokens: 2_000_000 },
+  {
+    prefix: "grok-4.20-beta-0309-non-reasoning",
+    contextWindowTokens: 2_000_000,
+  },
   { prefix: "grok-4-1-fast", contextWindowTokens: 2_000_000 },
   { prefix: "grok-4-fast", contextWindowTokens: 2_000_000 },
   { prefix: "grok-4-1-fast-reasoning", contextWindowTokens: 2_000_000 },
   { prefix: "grok-4-1-fast-non-reasoning", contextWindowTokens: 2_000_000 },
   { prefix: "grok-4-fast-reasoning", contextWindowTokens: 2_000_000 },
   { prefix: "grok-4-fast-non-reasoning", contextWindowTokens: 2_000_000 },
-  {
-    prefix: "grok-4.20-experimental-beta-0304-reasoning",
-    contextWindowTokens: 2_000_000,
-  },
-  {
-    prefix: "grok-4.20-experimental-beta-0304-non-reasoning",
-    contextWindowTokens: 2_000_000,
-  },
-  {
-    prefix: "grok-4.20-multi-agent-experimental-beta-0304",
-    contextWindowTokens: 2_000_000,
-  },
   { prefix: "grok-code-fast-1", contextWindowTokens: 256_000 },
   { prefix: "grok-4-0709", contextWindowTokens: 256_000 },
   { prefix: "grok-3-mini", contextWindowTokens: 131_072 },
   { prefix: "grok-3", contextWindowTokens: 131_072 },
-  { prefix: "grok-2-vision-1212", contextWindowTokens: 32_768 },
 ];
 
 interface LoggerLike {
@@ -98,7 +106,17 @@ export interface KnownGrokModelEntry {
   readonly id: string;
   readonly contextWindowTokens: number;
   readonly aliases: readonly string[];
+  /** Non-chat models (image/video generation) set this to describe their modality. */
+  readonly modality?: string;
 }
+
+const GROK_MEDIA_MODEL_MODALITY: Record<string, string> = {
+  "grok-imagine-image": "text, image → image",
+  "grok-imagine-image-pro": "text, image → image",
+  "grok-imagine-video": "text, image, video → video",
+  "grok-realtime-voice": "text, audio → text, audio (realtime WebSocket)",
+  "grok-tts": "text → audio (TTS, beta)",
+};
 
 const grokCatalogCache = new Map<string, CachedModelCatalog>();
 const ollamaRuntimeCatalogCache = new Map<string, CachedModelCatalog>();
@@ -611,14 +629,18 @@ export function inferGrokContextWindowTokens(model: string | undefined): number 
 }
 
 export function listKnownGrokModels(): readonly KnownGrokModelEntry[] {
-  return KNOWN_GROK_MODEL_IDS.map((id) => ({
-    id,
-    contextWindowTokens: inferGrokContextWindowTokens(id),
-    aliases: Object.entries(LEGACY_GROK_MODEL_ALIASES)
-      .filter(([, canonical]) => canonical === id)
-      .map(([alias]) => alias)
-      .sort((left, right) => left.localeCompare(right)),
-  }));
+  return KNOWN_GROK_MODEL_IDS.map((id) => {
+    const modality = GROK_MEDIA_MODEL_MODALITY[id];
+    return {
+      id,
+      contextWindowTokens: modality ? 0 : inferGrokContextWindowTokens(id),
+      aliases: Object.entries(LEGACY_GROK_MODEL_ALIASES)
+        .filter(([, canonical]) => canonical === id)
+        .map(([alias]) => alias)
+        .sort((left, right) => left.localeCompare(right)),
+      modality,
+    };
+  });
 }
 
 export function inferContextWindowTokens(

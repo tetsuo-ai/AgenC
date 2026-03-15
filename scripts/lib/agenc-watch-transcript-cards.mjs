@@ -66,20 +66,20 @@ export function computeTranscriptPreviewMaxLines({
     );
   }
   if (eventKind === "subagent") {
-    return 4;
+    return 2;
   }
   if (
     eventKind === "subagent tool" ||
     eventKind === "subagent tool result" ||
     eventKind === "subagent error"
   ) {
-    return 4;
+    return 2;
   }
   if (eventKind === "you" || eventKind === "operator" || eventKind === "queued") {
     return 3;
   }
   if (eventKind === "tool" || eventKind === "tool result" || eventKind === "tool error") {
-    return 3;
+    return 2;
   }
   if (eventKind === "error" || eventKind === "approval") {
     return 3;
