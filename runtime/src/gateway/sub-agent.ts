@@ -649,6 +649,7 @@ export class SubAgentManager {
         promptBudget: resolvedPromptBudget,
         sessionTokenBudget: resolvedSessionTokenBudget,
         onCompaction: this.config.onCompaction,
+        delegationNestingDepth: handle.depth,
         ...(typeof effectiveMaxToolRounds === "number"
           ? { maxToolRounds: effectiveMaxToolRounds }
           : {}),

@@ -190,8 +190,8 @@ export function buildWatchLayout({
   slashMode,
   detailOpen,
 }) {
-  const footerRows = 3;
-  const bodyHeight = Math.max(8, height - headerRows - footerRows - popupRows);
+  const footerRows = 4; // separator + status + hint + composer (min 1 line)
+  const bodyHeight = Math.max(4, height - headerRows - footerRows - popupRows);
   const useSidebar = !detailOpen && !slashMode && width >= 118;
   const sidebarWidth = useSidebar
     ? Math.min(48, Math.max(36, Math.floor(width * 0.3)))
@@ -213,7 +213,7 @@ export function buildWatchSidebarPolicy(targetHeight) {
   const height = Number.isFinite(Number(targetHeight)) ? Number(targetHeight) : 0;
   return {
     compactAgentLimit: height >= 48 ? 3 : height >= 38 ? 2 : 1,
-    minDagRows: height >= 44 ? 12 : height >= 34 ? 10 : 8,
+    minDagRows: height >= 44 ? 18 : height >= 34 ? 14 : 10,
     showTools: height >= 30,
     toolLimit: height >= 54 ? 5 : height >= 42 ? 3 : 2,
     showGuard: height >= 38,
@@ -291,8 +291,23 @@ export function buildDetailPaneSummary(
   };
 }
 
-export function buildCommandPaletteSummary({ inputValue, suggestions = [] }) {
+export function buildCommandPaletteSummary({ inputValue, suggestions = [], modelSuggestions = [] }) {
   const input = String(inputValue ?? "").trimStart();
+
+  // If user is typing `/model <partial>`, show model name suggestions instead
+  const modelMode =
+    Array.isArray(modelSuggestions) &&
+    modelSuggestions.length > 0 &&
+    /^\/models?\s/i.test(input);
+  if (modelMode) {
+    return {
+      title: input.slice(0, 22),
+      empty: false,
+      suggestionNames: modelSuggestions,
+      suggestionHint: modelSuggestions.join("  "),
+    };
+  }
+
   const suggestionNames = (Array.isArray(suggestions) ? suggestions : [])
     .map((command) => sanitizeText(command?.name ?? command?.usage ?? ""))
     .filter(Boolean);
@@ -355,6 +370,7 @@ export function buildWatchFooterSummary({
   summary,
   inputValue,
   suggestions = [],
+  modelSuggestions = [],
   fileTagQuery = null,
   fileTagSuggestions = [],
   fileTagIndexReady = true,
@@ -376,7 +392,7 @@ export function buildWatchFooterSummary({
   const surfaceSummary = summary ?? buildWatchSurfaceSummary({});
   const input = String(inputValue ?? "");
   const slashMode = input.trimStart().startsWith("/");
-  const palette = buildCommandPaletteSummary({ inputValue: input, suggestions });
+  const palette = buildCommandPaletteSummary({ inputValue: input, suggestions, modelSuggestions });
   const fileTagPalette = buildFileTagPaletteSummary({
     inputValue: input,
     query: fileTagQuery,
@@ -465,7 +481,7 @@ export function buildWatchFooterSummary({
     hintStatus = fileTagPalette.mode === "unavailable" ? "index unavailable" : "tab insert tag";
   } else if (slashMode) {
     hintLeft = palette.suggestionHint;
-    hintStatus = "enter run";
+    hintStatus = modelSuggestions.length > 0 ? "tab complete  enter switch" : "enter run";
   } else {
     hintLeft = input.trim().length > 0
       ? `enter send  ctrl+k kill  ctrl+←/→ word${latestExpandable ? "  ctrl+o detail" : ""}  ctrl+y copy  pgup/pgdn scroll`

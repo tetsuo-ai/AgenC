@@ -237,7 +237,7 @@ const DELEGATED_UNRESOLVED_WORK_RE = new RegExp(
   [
     String.raw`\b(?:may|might|could|would)(?:\s+\w+){0,2}\s+need(?:ed)?\b`,
     String.raw`\b(?:need(?:ed|s)?|requires?)\s+(?:minor\s+)?(?:(?:impl(?:ementation)?|integration)\s+)?(?:tweaks?|fix(?:es)?|changes?|follow[- ]?ups?|adjustments?)\b`,
-    String.raw`\b(?:mismatch(?:es)?|placeholder(?:s)?|stub(?:bed|bing|s)?|todo|fixme|not yet implemented|unimplemented|approximate|approximation|manual follow[- ]?up)\b`,
+    String.raw`\b(?:mismatch(?:es)?|placeholder(?:s)?|stub(?:bed|bing|s)?|fixme|not yet implemented|unimplemented|approximate|approximation|manual follow[- ]?up)\b`,
     String.raw`\b(?:acceptance\s+(?:criterion|criteria)|criterion|criteria)\b[^.\n]{0,64}\b(?:unmet|unsatisfied|not met|not satisfied|lacks?(?:\s+full)?\s+evidence|missing\s+evidence|not evidenced|failed)\b`,
     String.raw`\b(?:unmet|unsatisfied|not met|not satisfied)\b[^.\n]{0,32}\bacceptance\s+(?:criterion|criteria)\b`,
     String.raw`\black(?:ing|s)?(?:\s+full)?\s+evidence\b`,

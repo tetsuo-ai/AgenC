@@ -379,6 +379,13 @@ export interface ChatExecutorConfig {
   readonly plannerEnabled?: boolean;
   /** Max output tokens for the planner pass (bounded planning call). */
   readonly plannerMaxTokens?: number;
+  /**
+   * Current delegation nesting depth (0 = top-level, 1 = first child, etc.).
+   * Propagated through the delegation chain so the planner can generate
+   * capability-aware plans — e.g. avoiding subagent_task steps that require
+   * delegation when the child won't have execute_with_agent available.
+   */
+  readonly delegationNestingDepth?: number;
   /** Optional deterministic workflow executor used when planner emits executable steps. */
   readonly pipelineExecutor?: DeterministicPipelineExecutor;
   /** Delegation utility scoring controls for planner-emitted subagent tasks. */

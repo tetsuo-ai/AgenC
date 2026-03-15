@@ -299,14 +299,30 @@ export async function runOperatorConsole(
 ): Promise<CliStatusCode> {
   const configPath = options.configPath ?? deps.defaultConfigPath();
   const pidPath = options.pidPath ?? deps.defaultPidPath();
-  const daemon = await ensureDaemon(
-    {
-      configPath,
-      pidPath,
-      logLevel: options.logLevel,
-      yolo: options.yolo,
-    },
+
+  // Try to resolve port from existing daemon first (instant if already running).
+  const config = await deps.loadGatewayConfig(resolve(configPath));
+  const running = await deps.readPidFile(resolve(pidPath));
+  const alreadyRunning = running && deps.isProcessAlive(running.pid);
+  const port = running?.port ?? config.gateway.port;
+
+  if (alreadyRunning) {
+    return launchConsoleProcess(port, options, deps);
+  }
+
+  // Daemon not running — launch the TUI immediately with the expected port
+  // so the user sees the loading/connecting screen instead of a blank terminal.
+  // Start the daemon in the background; the TUI will reconnect when it's ready.
+  const consolePromise = launchConsoleProcess(port, options, deps);
+
+  // Fire-and-forget daemon start — the TUI handles reconnection.
+  ensureDaemon(
+    { configPath, pidPath, logLevel: options.logLevel, yolo: options.yolo },
     deps,
-  );
-  return launchConsoleProcess(daemon.port, options, deps);
+  ).catch(() => {
+    // If daemon fails to start, the TUI will show a connection error
+    // and the user can diagnose from there.
+  });
+
+  return consolePromise;
 }

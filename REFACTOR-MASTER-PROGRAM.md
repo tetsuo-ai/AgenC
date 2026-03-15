@@ -68,9 +68,9 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 
 | Surface | Current Path | What It Is | Refactor Requirement |
 |---------|--------------|------------|----------------------|
-| On-chain program | `programs/agenc-coordination/` | Anchor Solana program, instruction handlers, state/event logic, fuzz targets | Refactor instruction/state/event ownership without breaking protocol semantics |
-| SDK | `sdk/` | TypeScript SDK for protocol, proofs, tokens, transactions, program access | Separate public API from internal implementation and generated/client plumbing |
-| Runtime | `runtime/` | agent runtime, daemon, gateway, llm, workflow, tools, channels, desktop layer, evaluation, observability | Refactor around real contracts, not folder mythology |
+| On-chain program | `programs/agenc-coordination/` | Anchor Solana program (44 instructions, 10 helper modules, 200 error codes, 49 events, 24 accounts, 8 fuzz targets), instruction handlers, state/event logic including `ZkConfig` governance | Refactor instruction/state/event ownership without breaking protocol semantics |
+| SDK | `sdk/` | TypeScript SDK for protocol, proofs, tokens, transactions, program access, prover backends (`prover.ts`), process identity (`process-identity.ts`) | Separate public API from internal implementation and generated/client plumbing |
+| Runtime | `runtime/` (~223k lines, 32 src directories, ~6589 tests) | agent runtime, daemon, gateway (70+ source files), llm (ChatExecutor split into 15+ modules), workflow, tools, channels, desktop layer, evaluation, observability, init workflow, delegation infrastructure | Refactor around real contracts, not folder mythology |
 | zkVM | `zkvm/`, proof/prover integration in `sdk/` and `scripts/` | guest crate plus proof/prover integration surfaces for private task verification | Establish explicit proof schemas, artifact chains, and verifier contracts |
 | MCP server | `mcp/` | protocol/runtime consumer exposed as MCP tools | Make it a thin consumer over stable contracts |
 | Docs MCP | `docs-mcp/` | architecture/roadmap/issue-map documentation server | Keep it in lockstep with the actual architecture and sequencing model |
@@ -96,8 +96,8 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Docs | `docs/` | architecture docs, roadmap, runbooks, flow docs, sequencing references | Keep authoritative and synchronized with implementation and docs-mcp |
 | Runtime operational docs | `runtime/docs/` | runtime-specific runbooks, replay docs, observability docs, operational CLI guidance | Keep synchronized with runtime behavior and docs-mcp indexing |
 | Package-local docs and changelogs | `programs/agenc-coordination/README.md`, `runtime/README.md`, `runtime/CHANGELOG.md`, `sdk/README.md`, `sdk/CHANGELOG.md`, `mcp/README.md`, `mcp/CHANGELOG.md`, `docs-mcp/README.md`, `migrations/README.md`, `examples/**/README.md`, plus top-level package/app/platform `README.md` and `CHANGELOG.md` files when present | package-level contracts, release notes, usage docs, migration notes, example-level guidance | Keep aligned with public surfaces and docs-mcp indexing |
-| Contract artifacts and codegen surfaces | `docs/api-baseline/`, `runtime/idl/`, `runtime/benchmarks/`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, `runtime/scripts/generate-desktop-tool-definitions.ts`, `scripts/idl/`, `target/idl/`, `target/types/`, `runtime/src/types/agenc_coordination.ts`, `runtime/src/desktop/tool-definitions.ts` | machine-readable baselines, IDL/schema artifacts, verifier-router artifacts, benchmark manifests, codegen/drift scripts, and generated contract helpers | Treat as first-class architecture and verification surfaces |
-| Scripts | `scripts/` | setup, validation, benchmarking, migration, build, operational utilities | Convert into explicit build/release/test ownership surfaces |
+| Contract artifacts and codegen surfaces | `docs/api-baseline/`, `runtime/idl/`, `runtime/benchmarks/`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, `runtime/scripts/generate-desktop-tool-definitions.ts`, `scripts/idl/`, `target/idl/`, `target/types/`, `runtime/src/types/agenc_coordination.ts`, `runtime/src/desktop/tool-definitions.ts`, `containers/desktop/server/src/toolDefinitions.ts` | machine-readable baselines, IDL/schema artifacts, verifier-router artifacts, benchmark manifests, codegen/drift scripts, and generated contract helpers | Treat as first-class architecture and verification surfaces |
+| Scripts | `scripts/` (~79 files: 40+ agenc-watch-* tests, ~31 watch lib modules, soak/autonomy infra, localnet setup, fender/security, deployment validation) | setup, validation, benchmarking, migration, build, operational utilities, operator-console watch TUI and test suite | Convert into explicit build/release/test ownership surfaces |
 | Migrations | `migrations/` | protocol and data migration support | Version, test, and align with dependency-gated rollout order |
 | CI / repo automation | `.github/`, root scripts, package scripts | release, validation, pipeline gates, workflow orchestration | Must be updated as part of the architecture, not after it |
 
@@ -109,7 +109,7 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Root standalone tool/app surface | `package.json`, `src/`, root CLI/build scripts | build-bearing root code path, currently a concrete standalone `grid-router-ts` CLI/headless surface, that is not yet clearly classified as canonical product surface, separate tool, example, or legacy residue | Explicitly classify and either integrate, isolate, or retire it under the refactor program |
 | Root source utilities and JSON/config files | `ansi2png.py`, `agenc-eval-test.cjs`, root JSON/config files | root-level helper code, fixtures, and support configuration | Classify each as product code, test utility, fixture, generated file, or legacy surface |
 | Build and artifact dirs | `**/dist/`, `**/target/`, `test-ledger/`, `logs/`, `.tmp/` | generated or operational outputs | Keep out of architecture decisions except where generation is contract-bearing |
-| Assets and support data | `assets/`, `image*`, `chains.json`, `solana_protocols.json`, `lsm-kv/` | media, config, support data, or legacy artifacts | Classify and either attach to owning domains or mark as non-architectural support |
+| Assets and support data | `assets/`, `image*`, `chains.json`, `solana_protocols.json` | media, config, support data, or legacy artifacts | Classify and either attach to owning domains or mark as non-architectural support |
 | Repo policy/meta | `README.md`, `AGENTS.md`, `CLAUDE.md`, `CODEX.md`, `.mcp.json`, `.gitignore` | repository contract and developer workflow surfaces | Keep consistent with the live architecture and refactor rollout |
 
 Any surface not named here must still be classified before the Gate 0 exit gate.
@@ -326,18 +326,22 @@ These contracts must be made explicit, versioned where needed, and migration-tes
 - host-workspace resolution and session workspace-root policy
 - policy evaluation, access control, and budget-governance semantics
 - subagent orchestration, verifier, and budget semantics
-- durable background-run state model
-- logging, trace, and observability event shape
+- durable background-run state model, wake-bus event sequencing, notifier/progress callback semantics, supervisor/operator role boundaries, and wake-adapter extensibility
+- delegation tool-bridge, delegation-runtime, delegation-scope, delegation-timeout, durable-subrun-orchestrator, and subrun-contract semantics
+- browser-tool-mode guard and doom-stop-guard behavioral contracts
+- init workflow orchestration, repo-guide generation, and bounded delegated investigation semantics
+- logging, trace, and observability event shape, trace-log fanout, and sqlite trace store semantics
 
 ### 7.2 Protocol Contracts
 
-- account layouts
-- instruction behavior
-- error codes and error decoding
-- PDA derivation
-- emitted events and parsers
+- account layouts (including `ZkConfig` account for trusted image ID governance)
+- instruction behavior (44 instructions including `initialize_zk_config` and `update_zk_image_id`)
+- error codes and error decoding (200 error codes, 6000-6199)
+- PDA derivation (including `zk_config` PDA)
+- emitted events and parsers (49 event types including `ZkConfigInitialized`, `ZkImageIdUpdated`)
 - transaction assembly/confirmation semantics
 - `protocol_version` / `min_supported_version` compatibility and migration semantics
+- `zk_config` account governance: `initialize_zk_config` and `update_zk_image_id` instruction semantics, trusted image-ID rotation authority
 - fuzz harness continuity for instruction/state-machine behavior
 
 ### 7.3 Proof Contracts
@@ -356,15 +360,19 @@ These contracts must be made explicit, versioned where needed, and migration-tes
 
 ### 7.4 Desktop Platform Contracts
 
-- desktop server tool catalog
-- generated tool-definition pipeline
+- desktop server tool catalog (19 tools: original 13 + process_start/status/stop, text_editor, video_start/video_stop)
+- generated tool-definition pipeline (`toolDefinitions.ts` source of truth → `tool-definitions.ts` runtime mirror via codegen script)
 - desktop event model
 - desktop auth token, header, and session identity semantics
-- managed desktop process identity, registry, log, tail, and exit-event semantics
+- managed desktop process identity, registry, log, tail, and exit-event semantics (including process_start/status/stop tool contracts)
+- text_editor tool contract (str_replace pattern, 5 commands, LRU undo buffer, path restrictions, file size limit)
+- video recording tool contract (video_start/video_stop, ffmpeg x11grab, PID file recovery)
+- Playwright MCP browser integration contract (container routing via docker exec, lazy per-session bridges, tool namespacing as `playwright.*`)
 - watchdog, recovery, and reclamation semantics
 - server health/feature/version/hash negotiation
-- image version compatibility
+- image version compatibility (Ubuntu 24.04, 6 supervisord processes including nvim-headless)
 - bridge transport behavior
+- TUI guard contract (22 blocked interactive apps unless backgrounded)
 
 ### 7.5 Consumer Contracts
 
@@ -395,7 +403,9 @@ These contracts must be made explicit, versioned where needed, and migration-tes
 - named drift and codegen guard surfaces such as `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, and `runtime/scripts/generate-desktop-tool-definitions.ts`
 - benchmark corpus, manifests, and gate definitions
 - benchmark and mutation gates
-- canonical CI contract surface and release-gate ownership
+- background-run quality gates, delegation benchmark gates, pipeline quality gates, and autonomy rollout gates (each a distinct gate surface beyond base benchmark/mutation)
+- desktop image hardening check contract
+- canonical CI contract surface and release-gate ownership (note: `.github/workflows/` currently removed; enforcement via local scripts and package commands)
 - fuzz, real-proof, and verifier-localnet harness ownership
 - setup/bootstrap scripts
 - migration scripts
@@ -422,16 +432,18 @@ This section is the actual plan. Each domain includes:
 
 Scope:
 
-- `runtime/src/gateway/**`
-- `runtime/src/cli/**`
+- `runtime/src/gateway/**` (70+ source files including init-runner, delegation infrastructure, background-run suite, tool routing, session isolation, subagent orchestration)
+- `runtime/src/cli/**` (17 command files including agenc, init, operator-console, daemon, health, onboard, replay, jobs, logs, sessions, security, skills, wizard, registry-cli, foreground-log-tee)
 - `runtime/src/bin/**`
-- `runtime/src/observability/**`
+- `runtime/src/observability/**` (trace-log fanout, SQLite store, structured tracing)
 - `runtime/src/mcp-client/**`
+- `runtime/src/project-doc.ts` (shared repo-guide generation for init workflow)
 - daemon lifecycle
 - sessions and routing
 - approvals
 - subagent orchestration
-- background-run supervision
+- delegation infrastructure (delegation-tool, delegation-runtime, delegation-scope, delegation-timeout, durable-subrun-orchestrator, subrun-contract)
+- background-run supervision (supervisor, control, store, notifier, operator, wake-bus, wake-adapters)
 - control-plane logging/observability
 
 Current-state problem:
@@ -663,11 +675,14 @@ Current-state problem:
 - desktop runtime layer, container build, desktop server, generated tool definitions, and bridge semantics are tightly coupled today
 - build and test flows already depend on this contract
 - session transport is not desktop-local; one live router currently multiplexes desktop, Playwright, and MCP tool traffic
-- generated desktop tool definitions are a shared build-graph contract, not passive compatibility metadata
+- generated desktop tool definitions are a shared build-graph contract, not passive compatibility metadata; tool catalog now has 19 tools (was 13) including process management (process_start/status/stop), text_editor, and video recording (video_start/video_stop)
 - server health/features do not yet provide real version, schema-hash, or catalog-hash negotiation
 - desktop lifecycle is co-owned by webchat/session-management code, not only by the desktop bridge layer
 - desktop platform behavior also depends on per-container auth, managed-process identity, and watchdog recovery/reclamation policies
 - desktop/session-router/container lifecycle behavior is materially under-documented relative to the current code surface
+- container now runs Ubuntu 24.04 with 6 supervisord processes (Xvfb, XFCE4, x11vnc, websockify, nvim-headless, rest-server)
+- tool definitions have moved from tools.ts to a separate toolDefinitions.ts (source of truth) with tools.ts as execution engine
+- TUI guard in session-router blocks 22 interactive terminal apps unless backgrounded
 
 Target end state:
 
@@ -832,9 +847,10 @@ Current-state problem:
 - package-local docs and changelogs can drift away from the public surfaces they describe
 - the root package and root `src/**` are build-bearing, and the current root surface is a concrete `grid-router-ts` CLI/headless tool rather than a purely abstract placeholder
 - scripts, smoke harnesses, and upgrade procedures already embody the repo-wide execution graph and cannot be treated as late cleanup
-- canonical CI contract ownership is distributed across docs, package scripts, and operational expectations rather than one named surface
-- current enforcement truth lives mostly in package scripts, repo scripts, and package-local harnesses; `.github/**` is only one part of the repo automation story today
+- canonical CI contract ownership is distributed across docs, package scripts, and operational expectations rather than one named surface; `.github/workflows/` has been removed and CI gates are currently enforced only through local scripts and package commands
+- current enforcement truth lives entirely in package scripts, repo scripts, and package-local harnesses; `.github/` now contains only `dependabot.yml` and `PULL_REQUEST_TEMPLATE.md`
 - some scripts and smoke/admin harnesses currently bypass public runtime and SDK surfaces and act as shadow consumers of private internals
+- `scripts/` now contains ~79 files: 40+ `agenc-watch-*.test.mjs` test files, ~31 `agenc-watch-*` lib modules, soak/autonomy infrastructure, localnet setup, fender/security scanning, and deployment validation scripts
 - the operator-console/watch surface is now a modularized subsystem under `scripts/lib/agenc-watch-*.mjs` with a thin entrypoint at `scripts/agenc-watch.mjs`, its own dedicated tests, and runtime-built helper coupling
 - built runtime artifacts such as `runtime/dist/operator-events.mjs` already act as compatibility inputs for operational tooling and must be modeled as contract-bearing outputs where they cross package boundaries
 - oversized non-runtime artifacts such as `scripts/lib/agenc-watch-app.mjs` and `tests/test_1.ts` are also part of the refactor backlog and cannot be ignored just because they sit outside `runtime/src`

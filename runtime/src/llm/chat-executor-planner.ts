@@ -538,6 +538,14 @@ export function buildPlannerMessages(
             ? `- Never emit more than ${runtimeConstraints.maxSubagentFanout} subagent_task steps in the full plan.\n`
             : ""
         ) +
+        (
+          runtimeConstraints?.childCanDelegate === false
+            ? "- IMPORTANT: Subagent steps in this plan CANNOT further delegate or spawn child agents. " +
+              "They only have filesystem, bash, and direct tool access. " +
+              "Do not create steps whose objective requires spawning, coordinating, or delegating to other agents. " +
+              "If the user asks for N parallel agents, use N subagent_task steps directly in THIS plan instead of one step that tries to spawn N children.\n"
+            : ""
+        ) +
         "- If you need to reduce delegated fanout, only merge adjacent steps from the same phase family. Never merge research with setup/manifest work, or code implementation with broad validation/browser QA.\n" +
         "- For Node workspace scaffold/setup steps that run before the real install step, objectives and acceptance criteria must stay file-authoring-only. Do not mention install/build/test/typecheck/lint/coverage/runtime success there; put those checks in later steps after install.\n" +
         "- For deterministic system.bash/desktop.bash steps, do not use nested shell wrappers like `bash -c` or `sh -c`; call the target command directly or use shell mode.\n" +
@@ -653,6 +661,12 @@ export interface ExplicitDeterministicToolRequirements {
 
 export interface PlannerRuntimeConstraints {
   readonly maxSubagentFanout: number;
+  /** Current delegation depth (0 = top-level). */
+  readonly currentDelegationDepth?: number;
+  /** Maximum allowed delegation depth. */
+  readonly maxDelegationDepth?: number;
+  /** Whether children spawned from this plan can further delegate. */
+  readonly childCanDelegate?: boolean;
 }
 
 export type PlannerVerificationRequirementCategory =

@@ -33,6 +33,7 @@ export function createWatchCommandController(dependencies = {}) {
     currentClientKey,
     isOpen,
     bootstrapPending,
+    voiceController,
     nowMs = Date.now,
   } = dependencies;
 
@@ -166,10 +167,13 @@ export function createWatchCommandController(dependencies = {}) {
       }
 
       if (canonicalName === "/model") {
+        const modelArg = (firstArg ?? "").trim();
         pushEvent(
           "operator",
-          "Model Query",
-          "Requested current model routing and the known Grok model catalog.",
+          modelArg ? "Model Switch" : "Model Query",
+          modelArg
+            ? `Requested model switch to: ${modelArg}`
+            : "Requested current model routing info.",
           "teal",
         );
         send("chat.message", authPayload({ content: value }));
@@ -184,6 +188,45 @@ export function createWatchCommandController(dependencies = {}) {
           "teal",
         );
         send("chat.message", authPayload({ content: value }));
+        return true;
+      }
+
+      if (canonicalName === "/voice") {
+        if (voiceController) {
+          const voiceArg = (firstArg ?? "").trim().toLowerCase();
+          if (voiceArg === "stop" || voiceArg === "off") {
+            voiceController.stopVoice();
+          } else if (!voiceArg || voiceArg === "start" || voiceArg === "on") {
+            voiceController.startVoice();
+          } else {
+            // Voice persona change or config query — forward to daemon
+            send("chat.message", authPayload({ content: value }));
+          }
+        } else {
+          // No voice controller — just forward to daemon for config display
+          send("chat.message", authPayload({ content: value }));
+        }
+        return true;
+      }
+
+      if (canonicalName === "/context") {
+        pushEvent("operator", "Context", "Requested context window usage.", "teal");
+        send("chat.message", authPayload({ content: "/context" }));
+        return true;
+      }
+
+      if (canonicalName === "/memory") {
+        if (shouldQueueOperatorInput()) {
+          return maybeQueue("session bootstrap not complete");
+        }
+        const query = (firstArg ?? "").trim();
+        if (query) {
+          pushEvent("operator", "Memory Search", `Searching memory for: ${query}`, "teal");
+          send("memory.search", authPayload({ query }));
+        } else {
+          pushEvent("operator", "Memory Sessions", "Fetching memory sessions.", "teal");
+          send("memory.sessions", authPayload({ limit: 20 }));
+        }
         return true;
       }
 

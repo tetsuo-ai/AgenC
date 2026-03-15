@@ -5,12 +5,14 @@ import { fileURLToPath } from "node:url";
 import {
   createOperatorInputBatcher,
   matchWatchCommands,
+  matchModelNames,
   parseWatchSlashCommand,
   shouldAutoInspectRun,
   WATCH_COMMANDS,
 } from "./agenc-watch-helpers.mjs";
 import { readWatchDaemonLogTail } from "./agenc-watch-log-tail.mjs";
 import { createWatchCommandController } from "./agenc-watch-commands.mjs";
+import { createWatchVoiceController } from "./agenc-watch-voice.mjs";
 import { createWatchEventStore } from "./agenc-watch-event-store.mjs";
 import { createWatchFrameController } from "./agenc-watch-frame.mjs";
 import { createWatchInputController } from "./agenc-watch-input.mjs";
@@ -904,6 +906,11 @@ function effectiveSurfacePhaseLabel() {
   if (phaseLabel && phaseLabel !== "idle") {
     return phaseLabel;
   }
+  // When the daemon says idle (runState === "idle"), trust it —
+  // don't override with "delegating" based on stale plan steps.
+  if (watchState.runState === "idle" || phaseLabel === "idle") {
+    return "idle";
+  }
   return currentPlanFocusStep() ? "delegating" : phaseLabel || "idle";
 }
 
@@ -1738,15 +1745,24 @@ function updateSubagentPlanStep(input = {}) {
     stepName: step.stepName,
     objective: step.objective,
   });
-  if (dagKey || plannerDagNodes.size === 0) {
-    updatePlannerDagNode({
-      stepName: dagKey ?? step.stepName ?? step.objective,
-      objective: step.objective,
-      status: step.status,
-      note: step.note,
-      stepType: "subagent_task",
-      subagentSessionId: step.subagentSessionId,
-    });
+  // Use a short display name for the DAG node key, not the full objective.
+  // planStepDisplayName truncates to 28 chars for a clean tree label.
+  const nodeKey = dagKey ?? step.stepName ?? planStepDisplayName(step);
+  updatePlannerDagNode({
+    stepName: nodeKey,
+    objective: step.objective,
+    status: step.status,
+    note: step.note,
+    stepType: "subagent_task",
+    subagentSessionId: step.subagentSessionId,
+  });
+  // Auto-create edge from the root objective to this child if we have
+  // multiple nodes and this isn't a root node itself.
+  if (plannerDagNodes.size > 1 && watchState.currentObjective) {
+    const rootKey = sanitizeInlineText(watchState.currentObjective);
+    if (rootKey && rootKey !== nodeKey && plannerDagNodes.has(rootKey)) {
+      syncPlannerDagEdges([], [{ from: rootKey, to: nodeKey }], { merge: true });
+    }
   }
   return step;
 }
@@ -1961,6 +1977,13 @@ function currentInputValue() {
 
 function currentSlashSuggestions(limit = 8) {
   return matchWatchCommands(currentInputValue(), { limit });
+}
+
+function currentModelSuggestions(limit = 6) {
+  const input = currentInputValue().trimStart();
+  const match = input.match(/^\/models?\s+(.*)/i);
+  if (!match) return [];
+  return matchModelNames(match[1].trim(), { limit });
 }
 
 function currentFileTagQuery() {
@@ -2423,6 +2446,14 @@ function scheduleBootstrap(reason = "restoring session") {
   return watchTransportController.scheduleBootstrap(reason);
 }
 
+const watchVoiceController = createWatchVoiceController({
+  send,
+  authPayload,
+  pushEvent,
+  setTransientStatus,
+  watchState,
+});
+
 watchCommandController = createWatchCommandController({
   watchState,
   queuedOperatorInputs,
@@ -2445,6 +2476,7 @@ watchCommandController = createWatchCommandController({
   currentClientKey: () => clientKey,
   isOpen: () => transportState.isOpen,
   bootstrapPending,
+  voiceController: watchVoiceController,
   nowMs,
 });
 
@@ -2617,6 +2649,7 @@ watchSubagentController = createWatchSubagentController({
   formatShellCommand,
   currentDisplayObjective,
   backgroundToolSurfaceLabel,
+  retirePlannerDagOpenNodes,
   firstMeaningfulLine,
   tryPrettyJson,
   nowMs,
@@ -2638,6 +2671,46 @@ watchTransportController = createWatchTransportController({
   projectOperatorSurfaceEvent,
   shouldIgnoreOperatorMessage,
   dispatchOperatorSurfaceEvent: (surfaceEvent, rawMessage) => {
+    const rawType = rawMessage?.type;
+    // Intercept voice messages
+    if (typeof rawType === "string" && rawType.startsWith("voice.")) {
+      const handled = watchVoiceController.handleVoiceMessage(
+        rawType,
+        rawMessage?.payload ?? {},
+      );
+      if (handled) return;
+    }
+    // Intercept memory responses
+    if (rawType === "memory.results") {
+      const entries = Array.isArray(rawMessage?.payload) ? rawMessage.payload : [];
+      if (entries.length === 0) {
+        pushEvent("memory", "Memory", "No results found.", "slate");
+      } else {
+        const lines = entries.map((e) => {
+          const ts = e.timestamp ? new Date(e.timestamp).toLocaleString() : "";
+          const role = e.role === "user" ? "YOU" : "AGENT";
+          const text = (e.content ?? "").slice(0, 200);
+          return `${ts}  ${role}  ${text}`;
+        });
+        pushEvent("memory", "Memory Search", lines.join("\n"), "teal");
+      }
+      setTransientStatus(`memory: ${entries.length} result(s)`);
+      return;
+    }
+    if (rawType === "memory.sessions") {
+      const sessions = Array.isArray(rawMessage?.payload) ? rawMessage.payload : [];
+      if (sessions.length === 0) {
+        pushEvent("memory", "Memory", "No memory sessions found.", "slate");
+      } else {
+        const lines = sessions.map((s) => {
+          const lastActive = s.lastActiveAt ? new Date(s.lastActiveAt).toLocaleString() : "never";
+          return `${s.id.slice(0, 24)}…  ${s.messageCount} msgs  last: ${lastActive}`;
+        });
+        pushEvent("memory", "Memory Sessions", lines.join("\n"), "teal");
+      }
+      setTransientStatus(`memory: ${sessions.length} session(s)`);
+      return;
+    }
     dispatchOperatorSurfaceEvent(surfaceEvent, rawMessage, surfaceDispatchApi);
   },
   scheduleRender,
@@ -2741,6 +2814,7 @@ watchFrameController = createWatchFrameController({
   currentSurfaceSummary,
   currentInputValue,
   currentSlashSuggestions,
+  currentModelSuggestions,
   currentFileTagPalette,
   currentSessionElapsedLabel,
   currentRunElapsedLabel,
@@ -2835,6 +2909,10 @@ watchInputController = createWatchInputController({
   recordComposerHistory,
   operatorInputBatcher,
   setTransientStatus,
+  cancelActiveChat: () => {
+    send("chat.cancel", authPayload());
+    setTransientStatus("cancelled");
+  },
   scheduleRender,
 });
 

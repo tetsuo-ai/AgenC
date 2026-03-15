@@ -41,6 +41,7 @@ export function createWatchSubagentController(dependencies = {}) {
     formatShellCommand,
     currentDisplayObjective,
     backgroundToolSurfaceLabel,
+    retirePlannerDagOpenNodes,
     firstMeaningfulLine,
     tryPrettyJson,
     nowMs = Date.now,
@@ -81,6 +82,7 @@ export function createWatchSubagentController(dependencies = {}) {
     formatShellCommand,
     currentDisplayObjective,
     backgroundToolSurfaceLabel,
+    retirePlannerDagOpenNodes,
     firstMeaningfulLine,
     tryPrettyJson,
     nowMs,
@@ -260,13 +262,6 @@ export function createWatchSubagentController(dependencies = {}) {
           status: "planned",
           note: objective || stepName,
         });
-        pushEvent(
-          "subagent",
-          stepName ? `Plan ${stepName}` : "Delegation planned",
-          objective || stepName || label,
-          "magenta",
-          baseMetadata,
-        );
         return;
       case "subagents.policy_bypassed":
         updateSubagentPlanStep({
@@ -294,22 +289,6 @@ export function createWatchSubagentController(dependencies = {}) {
           status: "running",
           note: objective || stepName,
         });
-        pushEvent(
-          "subagent",
-          `${label} spawned${objective ? ` · ${truncate(objective, 88)}` : ""}`,
-          [
-            objective ? `objective: ${objective}` : null,
-            stepName ? `step: ${stepName}` : null,
-            typeof data.workingDirectory === "string"
-              ? `cwd: ${compactPathForDisplay(data.workingDirectory)}`
-              : null,
-            Array.isArray(data.tools) && data.tools.length > 0
-              ? `tools: ${data.tools.join(", ")}`
-              : null,
-          ].filter(Boolean).join("\n") || label,
-          "magenta",
-          baseMetadata,
-        );
         return;
       case "subagents.started":
         updateSubagentPlanStep({
@@ -321,12 +300,8 @@ export function createWatchSubagentController(dependencies = {}) {
         });
         pushEvent(
           "subagent",
-          `${label} started${objective ? ` · ${truncate(objective, 88)}` : ""}`,
-          [
-            objective ? `objective: ${objective}` : null,
-            stepName ? `step: ${stepName}` : null,
-            label,
-          ].filter(Boolean).join("\n"),
+          `${label} started`,
+          objective || stepName || label,
           "magenta",
           baseMetadata,
         );
@@ -447,35 +422,36 @@ export function createWatchSubagentController(dependencies = {}) {
         );
         return;
       }
-      case "subagents.completed":
+      case "subagents.completed": {
         clearSubagentHeartbeatEvents(payload?.subagentSessionId);
         clearSubagentLiveActivity(payload?.subagentSessionId);
         clearSubagentToolArgs(watchState, payload?.subagentSessionId);
+        const toolCallCount = Number.isFinite(Number(data.toolCalls)) ? Number(data.toolCalls) : 0;
+        const durationSec = Number.isFinite(Number(data.durationMs))
+          ? Math.round(Number(data.durationMs) / 1000)
+          : null;
+        const outputLine = firstMeaningfulLine(typeof data.output === "string" ? data.output : "");
+        const completedParts = [
+          `${toolCallCount} calls`,
+          durationSec !== null ? `${durationSec}s` : null,
+          outputLine ? truncate(outputLine, 80) : null,
+        ].filter(Boolean);
         updateSubagentPlanStep({
           stepName,
           objective,
           subagentSessionId: payload?.subagentSessionId,
           status: "completed",
-          note: firstMeaningfulLine(typeof data.output === "string" ? data.output : "") ||
-            `tool calls ${Number.isFinite(Number(data.toolCalls)) ? data.toolCalls : 0}`,
+          note: outputLine || `tool calls ${toolCallCount}`,
         });
         pushEvent(
           "subagent",
           `${label} completed`,
-          [
-            objective ? `objective: ${objective}` : null,
-            Number.isFinite(Number(data.toolCalls))
-              ? `tool calls: ${data.toolCalls}`
-              : null,
-            Number.isFinite(Number(data.durationMs))
-              ? `duration: ${Math.round(Number(data.durationMs) / 1000)}s`
-              : null,
-            firstMeaningfulLine(typeof data.output === "string" ? data.output : ""),
-          ].filter(Boolean).join("\n") || "delegated child completed",
+          completedParts.join(" · ") || "delegated child completed",
           "green",
           baseMetadata,
         );
         return;
+      }
       case "subagents.acceptance_probe.started": {
         updateSubagentPlanStep({
           stepName,
@@ -693,24 +669,42 @@ export function createWatchSubagentController(dependencies = {}) {
             : nextStatus === "cancelled"
               ? "amber"
               : "red";
-        pushEvent(
-          "subagent",
-          stepName || objective
-            ? `${label} synthesis ready${titleSuffix}`
-            : `Delegated synthesis ready${titleSuffix}`,
-          [
-            objective ? `objective: ${objective}` : null,
-            stepName ? `step: ${stepName}` : null,
-            stopReason ? `stop: ${stopReason.replace(/_/g, " ")}` : null,
-            Number.isFinite(Number(data.toolCalls))
-              ? `tool calls: ${data.toolCalls}`
-              : null,
-            stopReasonDetail,
-            outputPreview && outputPreview !== stopReasonDetail ? outputPreview : null,
-          ].filter(Boolean).join("\n") || synthesisNote,
-          tone,
-          baseMetadata,
+        // Skip synthesized card if a completed card for the same subagent already exists
+        const recentEvents = Array.isArray(watchState.events) ? watchState.events : [];
+        const subSessId = payload?.subagentSessionId ?? null;
+        const hasRecentCompleted = subSessId && recentEvents.slice(-6).some(
+          (ev) => ev.kind === "subagent" &&
+            ev.title?.includes("completed") &&
+            ev.subagentSessionId === subSessId,
         );
+        if (!hasRecentCompleted) {
+          pushEvent(
+            "subagent",
+            stepName || objective
+              ? `${label} synthesis ready${titleSuffix}`
+              : `Delegated synthesis ready${titleSuffix}`,
+            [
+              objective ? `objective: ${objective}` : null,
+              stepName ? `step: ${stepName}` : null,
+              stopReason ? `stop: ${stopReason.replace(/_/g, " ")}` : null,
+              Number.isFinite(Number(data.toolCalls))
+                ? `tool calls: ${data.toolCalls}`
+                : null,
+              stopReasonDetail,
+              outputPreview && outputPreview !== stopReasonDetail ? outputPreview : null,
+            ].filter(Boolean).join("\n") || synthesisNote,
+            tone,
+            baseMetadata,
+          );
+        }
+        // If this was the last active subagent and the stop reason is terminal,
+        // retire any remaining open DAG nodes so the TUI doesn't stay on "working".
+        if (stopReason === "completed" || stopReason === "failed" || stopReason === "cancelled" || stopReason === "validation_error" || stopReason === "timeout") {
+          retirePlannerDagOpenNodes(
+            stopReason === "completed" ? "completed" : "cancelled",
+            stopReasonDetail || stopReason.replace(/_/g, " "),
+          );
+        }
         return;
       }
       default:

@@ -991,6 +991,31 @@ export class WebChatChannel
   }
 
   /**
+   * Inject a synthetic user message into the chat pipeline.
+   * Used by slash commands that want to delegate to the normal ChatExecutor.
+   */
+  injectSyntheticUserMessage(
+    sessionId: string,
+    senderId: string,
+    content: string,
+  ): void {
+    const gatewayMsg = createGatewayMessage({
+      channel: "webchat",
+      senderId,
+      senderName: `WebClient(${senderId})`,
+      sessionId,
+      content,
+      scope: "dm",
+    });
+    this.context.onMessage(gatewayMsg).catch((err) => {
+      this.context.logger.warn?.(
+        "WebChat: error delivering synthetic message:",
+        err,
+      );
+    });
+  }
+
+  /**
    * Broadcast an event to all subscribed WS clients.
    */
   broadcastEvent(eventType: string, data: Record<string, unknown>): void {
@@ -1018,7 +1043,14 @@ export class WebChatChannel
     for (const [clientId, filters] of this.eventSubscribers) {
       if (!matchesEventFilters(eventType, filters)) continue;
       const send = this.clientSenders.get(clientId);
-      send?.(response);
+      if (send) {
+        send(response);
+        this.traceOutboundControlResponse(
+          clientId,
+          this.clientSessions.get(clientId),
+          response,
+        );
+      }
     }
   }
 

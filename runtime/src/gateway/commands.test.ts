@@ -429,10 +429,10 @@ describe("createDefaultCommands", () => {
     }
   });
 
-  it("/model has args pattern [name]", () => {
+  it("/model has args pattern", () => {
     const commands = createDefaultCommands();
     const model = commands.find((c) => c.name === "model");
-    expect(model!.args).toBe("[name]");
+    expect(model!.args).toBe("[model-name | current | list]");
   });
 
   it("can be registered on a registry", () => {
@@ -484,7 +484,7 @@ describe("createDefaultCommands", () => {
     }
   });
 
-  it("/model [name] appears in help-style listing", () => {
+  it("/model args and description appear in help-style listing", () => {
     const registry = new SlashCommandRegistry({ logger: silentLogger });
     for (const cmd of createDefaultCommands()) {
       registry.register(cmd);
@@ -493,7 +493,7 @@ describe("createDefaultCommands", () => {
     const model = registry.get("model")!;
     const helpLine = `/${model.name}${model.args ? ` ${model.args}` : ""} — ${model.description}`;
 
-    expect(helpLine).toContain("/model [name]");
+    expect(helpLine).toContain("/model [model-name | current | list]");
   });
 
   it("/init has args pattern [--force]", () => {

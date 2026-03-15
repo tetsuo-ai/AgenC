@@ -251,7 +251,11 @@ export async function runInitCommand(
       return 0;
     }
 
+    process.stderr.write("Starting daemon...\n");
     const port = await ensureDaemonPort(context, options, deps);
+    process.stderr.write(
+      `Generating AGENC.md for ${projectRoot} (this may take a minute)...\n`,
+    );
     const response = await deps.requestInitRun({
       port,
       projectRoot,

@@ -81,6 +81,7 @@ export function createWatchFrameController(dependencies = {}) {
     currentSurfaceSummary,
     currentInputValue,
     currentSlashSuggestions,
+    currentModelSuggestions,
     currentFileTagPalette,
     currentSessionElapsedLabel,
     currentRunElapsedLabel,
@@ -334,6 +335,7 @@ export function createWatchFrameController(dependencies = {}) {
     const palette = buildCommandPaletteSummary({
       inputValue: currentInputValue(),
       suggestions,
+      modelSuggestions: typeof currentModelSuggestions === "function" ? currentModelSuggestions(limit) : [],
     });
     const lines = [];
     if (palette.empty) {
@@ -592,13 +594,38 @@ export function createWatchFrameController(dependencies = {}) {
   }
 
   function buildPlannerDagSnapshot() {
-    const nodes = [...plannerDagNodes.values()].sort((left, right) => left.order - right.order);
+    const baseNodes = [...plannerDagNodes.values()].sort((left, right) => left.order - right.order);
+
+    // Inject synthetic child nodes for running subagents showing their live activity
+    const syntheticNodes = [];
+    const syntheticEdges = [];
+    for (const node of baseNodes) {
+      if (node.status !== "running" || !node.subagentSessionId) continue;
+      const activity = watchState.subagentLiveActivity?.get(node.subagentSessionId);
+      if (!activity) continue;
+      const childKey = `${node.key}__live`;
+      syntheticNodes.push({
+        key: childKey,
+        stepName: childKey,
+        objective: activity,
+        stepType: "deterministic_tool",
+        status: "running",
+        note: activity,
+        order: node.order + 0.5,
+        tool: null,
+        subagentSessionId: node.subagentSessionId,
+      });
+      syntheticEdges.push({ from: node.key, to: childKey });
+    }
+
+    const nodes = [...baseNodes, ...syntheticNodes].sort((left, right) => left.order - right.order);
     const nodeByKey = new Map(nodes.map((node) => [node.key, node]));
     const childrenByKey = new Map(nodes.map((node) => [node.key, []]));
     const parentsByKey = new Map(nodes.map((node) => [node.key, []]));
     const incomingCounts = new Map(nodes.map((node) => [node.key, 0]));
 
-    for (const edge of plannerDagEdges) {
+    const allEdges = [...plannerDagEdges, ...syntheticEdges];
+    for (const edge of allEdges) {
       if (!nodeByKey.has(edge.from) || !nodeByKey.has(edge.to)) {
         continue;
       }
@@ -722,15 +749,19 @@ export function createWatchFrameController(dependencies = {}) {
   }
 
   function plannerDagLabelLine(node, id, width) {
+    const isSynthetic = node.key?.endsWith("__live");
     const statusTone = plannerDagStatusTone(node.status);
     const typeTone = plannerDagTypeTone(node.stepType);
     const shortStatus = plannerDagStatusShortLabel(node.status);
-    const baseLabel = sanitizePlanLabel(
-      node.stepName ?? node.objective,
-      node.tool || "unnamed step",
-    );
-    const left = `${toneColor(statusTone)}${color.bold}${id}${color.reset}${toneColor(typeTone)}${plannerDagTypeGlyph(node.stepType)}${color.reset} ${truncate(baseLabel, Math.max(10, width - 9))}`;
-    const right = `${toneColor(statusTone)}${shortStatus}${color.reset}`;
+    const baseLabel = isSynthetic
+      ? sanitizeInlineText(node.note ?? node.objective ?? "working")
+      : sanitizePlanLabel(
+        node.stepName ?? node.objective,
+        node.tool || "unnamed step",
+      );
+    const idLabel = isSynthetic ? `${color.fog}↳${color.reset}` : `${toneColor(statusTone)}${color.bold}${id}${color.reset}${toneColor(typeTone)}${plannerDagTypeGlyph(node.stepType)}${color.reset}`;
+    const left = `${idLabel} ${truncate(baseLabel, Math.max(10, width - 9))}`;
+    const right = isSynthetic ? "" : `${toneColor(statusTone)}${shortStatus}${color.reset}`;
     return flexBetween(left, right, width);
   }
 
@@ -786,34 +817,29 @@ export function createWatchFrameController(dependencies = {}) {
     if (nodes.length === 0) {
       if (hasActiveSurfaceRun()) {
         const phaseLabel = sanitizeInlineText(currentPhaseLabel() || "thinking");
-        const objective = currentDisplayObjective("planner reasoning");
+        const objective = currentDisplayObjective("");
         const pendingHeader = flexBetween(
           `${toneColor("cyan")}${color.bold}LIVE DAG${color.reset}`,
-          `${color.fog}1 node  ${formatClockLabel(nowMs())}${color.reset}`,
+          `${color.fog}${formatClockLabel(nowMs())}${color.reset}`,
           width,
         );
-        const pendingMetrics = flexBetween(
-          `${chip("LIVE", 1, "cyan")}  ${chip("DONE", 0, "slate")}`,
-          `${chip("FAIL", 0, "slate")}`,
-          width,
-        );
-        const pendingGraph = `${toneColor("cyan")}${plannerDagStatusGlyph("running")}${color.reset}──── ${color.softInk}${truncate(
-          phaseLabel === "planner" ? "planner reasoning" : `${phaseLabel} pending`,
-          Math.max(18, width - 6),
-        )}${color.reset}`;
-        return [
+        const activeLabel = phaseLabel === "planner"
+          ? "planning"
+          : phaseLabel === "thinking" || phaseLabel === "idle"
+            ? "direct response"
+            : phaseLabel;
+        const lines = [
           pendingHeader,
-          pendingMetrics,
-          pendingGraph,
-          `${color.fog}${truncate(objective, width)}${color.reset}`,
-          `${color.fog}Waiting for the first planner_* event to materialize the full graph.${color.reset}`,
+          `${toneColor("cyan")}${plannerDagStatusGlyph("running")}${color.reset} ${color.softInk}${truncate(activeLabel, Math.max(12, width - 4))}${color.reset}`,
         ];
+        if (objective) {
+          lines.push(`${color.fog}${truncate(objective, width)}${color.reset}`);
+        }
+        return lines;
       }
       const lines = [
         header,
         metrics,
-        `${color.softInk}No planner graph yet.${color.reset}`,
-        `${color.fog}Waiting for planner_* events to draw the live node map.${color.reset}`,
       ];
       if (watchState.plannerDagNote) {
         lines.push(`${color.fog}${truncate(watchState.plannerDagNote, width)}${color.reset}`);
@@ -1107,23 +1133,58 @@ export function createWatchFrameController(dependencies = {}) {
     });
   }
 
+  function sidebarObjectiveHeader(width) {
+    const inner = width - 2;
+    const summary = currentSurfaceSummary();
+    const lines = [];
+    if (summary.objective && summary.objective !== "No active objective") {
+      lines.push(
+        paintSurface(
+          `${toneColor("teal")}${color.bold}OBJ${color.reset} ${color.ink}${truncate(summary.objective, inner - 4)}${color.reset}`,
+          width,
+          color.panelBg,
+        ),
+      );
+    }
+    if (summary.overview.activeLine && summary.overview.activeLine !== "Awaiting operator prompt" &&
+        summary.overview.activeLine !== summary.objective) {
+      lines.push(
+        paintSurface(
+          `${color.softInk}${truncate(summary.overview.activeLine, inner)}${color.reset}`,
+          width,
+          color.panelAltBg,
+        ),
+      );
+    }
+    return lines;
+  }
+
   function sidebarLines(width, targetHeight) {
     const policy = buildWatchSidebarPolicy(targetHeight);
-    const summarySection = compactSummaryLines(width);
+    const summarySection = sidebarObjectiveHeader(width);
     const dagSnapshot = buildPlannerDagSnapshot();
-    const dagDesiredRows = Math.max(
-      policy.minDagRows,
-      Math.min(
-        Math.max(0, targetHeight - summarySection.length - 1),
-        dagSnapshot.nodes.length > 0 ? dagSnapshot.nodes.length + 4 : 5,
-      ),
-    );
+    const hasDagNodes = dagSnapshot.nodes.length > 0;
     const optionalSections = [];
-    const toolsSection = policy.showTools ? toolTimelinePanelLines(width, policy.toolLimit) : null;
+
+    // Always show tools panel — it's the primary sidebar content for direct tool paths
+    const toolsSection = toolTimelinePanelLines(width, hasDagNodes ? policy.toolLimit : policy.toolLimit + 3);
     const guardSection = policy.showGuard ? contextPanelLines(width) : null;
     const agentsSection = policy.showAgents
       ? agentsPanelLines(width, policy.compactAgentLimit, policy.showSessionTokens)
       : null;
+
+    // Only show DAG when there are actual planner nodes
+    if (hasDagNodes) {
+      const dagDesiredRows = Math.max(
+        policy.minDagRows,
+        Math.min(
+          Math.max(0, targetHeight - summarySection.length - 1),
+          dagSnapshot.nodes.length + 4,
+        ),
+      );
+      optionalSections.push(dagWidgetLines(width, dagDesiredRows));
+    }
+
     for (const candidate of [toolsSection, guardSection, agentsSection]) {
       if (!candidate) {
         continue;
@@ -1131,8 +1192,7 @@ export function createWatchFrameController(dependencies = {}) {
       optionalSections.push(candidate);
     }
 
-    const dagSection = dagWidgetLines(width, dagDesiredRows);
-    const sections = [summarySection, dagSection, ...optionalSections];
+    const sections = [summarySection, ...optionalSections];
     const rows = [];
     for (const section of sections) {
       if (rows.length > 0) {
@@ -1376,17 +1436,11 @@ export function createWatchFrameController(dependencies = {}) {
 
   function activityPanelLines(width, targetHeight) {
     const transcriptView = flattenTranscriptView(width);
-    const focusRange =
-      watchState.transcriptScrollOffset === 0 && watchState.transcriptFollowMode
-        ? recentSourceFocusRange(transcriptView.ranges)
-        : null;
-    const sliced = focusRange
-      ? sliceViewportRowsAroundRange(transcriptView.rows, targetHeight, focusRange, 6)
-      : sliceViewportRowsFromBottom(
-        transcriptView.rows,
-        targetHeight,
-        watchState.transcriptScrollOffset,
-      );
+    const sliced = sliceViewportRowsFromBottom(
+      transcriptView.rows,
+      targetHeight,
+      watchState.transcriptScrollOffset,
+    );
     watchState.transcriptScrollOffset = sliced.normalizedOffset;
     const lines = bottomAlignViewportRows([...sliced.rows], targetHeight);
     return {
@@ -1739,6 +1793,7 @@ export function createWatchFrameController(dependencies = {}) {
       summary: currentSurfaceSummary(),
       inputValue: currentInputValue(),
       suggestions: currentSlashSuggestions(6),
+      modelSuggestions: typeof currentModelSuggestions === "function" ? currentModelSuggestions(6) : [],
       fileTagQuery: fileTagPalette.activeTag?.query ?? null,
       fileTagSuggestions: fileTagPalette.suggestions,
       fileTagIndexReady: workspaceFileIndex.ready,
@@ -1775,6 +1830,7 @@ export function createWatchFrameController(dependencies = {}) {
       summary,
       inputValue: currentInputValue(),
       suggestions: currentSlashSuggestions(6),
+      modelSuggestions: typeof currentModelSuggestions === "function" ? currentModelSuggestions(6) : [],
       fileTagQuery: fileTagPalette.activeTag?.query ?? null,
       fileTagSuggestions: fileTagPalette.suggestions,
       fileTagIndexReady: workspaceFileIndex.ready,
@@ -1809,7 +1865,7 @@ export function createWatchFrameController(dependencies = {}) {
   }
 
   function buildVisibleFrameSnapshot({ width = termWidth(), height = termHeight() } = {}) {
-    const footerRows = 3;
+    const footerRows = 4;
     let frame;
     let diffNavigation = null;
     const slashMode = isSlashComposerInput(currentInputValue());
@@ -1838,15 +1894,26 @@ export function createWatchFrameController(dependencies = {}) {
         ? expandedDetailLines(transcriptWidth, bodyHeight)
         : activityPanelLines(transcriptWidth, bodyHeight);
       diffNavigation = transcriptView.diffNavigation ?? null;
+      const transcriptLines = [...transcriptView.lines];
+      if (!watchState.expandedEventId && transcriptLines.length > 0) {
+        if (transcriptView.hiddenAbove > 0) {
+          const aboveText = `${color.fog}▲ ${transcriptView.hiddenAbove} more line${transcriptView.hiddenAbove === 1 ? "" : "s"} above${color.reset}`;
+          transcriptLines[0] = paintSurface(aboveText, transcriptWidth, color.panelBg);
+        }
+        if (transcriptView.hiddenBelow > 0) {
+          const belowText = `${color.fog}▼ ${transcriptView.hiddenBelow} more line${transcriptView.hiddenBelow === 1 ? "" : "s"} below${color.reset}`;
+          transcriptLines[transcriptLines.length - 1] = paintSurface(belowText, transcriptWidth, color.panelBg);
+        }
+      }
       const transcript = useSidebar
         ? joinColumns(
-          transcriptView.lines,
+          transcriptLines,
           sidebarLines(sidebarWidth, bodyHeight),
           transcriptWidth,
           sidebarWidth,
           2,
         )
-        : transcriptView.lines;
+        : transcriptLines;
       frame = [
         ...header,
         ...transcript,
@@ -1854,19 +1921,30 @@ export function createWatchFrameController(dependencies = {}) {
       ];
     }
     const composer = composerRenderLine(width);
-    const bodyRows = Math.max(0, height - footerRows);
+    const composerLines = composer.lines ?? [composer.line];
+    const composerExtraRows = composerLines.length - 1;
+    const bodyRows = Math.max(0, height - footerRows - composerExtraRows);
     const nextFrameLines = [];
     for (let rowIndex = 0; rowIndex < bodyRows; rowIndex += 1) {
       nextFrameLines.push(paintSurface(frame[rowIndex] ?? "", width, color.panelBg));
     }
+    nextFrameLines.push(paintSurface(`${color.border}${"─".repeat(width)}${color.reset}`, width, color.panelBg));
     nextFrameLines.push(paintSurface(footerStatusLine(width, diffNavigation), width, color.panelBg));
     nextFrameLines.push(paintSurface(footerHintLine(width, diffNavigation), width, color.panelBg));
-    nextFrameLines.push(paintSurface(composer.line, width, color.panelBg));
+    for (const cLine of composerLines) {
+      nextFrameLines.push(paintSurface(cLine, width, color.panelBg));
+    }
+    // Cursor row accounts for wrapped composer lines (1-indexed for ANSI positioning)
+    const cursorAbsoluteRow = height - composerLines.length + (composer.cursorRow ?? 0) + 1;
     return {
       lines: nextFrameLines,
       width,
       height,
-      composer,
+      composer: {
+        ...composer,
+        cursorColumn: composer.cursorColumn,
+        absoluteRow: cursorAbsoluteRow,
+      },
       diffNavigation,
     };
   }
@@ -1899,7 +1977,8 @@ export function createWatchFrameController(dependencies = {}) {
     frameState.lastRenderedFrameLines = nextFrameLines;
     frameState.lastRenderedFrameWidth = width;
     frameState.lastRenderedFrameHeight = height;
-    stdout.write(`\x1b[${height};${composer.cursorColumn}H\x1b[?25h`);
+    const cursorRow = composer.absoluteRow ?? height;
+    stdout.write(`\x1b[${cursorRow};${composer.cursorColumn}H\x1b[?25h`);
     stdout.write(color.reset);
   }
 

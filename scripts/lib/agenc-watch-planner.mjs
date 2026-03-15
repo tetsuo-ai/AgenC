@@ -52,7 +52,13 @@ export function createWatchPlannerController(dependencies = {}) {
       eventSessionId &&
       !sessionValuesMatch(eventSessionId, watchState.sessionId)
     ) {
-      return false;
+      // Accept planner events from child/subagent sessions whose parent
+      // matches the watched session — the parentSessionId field carries
+      // the originating session when the planner runs inside delegation.
+      const parentSessionId = sanitizeInlineText(payload?.parentSessionId ?? "");
+      if (!parentSessionId || !sessionValuesMatch(parentSessionId, watchState.sessionId)) {
+        return false;
+      }
     }
     if (type !== "planner_plan_parsed" && plannerDagNodeCount() <= 1) {
       hydratePlannerDagForLiveSession({ force: plannerDagNodeCount() === 1 });
