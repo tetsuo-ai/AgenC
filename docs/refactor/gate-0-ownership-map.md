@@ -26,18 +26,20 @@
 
 ### Per-Example Classification
 
-| Example | Has package.json | Import Style | Verification |
-|---------|-----------------|--------------|--------------|
-| `autonomous-agent/` | Check needed | SDK/runtime consumer | Run check needed |
-| `dispute-arbiter/` | Check needed | SDK consumer | Run check needed |
-| `event-dashboard/` | Check needed | SDK/runtime consumer | Run check needed |
-| `helius-webhook/` | Yes (knip workspace) | SDK consumer | Entry: `index.ts` |
-| `llm-agent/` | Check needed | Runtime consumer | Run check needed |
-| `memory-agent/` | Check needed | Runtime consumer | Run check needed |
-| `risc0-proof-demo/` | Check needed | SDK/proof consumer | Run check needed |
-| `simple-usage/` | Yes (knip workspace) | SDK consumer | Entry: `index.ts` |
-| `skill-jupiter/` | Check needed | Runtime/skills consumer | Run check needed |
-| `tetsuo-integration/` | Yes (knip workspace) | SDK/runtime consumer | Entry: `index.ts` |
+| Example | Has package.json | Import Style | Monorepo Deps | Verification |
+|---------|-----------------|--------------|---------------|--------------|
+| `autonomous-agent/` | No | Standalone script | None (inline) | Script-level |
+| `dispute-arbiter/` | No | Standalone script | None (inline) | Script-level |
+| `event-dashboard/` | No | Standalone script | None (inline) | Script-level |
+| `helius-webhook/` | Yes (knip workspace) | Package consumer | No `file:` deps | Entry: `index.ts` |
+| `llm-agent/` | No | Standalone script | None (inline) | Script-level |
+| `memory-agent/` | No | Standalone script | None (inline) | Script-level |
+| `risc0-proof-demo/` | No | Standalone script | None (inline) | Script-level |
+| `simple-usage/` | Yes (knip workspace) | Package consumer | `@agenc/sdk: file:../../sdk` | Entry: `index.ts` |
+| `skill-jupiter/` | No | Standalone script | None (inline) | Script-level |
+| `tetsuo-integration/` | Yes (knip workspace) | Package consumer | `@agenc/sdk: file:../../sdk` | Entry: `index.ts` |
+
+**Note:** `simple-usage` and `tetsuo-integration` use `file:../../sdk` monorepo-local deps — Gate 10 blocker.
 
 ## 3. Platform and Operational Domains
 
@@ -148,20 +150,37 @@
 |-----------|----------------|-------|
 | `patches/npm/` | Build config — npm package patches | Build |
 
-## 5. Known Private-Import Consumers
+## 5. Verified Private-Import Consumer Inventory
 
-Per Section 5.4 of the master program:
+Grep-verified against `from '...runtime/src/` and `from '...sdk/src/` patterns (excluding `node_modules`).
 
-| Consumer | Import Target | Type |
-|----------|--------------|------|
-| `web/src/types.ts` | `runtime/src/*` | Private runtime import |
-| `web/src/constants.ts` | `runtime/src/*` | Private runtime import |
-| `web/src/hooks/useWebSocket.ts` | `runtime/src/*` | Private runtime import |
-| `mobile/src/hooks/useRemoteGateway.ts` | `runtime/src/*` | Private runtime import |
-| `demo/private_task_demo.ts` | `sdk/src/*` | Private SDK import |
-| `scripts/agenc-localnet-social-smoke.ts` | `runtime/src/*` | Private runtime import |
-| `scripts/agenc-localnet-social-bootstrap.ts` | `runtime/src/*` | Private runtime import |
-| `scripts/zk-config-admin.ts` | `runtime/src/*` or `sdk/src/*` | Private import |
+### 5.1 App Consumers (Gate 2A blockers)
+
+| File | Private Imports | Specific Modules |
+|------|----------------|-----------------|
+| `web/src/types.ts` | runtime/src (3 imports) | `webchat/protocol`, `gateway/background-run-operator`, `gateway/types`, `observability/types` |
+| `web/src/constants.ts` | runtime/src (1 import) | `webchat/protocol` |
+| `web/src/hooks/useWebSocket.ts` | runtime/src (1 import) | `webchat/socket-client-core` |
+| `mobile/src/hooks/useRemoteGateway.ts` | runtime/src (1 import) | `webchat/socket-client-core` |
+
+### 5.2 Script Consumers (Gate 2A blockers)
+
+| File | Private Imports | Specific Modules |
+|------|----------------|-----------------|
+| `demo/private_task_demo.ts` | sdk/src (2 imports) | `constants`, `proofs` |
+| `scripts/agenc-localnet-social-smoke.ts` | runtime/src (4 imports) | `idl`, `social/discovery`, `social/messaging`, `social/feed` |
+| `scripts/agenc-localnet-social-bootstrap.ts` | runtime/src (2 imports) | `idl`, `agent/capabilities` |
+| `scripts/zk-config-admin.ts` | sdk/src + runtime/src (2 imports) | `sdk/src/index`, `runtime/src/idl` |
+
+### 5.3 Operator-Console/Watch Runtime Coupling
+
+The watch subsystem (`scripts/lib/agenc-watch-*.mjs`) does NOT directly import `runtime/src/*`. It uses dynamic import of the built `runtime/dist/operator-events.mjs` artifact via `agenc-watch-runtime.mjs`. This is a **contract-bearing built-artifact dependency**, not a private-import violation. Required exports: `normalizeOperatorMessage`, `shouldIgnoreOperatorMessage`, `projectOperatorSurfaceEvent`.
+
+### 5.4 Public-Package Script Consumers (not violations)
+
+| File | Import | Status |
+|------|--------|--------|
+| `scripts/agenc-devnet-soak.mjs` | `@agenc/sdk` | Clean — uses public package |
 
 ## 6. Active Generated Artifacts and Codegen Pipelines
 
