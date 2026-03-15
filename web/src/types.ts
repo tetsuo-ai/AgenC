@@ -8,16 +8,12 @@
 import type {
   SubagentLifecyclePayload,
   SubagentLifecycleType,
-} from '../../runtime/src/channels/webchat/protocol.ts';
-import type {
   BackgroundRunOperatorAvailability,
   BackgroundRunControlAction,
   BackgroundRunOperatorDetail,
   BackgroundRunOperatorErrorPayload,
   BackgroundRunOperatorSummary,
-} from '../../runtime/src/gateway/background-run-operator.ts';
-import type { GatewayBackgroundRunStatus } from '../../runtime/src/gateway/types.ts';
-import type {
+  GatewayBackgroundRunStatus,
   ObservabilityArtifactResponse,
   ObservabilityEventRecord,
   ObservabilityLogResponse,
@@ -25,7 +21,7 @@ import type {
   ObservabilityTraceDetail,
   ObservabilityTraceStatus,
   ObservabilityTraceSummary,
-} from '../../runtime/src/observability/types.ts';
+} from '@agenc/runtime';
 
 // ============================================================================
 // Connection State

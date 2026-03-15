@@ -1650,6 +1650,32 @@ export {
   type ProgressTrackerConfig,
 } from "./gateway/index.js";
 
+// WebChat Protocol Types (app-safe re-exports for web/mobile consumers)
+export {
+  type SubagentLifecyclePayload,
+  type SubagentLifecycleType,
+} from "./channels/webchat/protocol.js";
+
+// Background Run Operator Types (app-safe re-exports for web/mobile consumers)
+export {
+  type BackgroundRunOperatorAvailability,
+  type BackgroundRunControlAction,
+  type BackgroundRunOperatorDetail,
+  type BackgroundRunOperatorErrorPayload,
+  type BackgroundRunOperatorSummary,
+} from "./gateway/background-run-operator.js";
+
+// Observability Types (app-safe re-exports for web/mobile consumers)
+export {
+  type ObservabilityArtifactResponse,
+  type ObservabilityEventRecord,
+  type ObservabilityLogResponse,
+  type ObservabilitySummary,
+  type ObservabilityTraceDetail,
+  type ObservabilityTraceStatus,
+  type ObservabilityTraceSummary,
+} from "./observability/types.js";
+
 // Channel Plugins (Phase 1.5)
 export {
   TelegramChannel,
