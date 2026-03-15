@@ -98,6 +98,7 @@ import { type Tool } from "../tools/types.js";
 import type { GatewayMessage } from "./message.js";
 import { createGatewayMessage } from "./message.js";
 import { ChatExecutor } from "../llm/chat-executor.js";
+import { createChatExecutor } from "./chat-executor-factory.js";
 import {
   didToolCallFail,
   normalizeToolCallArguments,
@@ -2732,58 +2733,30 @@ export class DaemonManager {
       config.llm?.maxToolRounds ?? getDefaultMaxToolRounds(config);
     this._defaultForegroundMaxToolRounds = defaultForegroundMaxToolRounds;
 
-    this._chatExecutor =
-      providers.length > 0
-        ? new ChatExecutor({
-            providers,
-            toolHandler: baseToolHandler,
-            allowedTools: this.getAdvertisedToolNames(),
-            skillInjector,
-            memoryRetriever,
-            learningProvider,
-            progressProvider: progressTracker,
-            promptBudget,
-            maxToolRounds: defaultForegroundMaxToolRounds,
-            plannerEnabled:
-              config.llm?.plannerEnabled ?? resolvedSubAgentConfig.enabled,
-            plannerMaxTokens: config.llm?.plannerMaxTokens,
-            toolBudgetPerRequest: config.llm?.toolBudgetPerRequest,
-            maxModelRecallsPerRequest: config.llm?.maxModelRecallsPerRequest,
-            maxFailureBudgetPerRequest: config.llm?.maxFailureBudgetPerRequest,
-            delegationDecision: {
-              enabled: resolvedSubAgentConfig.enabled,
-              mode: resolvedSubAgentConfig.mode,
-              scoreThreshold: resolvedSubAgentConfig.baseSpawnDecisionThreshold,
-              maxFanoutPerTurn: resolvedSubAgentConfig.maxFanoutPerTurn,
-              maxDepth: resolvedSubAgentConfig.maxDepth,
-              handoffMinPlannerConfidence:
-                resolvedSubAgentConfig.handoffMinPlannerConfidence,
-              hardBlockedTaskClasses:
-                resolvedSubAgentConfig.hardBlockedTaskClasses,
-            },
-            resolveDelegationScoreThreshold: () =>
-              this.resolveDelegationScoreThreshold(),
-            subagentVerifier: {
-              enabled:
-                resolvedSubAgentConfig.enabled &&
-                !resolvedSubAgentConfig.unsafeBenchmarkMode,
-              force: resolvedSubAgentConfig.forceVerifier,
-            },
-            delegationLearning: {
-              trajectorySink: this._delegationTrajectorySink ?? undefined,
-              banditTuner: this._delegationBanditTuner ?? undefined,
-              defaultStrategyArmId: "balanced",
-            },
-            toolCallTimeoutMs: config.llm?.toolCallTimeoutMs,
-            requestTimeoutMs: config.llm?.requestTimeoutMs,
-            retryPolicyMatrix: config.llm?.retryPolicy,
-            toolFailureCircuitBreaker: config.llm?.toolFailureCircuitBreaker,
-            resolveHostToolingProfile: () => this._hostToolingProfile,
-            pipelineExecutor: plannerPipelineExecutor,
-            sessionTokenBudget,
-            onCompaction: this.handleCompaction,
-          })
-        : null;
+    this._chatExecutor = createChatExecutor({
+      providers,
+      toolHandler: baseToolHandler,
+      allowedTools: this.getAdvertisedToolNames(),
+      skillInjector,
+      memoryRetriever,
+      learningProvider,
+      progressProvider: progressTracker,
+      promptBudget,
+      maxToolRounds: defaultForegroundMaxToolRounds,
+      sessionTokenBudget,
+      onCompaction: this.handleCompaction,
+      llmConfig: config.llm,
+      subagentConfig: resolvedSubAgentConfig,
+      resolveDelegationScoreThreshold: () =>
+        this.resolveDelegationScoreThreshold(),
+      delegationLearning: {
+        trajectorySink: this._delegationTrajectorySink ?? undefined,
+        banditTuner: this._delegationBanditTuner ?? undefined,
+        defaultStrategyArmId: "balanced",
+      },
+      resolveHostToolingProfile: () => this._hostToolingProfile,
+      pipelineExecutor: plannerPipelineExecutor,
+    });
 
     const sessionMgr = this.createSessionManager(hooks);
     this._webSessionManager = sessionMgr;
@@ -5454,62 +5427,30 @@ export class DaemonManager {
         this._llmTools,
       );
       this._llmProviders = providers;
-      this._chatExecutor =
-        providers.length > 0
-          ? new ChatExecutor({
-              providers,
-              toolHandler: this._baseToolHandler!,
-              allowedTools: this.getAdvertisedToolNames(),
-              skillInjector,
-              memoryRetriever,
-              learningProvider,
-              progressProvider,
-              promptBudget,
-              maxToolRounds: defaultForegroundMaxToolRounds,
-              plannerEnabled:
-                newConfig.llm?.plannerEnabled ?? resolvedSubAgentConfig.enabled,
-              plannerMaxTokens: newConfig.llm?.plannerMaxTokens,
-              toolBudgetPerRequest: newConfig.llm?.toolBudgetPerRequest,
-              maxModelRecallsPerRequest:
-                newConfig.llm?.maxModelRecallsPerRequest,
-              maxFailureBudgetPerRequest:
-                newConfig.llm?.maxFailureBudgetPerRequest,
-              delegationDecision: {
-                enabled: resolvedSubAgentConfig.enabled,
-                mode: resolvedSubAgentConfig.mode,
-                scoreThreshold:
-                  resolvedSubAgentConfig.baseSpawnDecisionThreshold,
-                maxFanoutPerTurn: resolvedSubAgentConfig.maxFanoutPerTurn,
-                maxDepth: resolvedSubAgentConfig.maxDepth,
-                handoffMinPlannerConfidence:
-                  resolvedSubAgentConfig.handoffMinPlannerConfidence,
-                hardBlockedTaskClasses:
-                  resolvedSubAgentConfig.hardBlockedTaskClasses,
-              },
-              resolveDelegationScoreThreshold: () =>
-                this.resolveDelegationScoreThreshold(),
-              subagentVerifier: {
-                enabled:
-                  resolvedSubAgentConfig.enabled &&
-                  !resolvedSubAgentConfig.unsafeBenchmarkMode,
-                force: resolvedSubAgentConfig.forceVerifier,
-              },
-              delegationLearning: {
-                trajectorySink: this._delegationTrajectorySink ?? undefined,
-                banditTuner: this._delegationBanditTuner ?? undefined,
-                defaultStrategyArmId: "balanced",
-              },
-              toolCallTimeoutMs: newConfig.llm?.toolCallTimeoutMs,
-              requestTimeoutMs: newConfig.llm?.requestTimeoutMs,
-              retryPolicyMatrix: newConfig.llm?.retryPolicy,
-              toolFailureCircuitBreaker:
-                newConfig.llm?.toolFailureCircuitBreaker,
-              resolveHostToolingProfile: () => this._hostToolingProfile,
-              pipelineExecutor: plannerPipelineExecutor,
-              sessionTokenBudget,
-              onCompaction: this.handleCompaction,
-            })
-          : null;
+      this._chatExecutor = createChatExecutor({
+        providers,
+        toolHandler: this._baseToolHandler!,
+        allowedTools: this.getAdvertisedToolNames(),
+        skillInjector,
+        memoryRetriever,
+        learningProvider,
+        progressProvider,
+        promptBudget,
+        maxToolRounds: defaultForegroundMaxToolRounds,
+        sessionTokenBudget,
+        onCompaction: this.handleCompaction,
+        llmConfig: newConfig.llm,
+        subagentConfig: resolvedSubAgentConfig,
+        resolveDelegationScoreThreshold: () =>
+          this.resolveDelegationScoreThreshold(),
+        delegationLearning: {
+          trajectorySink: this._delegationTrajectorySink ?? undefined,
+          banditTuner: this._delegationBanditTuner ?? undefined,
+          defaultStrategyArmId: "balanced",
+        },
+        resolveHostToolingProfile: () => this._hostToolingProfile,
+        pipelineExecutor: plannerPipelineExecutor,
+      });
 
       const providerNames = providers.map((p) => p.name).join(" → ") || "none";
       this.logger.info(`LLM provider hot-swapped to [${providerNames}]`);
