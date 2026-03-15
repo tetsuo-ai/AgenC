@@ -14,7 +14,7 @@ import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import { silentLogger } from "../../utils/logger.js";
 import { ensureLazyModule } from "../../utils/lazy-import.js";
-import { safePath } from "./filesystem.js";
+import { resolveToolAllowedPaths, safePath } from "./filesystem.js";
 import type { SystemSqliteToolConfig } from "./types.js";
 
 const DEFAULT_MAX_SQL_CHARS = 20_000;
@@ -114,11 +114,12 @@ function normalizePositiveInteger(
 async function resolveSqlitePath(
   rawPath: unknown,
   allowedPaths: readonly string[],
+  args: Record<string, unknown>,
 ): Promise<string | ToolResult> {
   if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
     return errorResult("Missing or invalid path");
   }
-  const safe = await safePath(rawPath, allowedPaths);
+  const safe = await safePath(rawPath, resolveToolAllowedPaths(allowedPaths, args));
   if (!safe.safe) {
     return errorResult(safe.reason ?? "Database path is outside allowed directories");
   }
@@ -267,7 +268,7 @@ function createSqliteSchemaTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolveSqlitePath(args.path, allowedPaths);
+      const resolved = await resolveSqlitePath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }
@@ -392,7 +393,7 @@ function createSqliteQueryTool(
       required: ["path", "sql"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolveSqlitePath(args.path, allowedPaths);
+      const resolved = await resolveSqlitePath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }

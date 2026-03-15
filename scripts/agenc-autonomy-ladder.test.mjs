@@ -78,6 +78,14 @@ test("buildAutonomyStages supports the productivity scenario", () => {
   assert.equal(stages[1].timeoutMs, 35_000);
 });
 
+test("buildAutonomyStages supports the delegation scenario", () => {
+  const stages = buildAutonomyStages("token", "delegation");
+  assert.deepEqual(stages.map((stage) => stage.id), ["del1"]);
+  assert.match(stages[0].actions[0].input, /execute_with_agent/i);
+  assert.match(stages[0].actions[0].input, /system\.bash/i);
+  assert.match(stages[0].actions[0].input, /\/bin\/pwd/i);
+});
+
 test("pickLatestSession returns the most recent session", () => {
   const latest = pickLatestSession([
     { sessionId: "older", lastActiveAt: 10 },
@@ -107,6 +115,29 @@ test("pickLatestTrace prefers traces at or after the stage start", () => {
     20,
   );
   assert.equal(picked.traceId, "new");
+});
+
+test("pickLatestTrace prefers the parent session trace over newer subtraces", () => {
+  const picked = pickLatestTrace(
+    [
+      { traceId: "session-1:root:sub:child-2", updatedAt: 40 },
+      { traceId: "session-1:root", updatedAt: 35 },
+      { traceId: "session-1:root:sub:child-1", updatedAt: 30 },
+    ],
+    20,
+  );
+  assert.equal(picked.traceId, "session-1:root");
+});
+
+test("pickLatestTrace does not fall back to stale traces before the stage start", () => {
+  const picked = pickLatestTrace(
+    [
+      { traceId: "session-1:root", updatedAt: 30 },
+      { traceId: "session-1:root:sub:child-1", updatedAt: 40 },
+    ],
+    50,
+  );
+  assert.equal(picked, undefined);
 });
 
 test("isTypedHandleTool recognizes structured long-lived tools", () => {
@@ -314,6 +345,106 @@ test("evaluateAutonomyStage calendar_stage_read requires typed calendar evidence
     },
   });
   assert.equal(result.passed, true);
+});
+
+test("evaluateAutonomyStage delegation_stage_child requires the full delegated child lifecycle", () => {
+  const result = evaluateAutonomyStage("delegation_stage_child", {
+    runToken: "abc",
+    sessionId: "session-1",
+    paneText:
+      "Delegated child 4bb58574\n/home/tetsuo/git/AgenC\nexecute_with_agent",
+    traceSummaries: [
+      { lastEventName: "subagents.spawned" },
+      { lastEventName: "subagents.started" },
+      { lastEventName: "subagents.tool.executing" },
+      { lastEventName: "subagents.tool.result" },
+      { lastEventName: "subagents.completed" },
+    ],
+    traceDetail: {
+      summary: {
+        status: "completed",
+        traceId: "trace-1",
+        sessionId: "session-1",
+      },
+      events: [
+        { toolName: "execute_with_agent" },
+        { toolName: "system.bash" },
+      ],
+      completeness: { complete: true, issues: [] },
+    },
+    traceText: [
+      "subagents.spawned",
+      "subagents.started",
+      "subagents.tool.executing",
+      "subagents.tool.result",
+      "subagents.completed",
+    ].join("\n"),
+    runText: "",
+  });
+  assert.equal(result.passed, true);
+});
+
+test("evaluateAutonomyStage delegation_stage_child accepts durable parent evidence when tool subtraces rotate out", () => {
+  const result = evaluateAutonomyStage("delegation_stage_child", {
+    runToken: "abc",
+    sessionId: "session-1",
+    paneText: "Delegated child 4bb58574\n/home/tetsuo/git/AgenC\nexecute_with_agent",
+    traceSummaries: [
+      { lastEventName: "webchat.chat.response" },
+      { lastEventName: "subagents.synthesized" },
+      { lastEventName: "subagents.completed" },
+      { lastEventName: "subagents.started" },
+      { lastEventName: "subagents.spawned" },
+    ],
+    traceDetail: {
+      summary: {
+        status: "completed",
+        traceId: "trace-1",
+        sessionId: "session-1",
+      },
+      events: [{ toolName: "execute_with_agent" }],
+      completeness: { complete: true, issues: [] },
+    },
+    traceText: [
+      "webchat.executor.tool_dispatch_finished",
+      "webchat.tool.result",
+      "{\"success\":true,\"status\":\"completed\",\"output\":\"/home/tetsuo/git/AgenC\"}",
+    ].join("\n"),
+    runText: "",
+  });
+  assert.equal(result.passed, true);
+});
+
+test("evaluateAutonomyStage delegation_stage_child rejects incomplete delegated child traces", () => {
+  const result = evaluateAutonomyStage("delegation_stage_child", {
+    runToken: "abc",
+    sessionId: "session-1",
+    paneText: "Delegated child 4bb58574\n/home/tetsuo/git/AgenC",
+    traceSummaries: [
+      { lastEventName: "subagents.spawned" },
+      { lastEventName: "subagents.started" },
+      { lastEventName: "subagents.tool.executing" },
+      { lastEventName: "subagents.tool.result" },
+    ],
+    traceDetail: {
+      summary: {
+        status: "completed",
+        traceId: "trace-1",
+        sessionId: "session-1",
+      },
+      events: [{ toolName: "execute_with_agent" }],
+      completeness: { complete: true, issues: [] },
+    },
+    traceText: [
+      "subagents.spawned",
+      "subagents.started",
+      "subagents.tool.executing",
+      "subagents.tool.result",
+    ].join("\n"),
+    runText: "",
+  });
+  assert.equal(result.passed, false);
+  assert.match(result.reasons.join("\n"), /full delegated child lifecycle/i);
 });
 
 test("evaluateAutonomyStage stage7 preserves the durable run id across restart", () => {

@@ -8,6 +8,7 @@
  */
 
 import type { GatewayAuthConfig } from "./remote-types.js";
+import type { BackgroundRunOperatorAvailabilityCode } from "./background-run-operator.js";
 import type { DesktopSandboxConfig } from "../desktop/types.js";
 import type { SocialPeerDirectoryEntry } from "../social/types.js";
 
@@ -38,7 +39,7 @@ export interface GatewayLLMConfig {
   maxRuntimeHints?: number;
   /** Request timeout in milliseconds for provider calls (default: provider-specific). */
   timeoutMs?: number;
-  /** End-to-end timeout in milliseconds for one chat request execution. */
+  /** End-to-end timeout in milliseconds for one chat request execution. 0 or undefined = unlimited. */
   requestTimeoutMs?: number;
   /** Timeout in milliseconds for a single tool execution call. */
   toolCallTimeoutMs?: number;
@@ -79,7 +80,7 @@ export interface GatewayLLMConfig {
   plannerMaxTokens?: number;
   /** Maximum tool calls allowed in one request execution. */
   toolBudgetPerRequest?: number;
-  /** Maximum model recalls after the initial call per request. */
+  /** Maximum model recalls after the initial call per request. 0 or undefined = unlimited. */
   maxModelRecallsPerRequest?: number;
   /** Maximum failed tool calls allowed per request before aborting. */
   maxFailureBudgetPerRequest?: number;
@@ -171,7 +172,7 @@ export interface GatewaySubagentConfig {
   maxTotalSubagentsPerRequest?: number;
   /** Hard cap on cumulative child tool calls across one request tree. */
   maxCumulativeToolCallsPerRequestTree?: number;
-  /** Hard cap on cumulative child LLM tokens across one request tree. */
+  /** Hard cap on cumulative child LLM tokens across one request tree. 0 or undefined = unlimited. */
   maxCumulativeTokensPerRequestTree?: number;
   /** Default timeout for child agent execution in milliseconds. */
   defaultTimeoutMs?: number;
@@ -679,6 +680,12 @@ export interface GatewayBackgroundRunMetrics {
 }
 
 export interface GatewayBackgroundRunStatus {
+  readonly enabled: boolean;
+  readonly operatorAvailable: boolean;
+  readonly inspectAvailable: boolean;
+  readonly controlAvailable: boolean;
+  readonly disabledCode?: BackgroundRunOperatorAvailabilityCode;
+  readonly disabledReason?: string;
   readonly multiAgentEnabled: boolean;
   readonly activeTotal: number;
   readonly queuedSignalsTotal: number;
@@ -728,12 +735,30 @@ export type ControlMessageType =
   | "channels"
   | "sessions"
   | "sessions.kill"
+  | "init.run"
   | "auth"
   | "config.get"
   | "config.set"
   | "wallet.info"
   | "wallet.airdrop"
   | "ollama.models";
+
+export interface InitRunControlPayload {
+  readonly path?: string;
+  readonly force?: boolean;
+}
+
+export interface InitRunControlResponsePayload {
+  readonly projectRoot: string;
+  readonly filePath: string;
+  readonly result: "created" | "updated" | "skipped";
+  readonly delegatedInvestigations: number;
+  readonly attempts: number;
+  readonly modelBacked: true;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly usedFallback?: boolean;
+}
 
 export interface ControlMessage {
   type: ControlMessageType;

@@ -17,6 +17,7 @@ import type {
   MessageAttachment,
 } from "../../gateway/message.js";
 import { createGatewayMessage } from "../../gateway/message.js";
+import { resolveSessionWorkspaceRoot } from "../../gateway/host-workspace.js";
 import { deriveSessionId } from "../../gateway/session.js";
 import { DEFAULT_WORKSPACE_ID } from "../../gateway/workspace.js";
 import type { ControlMessage, ControlResponse } from "../../gateway/types.js";
@@ -36,6 +37,8 @@ import {
 } from "./protocol.js";
 import {
   WebChatSessionStore,
+  type PersistedWebChatSession,
+  type PersistedWebChatSessionMetadata,
   type PersistedWebChatOwnerCredential,
   type PersistedWebChatPolicyContext,
 } from "./session-store.js";
@@ -86,6 +89,7 @@ export class WebChatChannel
     string,
     PersistedWebChatPolicyContext
   >();
+  private readonly sessionWorkspaceRoots = new Map<string, string>();
   // clientIds subscribed to events and their optional filters
   private readonly eventSubscribers = new Map<string, readonly string[] | null>();
   // sessionId → AbortController for in-flight chat execution
@@ -136,6 +140,16 @@ export class WebChatChannel
     this.sessionAbortControllers.delete(sessionId);
   }
 
+  async loadSessionWorkspaceRoot(sessionId: string): Promise<string | undefined> {
+    const cached = this.sessionWorkspaceRoots.get(sessionId);
+    if (cached) {
+      return cached;
+    }
+    const persisted = await this.sessionStore?.loadSession(sessionId);
+    this.rememberPersistedSessionMetadata(sessionId, persisted);
+    return this.sessionWorkspaceRoots.get(sessionId);
+  }
+
   /** Replace the voice bridge at runtime (e.g. after config hot-reload). */
   updateVoiceBridge(
     bridge: import("../../gateway/voice-bridge.js").VoiceBridge | null,
@@ -164,6 +178,7 @@ export class WebChatChannel
     this.sessionOwners.clear();
     this.sessionHistory.clear();
     this.sessionPolicyContexts.clear();
+    this.sessionWorkspaceRoots.clear();
     this.eventSubscribers.clear();
     this.seenMessageIds.clear();
     this.healthy = false;
@@ -344,6 +359,17 @@ export class WebChatChannel
     if (type === "desktop.create" || type === "desktop.attach") {
       const normalizedPayload =
         payload && typeof payload === "object" ? { ...payload } : {};
+      let workspaceRoot: string | undefined;
+      try {
+        workspaceRoot = this.parseWorkspaceRoot(normalizedPayload);
+      } catch (error) {
+        tracedSend({
+          type: "error",
+          error: (error as Error).message,
+          id,
+        });
+        return;
+      }
       if (
         typeof normalizedPayload.sessionId !== "string" ||
         normalizedPayload.sessionId.length === 0
@@ -351,9 +377,15 @@ export class WebChatChannel
         const sessionId = this.ensureSession(
           clientId,
           this.currentOwnerKey(clientId),
+          {
+            metadata: workspaceRoot ? { workspaceRoot } : undefined,
+          },
         );
         normalizedPayload.sessionId = sessionId;
-        tracedSend({ type: "chat.session", payload: { sessionId } });
+        tracedSend({
+          type: "chat.session",
+          payload: this.buildChatSessionPayload(sessionId, workspaceRoot),
+        });
       }
       payload = normalizedPayload;
     }
@@ -536,6 +568,7 @@ export class WebChatChannel
       payload,
       send,
       (ownerKey) => {
+        const workspaceRoot = this.parseWorkspaceRoot(payload);
         const messageKey =
           typeof id === "string"
             ? this.buildSeenMessageKey(ownerKey, id)
@@ -545,19 +578,30 @@ export class WebChatChannel
           : undefined;
         if (duplicateSessionId) {
           this.bindClientToSession(clientId, duplicateSessionId, ownerKey);
+          void this.upsertSessionWorkspaceRoot(
+            duplicateSessionId,
+            ownerKey,
+            workspaceRoot,
+          );
           send({
             type: "chat.session",
-            payload: { sessionId: duplicateSessionId },
+            payload: this.buildChatSessionPayload(
+              duplicateSessionId,
+              workspaceRoot,
+            ),
             id,
           });
           return;
         }
 
         const timestamp = Date.now();
-        const sessionId = this.ensureSession(clientId, ownerKey);
+        const sessionId = this.ensureSession(clientId, ownerKey, {
+          metadata: workspaceRoot ? { workspaceRoot } : undefined,
+        });
         if (messageKey) {
           this.rememberMessageKey(messageKey, sessionId, timestamp);
         }
+        void this.upsertSessionWorkspaceRoot(sessionId, ownerKey, workspaceRoot);
         const policyContext =
           this.parsePolicyContext(payload) ??
           this.sessionPolicyContexts.get(sessionId);
@@ -567,7 +611,11 @@ export class WebChatChannel
         }
 
         // Notify the client of its session ID (needed for desktop viewer matching)
-        send({ type: "chat.session", payload: { sessionId }, id });
+        send({
+          type: "chat.session",
+          payload: this.buildChatSessionPayload(sessionId, workspaceRoot),
+          id,
+        });
 
         // Store user message in history
         this.appendHistory(sessionId, {
@@ -674,10 +722,17 @@ export class WebChatChannel
       payload,
       send,
       (ownerKey) => {
+        const workspaceRoot = this.parseWorkspaceRoot(payload);
         const sessionId = this.ensureSession(clientId, ownerKey, {
           forceNew: true,
+          metadata: workspaceRoot ? { workspaceRoot } : undefined,
         });
-        send({ type: "chat.session", payload: { sessionId }, id });
+        void this.upsertSessionWorkspaceRoot(sessionId, ownerKey, workspaceRoot);
+        send({
+          type: "chat.session",
+          payload: this.buildChatSessionPayload(sessionId, workspaceRoot),
+          id,
+        });
         send({ type: "chat.history", payload: [], id });
       },
       (error) => {
@@ -774,6 +829,7 @@ export class WebChatChannel
       send({ type: "error", error: "Missing sessionId in chat.resume", id });
       return;
     }
+    const requestedWorkspaceRoot = this.parseWorkspaceRoot(payload);
 
     const ownerKey = await this.resolveDurableOwner(clientId, payload, send);
     const authorized = await this.isAuthorizedSession(
@@ -799,10 +855,12 @@ export class WebChatChannel
     this.sessionClients.set(targetSessionId, clientId);
     this.sessionOwners.set(targetSessionId, ownerKey);
     const persisted = await this.sessionStore?.loadSession(targetSessionId);
-    const policyContext = persisted?.metadata?.policyContext;
-    if (policyContext) {
-      this.sessionPolicyContexts.set(targetSessionId, policyContext);
-    }
+    this.rememberPersistedSessionMetadata(targetSessionId, persisted);
+    const workspaceRoot = await this.upsertSessionWorkspaceRoot(
+      targetSessionId,
+      ownerKey,
+      requestedWorkspaceRoot,
+    );
 
     await Promise.resolve(this.deps.hydrateSessionContext?.(targetSessionId));
     const history = await this.loadSessionHistory(targetSessionId);
@@ -812,6 +870,7 @@ export class WebChatChannel
       payload: {
         sessionId: targetSessionId,
         messageCount: history.length,
+        ...(workspaceRoot ? { workspaceRoot } : {}),
       },
       id,
     });
@@ -830,11 +889,15 @@ export class WebChatChannel
         .filter((session) => session.messageCount > 0)
         .map((session) => {
           this.sessionOwners.set(session.sessionId, session.ownerKey);
+          this.rememberPersistedSessionMetadata(session.sessionId, session);
           return {
             sessionId: session.sessionId,
             label: session.label,
             messageCount: session.messageCount,
             lastActiveAt: session.lastActiveAt,
+            ...(session.metadata?.workspaceRoot
+              ? { workspaceRoot: session.metadata.workspaceRoot }
+              : {}),
           };
         })
         .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
@@ -864,6 +927,9 @@ export class WebChatChannel
         label,
         messageCount: history.length,
         lastActiveAt: lastEntry.timestamp,
+        ...(this.sessionWorkspaceRoots.get(sessionId)
+          ? { workspaceRoot: this.sessionWorkspaceRoots.get(sessionId) }
+          : {}),
       });
     }
 
@@ -925,6 +991,31 @@ export class WebChatChannel
   }
 
   /**
+   * Inject a synthetic user message into the chat pipeline.
+   * Used by slash commands that want to delegate to the normal ChatExecutor.
+   */
+  injectSyntheticUserMessage(
+    sessionId: string,
+    senderId: string,
+    content: string,
+  ): void {
+    const gatewayMsg = createGatewayMessage({
+      channel: "webchat",
+      senderId,
+      senderName: `WebClient(${senderId})`,
+      sessionId,
+      content,
+      scope: "dm",
+    });
+    this.context.onMessage(gatewayMsg).catch((err) => {
+      this.context.logger.warn?.(
+        "WebChat: error delivering synthetic message:",
+        err,
+      );
+    });
+  }
+
+  /**
    * Broadcast an event to all subscribed WS clients.
    */
   broadcastEvent(eventType: string, data: Record<string, unknown>): void {
@@ -952,7 +1043,14 @@ export class WebChatChannel
     for (const [clientId, filters] of this.eventSubscribers) {
       if (!matchesEventFilters(eventType, filters)) continue;
       const send = this.clientSenders.get(clientId);
-      send?.(response);
+      if (send) {
+        send(response);
+        this.traceOutboundControlResponse(
+          clientId,
+          this.clientSessions.get(clientId),
+          response,
+        );
+      }
     }
   }
 
@@ -963,7 +1061,10 @@ export class WebChatChannel
   private ensureSession(
     clientId: string,
     ownerKey: string,
-    options?: { forceNew?: boolean },
+    options?: {
+      forceNew?: boolean;
+      metadata?: PersistedWebChatSessionMetadata;
+    },
   ): string {
     const existing = this.clientSessions.get(clientId);
     const forceNew = options?.forceNew === true;
@@ -986,8 +1087,18 @@ export class WebChatChannel
     );
 
     this.bindClientToSession(clientId, sessionId, ownerKey);
+    if (options?.metadata?.workspaceRoot) {
+      this.sessionWorkspaceRoots.set(sessionId, options.metadata.workspaceRoot);
+    }
+    if (options?.metadata?.policyContext) {
+      this.sessionPolicyContexts.set(sessionId, options.metadata.policyContext);
+    }
     if (this.isDurableOwnerKey(ownerKey)) {
-      void this.sessionStore?.ensureSession({ sessionId, ownerKey });
+      void this.sessionStore?.ensureSession({
+        sessionId,
+        ownerKey,
+        ...(options?.metadata ? { metadata: options.metadata } : {}),
+      });
     }
 
     return sessionId;
@@ -1160,6 +1271,88 @@ export class WebChatChannel
     return !ownerKey.startsWith("volatile:");
   }
 
+  private parseWorkspaceRoot(
+    payload: Record<string, unknown> | undefined,
+  ): string | undefined {
+    const rawWorkspaceRoot =
+      typeof payload?.workspaceRoot === "string"
+        ? payload.workspaceRoot.trim()
+        : "";
+    if (!rawWorkspaceRoot) {
+      return undefined;
+    }
+    const workspaceRoot = resolveSessionWorkspaceRoot(rawWorkspaceRoot);
+    if (!workspaceRoot) {
+      throw new Error(
+        "Invalid workspaceRoot. Expected an absolute project path outside protected directories.",
+      );
+    }
+    return workspaceRoot;
+  }
+
+  private rememberPersistedSessionMetadata(
+    sessionId: string,
+    persisted: PersistedWebChatSession | undefined,
+  ): void {
+    const policyContext = persisted?.metadata?.policyContext;
+    if (policyContext) {
+      this.sessionPolicyContexts.set(sessionId, policyContext);
+    }
+    const workspaceRoot = persisted?.metadata?.workspaceRoot;
+    if (workspaceRoot) {
+      this.sessionWorkspaceRoots.set(sessionId, workspaceRoot);
+    }
+  }
+
+  private buildChatSessionPayload(
+    sessionId: string,
+    workspaceRoot?: string,
+  ): { sessionId: string; workspaceRoot?: string } {
+    const resolvedWorkspaceRoot =
+      workspaceRoot ?? this.sessionWorkspaceRoots.get(sessionId);
+    return {
+      sessionId,
+      ...(resolvedWorkspaceRoot ? { workspaceRoot: resolvedWorkspaceRoot } : {}),
+    };
+  }
+
+  private async upsertSessionWorkspaceRoot(
+    sessionId: string,
+    ownerKey: string,
+    workspaceRoot: string | undefined,
+  ): Promise<string | undefined> {
+    const currentWorkspaceRoot =
+      this.sessionWorkspaceRoots.get(sessionId) ??
+      (await this.loadSessionWorkspaceRoot(sessionId));
+    if (currentWorkspaceRoot) {
+      this.sessionWorkspaceRoots.set(sessionId, currentWorkspaceRoot);
+      return currentWorkspaceRoot;
+    }
+    if (!workspaceRoot) {
+      return undefined;
+    }
+
+    this.sessionWorkspaceRoots.set(sessionId, workspaceRoot);
+    if (this.isDurableOwnerKey(ownerKey)) {
+      try {
+        await this.sessionStore?.ensureSession({
+          sessionId,
+          ownerKey,
+          metadata: { workspaceRoot },
+        });
+      } catch (error) {
+        this.context.logger.debug(
+          "Failed to persist webchat session workspace root",
+          {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+    }
+    return workspaceRoot;
+  }
+
   private async persistSessionActivity(
     sessionId: string,
     entry: {
@@ -1180,14 +1373,24 @@ export class WebChatChannel
     }
     this.sessionOwners.set(sessionId, ownerKey);
     try {
+      const workspaceRoot =
+        this.sessionWorkspaceRoots.get(sessionId) ??
+        (await this.loadSessionWorkspaceRoot(sessionId));
       await this.sessionStore.recordActivity({
         sessionId,
         ownerKey,
         sender: entry.sender,
         content: entry.content,
         timestamp: entry.timestamp,
-        ...(entry.policyContext
-          ? { metadata: { policyContext: entry.policyContext } }
+        ...(entry.policyContext || workspaceRoot
+          ? {
+              metadata: {
+                ...(entry.policyContext
+                  ? { policyContext: entry.policyContext }
+                  : {}),
+                ...(workspaceRoot ? { workspaceRoot } : {}),
+              },
+            }
           : {}),
       });
     } catch (error) {

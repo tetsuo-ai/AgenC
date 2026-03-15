@@ -14,7 +14,7 @@ import {
   HASH_SIZE,
   RISC0_IMAGE_ID_LEN,
   RISC0_JOURNAL_LEN,
-  RISC0_SEAL_BORSH_LEN,
+  RISC0_SEAL_BYTES_LEN,
   TRUSTED_RISC0_SELECTOR,
 } from "../../../sdk/src/constants.ts";
 import { toAnchorBytes } from "../utils/encoding.js";
@@ -547,7 +547,7 @@ export class TaskOperations {
     nullifierSeed: Uint8Array,
   ): Promise<CompleteResult> {
     // Input validation (#963)
-    validateByteLength(sealBytes, RISC0_SEAL_BORSH_LEN, "sealBytes");
+    validateByteLength(sealBytes, RISC0_SEAL_BYTES_LEN, "sealBytes");
     validateByteLength(journal, RISC0_JOURNAL_LEN, "journal");
     validateByteLength(imageId, RISC0_IMAGE_ID_LEN, "imageId");
     validateByteLength(bindingSeed, HASH_SIZE, "bindingSeed");

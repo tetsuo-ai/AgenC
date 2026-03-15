@@ -82,6 +82,13 @@ export interface GatewayOptions {
   configPath?: string;
 }
 
+type ControlMessageDelegate = (params: {
+  clientId: string;
+  socket: WsWebSocket;
+  message: ControlMessage;
+  sendResponse: (response: ControlResponse) => void;
+}) => Promise<boolean> | boolean;
+
 export class Gateway {
   private _state: GatewayState = "stopped";
   private _config: GatewayConfig;
@@ -101,6 +108,9 @@ export class Gateway {
   private readonly wsClients = new Map<string, WsWebSocket>();
   private readonly authenticatedClients = new Set<string>();
   private webChatHandler: WebChatHandler | null = null;
+  private controlMessageDelegate: ControlMessageDelegate | null = null;
+  private statusProvider: ((baseStatus: GatewayStatus) => GatewayStatus) | null =
+    null;
   private readonly webhookRoutes = new WebhookRouteRegistry();
 
   constructor(config: GatewayConfig, options?: GatewayOptions) {
@@ -190,12 +200,24 @@ export class Gateway {
   // --------------------------------------------------------------------------
 
   getStatus(): GatewayStatus {
-    return Object.freeze({
+    const baseSnapshot: GatewayStatus = {
       state: this._state,
       uptimeMs: this._state === "running" ? Date.now() - this.startedAt : 0,
       channels: [...this.channels.keys()],
       activeSessions: this.wsClients.size,
       controlPlanePort: this._config.gateway.port,
+    };
+    const snapshot = this.statusProvider
+      ? this.statusProvider(baseSnapshot)
+      : baseSnapshot;
+    return Object.freeze({
+      ...snapshot,
+      state: snapshot.state ?? baseSnapshot.state,
+      uptimeMs: snapshot.uptimeMs ?? baseSnapshot.uptimeMs,
+      channels: [...(snapshot.channels ?? baseSnapshot.channels)],
+      activeSessions: snapshot.activeSessions ?? baseSnapshot.activeSessions,
+      controlPlanePort:
+        snapshot.controlPlanePort ?? baseSnapshot.controlPlanePort,
     });
   }
 
@@ -209,6 +231,16 @@ export class Gateway {
    */
   setWebChatHandler(handler: WebChatHandler | null): void {
     this.webChatHandler = handler;
+  }
+
+  setControlMessageDelegate(handler: ControlMessageDelegate | null): void {
+    this.controlMessageDelegate = handler;
+  }
+
+  setStatusProvider(
+    provider: ((baseStatus: GatewayStatus) => GatewayStatus) | null,
+  ): void {
+    this.statusProvider = provider;
   }
 
   registerWebhookRoute(route: WebhookRoute): void {
@@ -578,6 +610,7 @@ export class Gateway {
     "reload",
     "config.set",
     "sessions.kill",
+    "init.run",
     "wallet.airdrop",
   ]);
 
@@ -814,6 +847,23 @@ export class Gateway {
         void this.handleOllamaModels(socket, id);
         break;
 
+      case "init.run":
+        if (!this.controlMessageDelegate) {
+          this.sendResponse(socket, {
+            type: "init.run",
+            error: "No init.run handler configured",
+            id,
+          });
+          break;
+        }
+        void this.handleDelegatedControlMessage({
+          clientId,
+          socket,
+          msg,
+          id,
+        });
+        break;
+
       default: {
         // msg.type is narrowed to `never` here by exhaustive switch,
         // but at runtime unknown types arrive as plain strings.
@@ -841,6 +891,41 @@ export class Gateway {
       socket.send(safeStringify(response));
     } catch (err) {
       this.logger.error("Failed to send WebSocket response:", err);
+    }
+  }
+
+  private async handleDelegatedControlMessage(params: {
+    clientId: string;
+    socket: WsWebSocket;
+    msg: ControlMessage;
+    id?: string;
+  }): Promise<void> {
+    try {
+      const handled = await this.controlMessageDelegate?.({
+        clientId: params.clientId,
+        socket: params.socket,
+        message: params.msg,
+        sendResponse: (response) =>
+          this.sendResponse(params.socket, {
+            ...response,
+            ...(params.id !== undefined && response.id === undefined
+              ? { id: params.id }
+              : {}),
+          }),
+      });
+      if (!handled) {
+        this.sendResponse(params.socket, {
+          type: params.msg.type,
+          error: `No handler registered for ${params.msg.type}`,
+          ...(params.id !== undefined ? { id: params.id } : {}),
+        });
+      }
+    } catch (error) {
+      this.sendResponse(params.socket, {
+        type: params.msg.type,
+        error: (error as Error).message,
+        ...(params.id !== undefined ? { id: params.id } : {}),
+      });
     }
   }
 

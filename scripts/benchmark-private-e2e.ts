@@ -11,7 +11,7 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import { createHash } from "node:crypto";
-import { execSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import idlJson from "../runtime/idl/agenc_coordination.json";
@@ -24,7 +24,7 @@ import {
   deriveEscrowPda,
   deriveProtocolPda,
   deriveTaskPda,
-  TRUSTED_RISC0_IMAGE_ID,
+  getZkConfig,
 } from "../sdk/src/index.ts";
 import { ProofEngine } from "../runtime/src/proof/engine.js";
 import { TaskOperations } from "../runtime/src/task/operations.js";
@@ -55,6 +55,36 @@ const DEFAULT_MARKDOWN_PATH = path.resolve(
   process.cwd(),
   "benchmarks/private-proof-e2e/latest.md",
 );
+const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
+const BENCHMARK_HELP_TEXT = [
+  "Usage: benchmark-private-e2e [options]",
+  "",
+  "Required:",
+  "  --prover-endpoint <url>        Remote prover endpoint (or set AGENC_PROVER_ENDPOINT)",
+  "",
+  "Options:",
+  "  --rounds <int>                 Number of end-to-end rounds (default: 1)",
+  "  --output <path>                JSON artifact path",
+  "  --markdown-output <path>       Markdown summary path",
+  "  --prover-timeout-ms <int>      Remote prover timeout",
+  "  --header name=value            Repeatable remote prover header",
+  "  --reward-lamports <int>        Reward escrowed into the task",
+  "  --funding-lamports <int>       Funding per creator/worker account",
+  "  --output-values a,b,c,d        Private task expected output values",
+  "  --agent-secret <bigint>        Secret witness used for proof generation",
+  "  --log-level <level>            debug | info | warn | error",
+  "",
+  "Environment:",
+  "  ANCHOR_PROVIDER_URL            RPC URL (default anchor env)",
+  "  ANCHOR_WALLET                  Wallet path (default anchor env)",
+  "  AGENC_PROVER_ENDPOINT          Remote prover endpoint",
+  "  AGENC_PROVER_API_KEY           Adds x-api-key header automatically",
+  '  AGENC_PROVER_HEADERS_JSON      JSON object of additional headers, e.g. {"authorization":"Bearer ..."}',
+  "",
+  "Expected local verifier setup:",
+  "  bash scripts/setup-verifier-localnet.sh --mode real",
+  "  npx tsx scripts/setup-verifier-localnet.ts",
+].join("\n");
 
 type WalletLike = anchor.Wallet & {
   payer?: Keypair;
@@ -84,6 +114,11 @@ interface ProtocolBootstrapResult {
   treasury: string;
   initializedThisRun: boolean;
   durationMs: number;
+}
+
+interface ParsedCliValue {
+  nextIndex: number;
+  value: string;
 }
 
 interface BenchmarkRoundArtifact {
@@ -209,15 +244,22 @@ function parseOutput(raw: string): bigint[] {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean)
-    .map((value) => BigInt(value));
+    .map(BigInt);
   if (values.length !== 4) {
     throw new Error("private proof benchmark output must contain exactly 4 values");
   }
   return values;
 }
 
-function parseCliArgs(argv: string[]): CliOptions {
-  const options: CliOptions = {
+function parseLogLevel(raw: string): CliOptions["logLevel"] {
+  if (!LOG_LEVELS.includes(raw as CliOptions["logLevel"])) {
+    throw new Error(`invalid --log-level value: ${raw}`);
+  }
+  return raw as CliOptions["logLevel"];
+}
+
+function resolveDefaultOptions(): CliOptions {
+  return {
     rounds: 1,
     outputPath: DEFAULT_OUTPUT_PATH,
     markdownPath: DEFAULT_MARKDOWN_PATH,
@@ -239,100 +281,89 @@ function parseCliArgs(argv: string[]): CliOptions {
       ? parseOutput(process.env.AGENC_BENCH_OUTPUT)
       : [...DEFAULT_OUTPUT],
     agentSecret: BigInt(process.env.AGENC_BENCH_AGENT_SECRET ?? "42"),
-    logLevel:
-      (process.env.AGENC_BENCH_LOG_LEVEL as CliOptions["logLevel"] | undefined) ??
-      "info",
+    logLevel: parseLogLevel(process.env.AGENC_BENCH_LOG_LEVEL ?? "info"),
   };
+}
+
+function readCliValue(
+  argv: string[],
+  index: number,
+  flag: string,
+): ParsedCliValue {
+  const value = argv[index + 1];
+  if (value === undefined) {
+    throw new Error(`missing ${flag} value`);
+  }
+  return { nextIndex: index + 1, value };
+}
+
+function applyCliOption(
+  options: CliOptions,
+  flag: string,
+  value: string,
+): void {
+  switch (flag) {
+    case "--rounds":
+      options.rounds = parsePositiveInt(value, flag);
+      break;
+    case "--output":
+      options.outputPath = path.resolve(process.cwd(), value);
+      break;
+    case "--markdown-output":
+      options.markdownPath = path.resolve(process.cwd(), value);
+      break;
+    case "--prover-endpoint":
+      options.proverEndpoint = value;
+      break;
+    case "--prover-timeout-ms":
+      options.proverTimeoutMs = parsePositiveInt(value, flag);
+      break;
+    case "--header": {
+      const [key, ...valueParts] = value.split("=");
+      const headerValue = valueParts.join("=");
+      if (!key || !headerValue) {
+        throw new Error(`invalid --header value: ${value}`);
+      }
+      options.proverHeaders[key] = headerValue;
+      break;
+    }
+    case "--reward-lamports":
+      options.rewardLamports = parseNonNegativeInt(value, flag);
+      break;
+    case "--funding-lamports":
+      options.fundingLamports = parseNonNegativeInt(value, flag);
+      break;
+    case "--output-values":
+      options.output = parseOutput(value);
+      break;
+    case "--agent-secret":
+      options.agentSecret = BigInt(value);
+      break;
+    case "--log-level":
+      options.logLevel = parseLogLevel(value);
+      break;
+    default:
+      throw new Error(`unknown option: ${flag}`);
+  }
+}
+
+function printHelpAndExit(): never {
+  console.log(BENCHMARK_HELP_TEXT);
+  process.exit(0);
+}
+
+function parseCliArgs(argv: string[]): CliOptions {
+  const options = resolveDefaultOptions();
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--rounds" && argv[i + 1]) {
-      options.rounds = parsePositiveInt(argv[++i]!, arg);
-      continue;
-    }
-    if (arg === "--output" && argv[i + 1]) {
-      options.outputPath = path.resolve(process.cwd(), argv[++i]!);
-      continue;
-    }
-    if (arg === "--markdown-output" && argv[i + 1]) {
-      options.markdownPath = path.resolve(process.cwd(), argv[++i]!);
-      continue;
-    }
-    if (arg === "--prover-endpoint" && argv[i + 1]) {
-      options.proverEndpoint = argv[++i]!;
-      continue;
-    }
-    if (arg === "--prover-timeout-ms" && argv[i + 1]) {
-      options.proverTimeoutMs = parsePositiveInt(argv[++i]!, arg);
-      continue;
-    }
-    if (arg === "--header" && argv[i + 1]) {
-      const [key, ...valueParts] = argv[++i]!.split("=");
-      const value = valueParts.join("=");
-      if (!key || !value) {
-        throw new Error(`invalid --header value: ${argv[i]}`);
-      }
-      options.proverHeaders[key] = value;
-      continue;
-    }
-    if (arg === "--reward-lamports" && argv[i + 1]) {
-      options.rewardLamports = parseNonNegativeInt(argv[++i]!, arg);
-      continue;
-    }
-    if (arg === "--funding-lamports" && argv[i + 1]) {
-      options.fundingLamports = parseNonNegativeInt(argv[++i]!, arg);
-      continue;
-    }
-    if (arg === "--output-values" && argv[i + 1]) {
-      options.output = parseOutput(argv[++i]!);
-      continue;
-    }
-    if (arg === "--agent-secret" && argv[i + 1]) {
-      options.agentSecret = BigInt(argv[++i]!);
-      continue;
-    }
-    if (arg === "--log-level" && argv[i + 1]) {
-      const level = argv[++i]!;
-      if (!["debug", "info", "warn", "error"].includes(level)) {
-        throw new Error(`invalid --log-level value: ${level}`);
-      }
-      options.logLevel = level as CliOptions["logLevel"];
-      continue;
-    }
     if (arg === "--help") {
-      console.log(
-        [
-          "Usage: benchmark-private-e2e [options]",
-          "",
-          "Required:",
-          "  --prover-endpoint <url>        Remote prover endpoint (or set AGENC_PROVER_ENDPOINT)",
-          "",
-          "Options:",
-          "  --rounds <int>                 Number of end-to-end rounds (default: 1)",
-          "  --output <path>                JSON artifact path",
-          "  --markdown-output <path>       Markdown summary path",
-          "  --prover-timeout-ms <int>      Remote prover timeout",
-          "  --header name=value            Repeatable remote prover header",
-          "  --reward-lamports <int>        Reward escrowed into the task",
-          "  --funding-lamports <int>       Funding per creator/worker account",
-          "  --output-values a,b,c,d        Private task expected output values",
-          "  --agent-secret <bigint>        Secret witness used for proof generation",
-          "  --log-level <level>            debug | info | warn | error",
-          "",
-          "Environment:",
-          "  ANCHOR_PROVIDER_URL            RPC URL (default anchor env)",
-          "  ANCHOR_WALLET                  Wallet path (default anchor env)",
-          "  AGENC_PROVER_ENDPOINT          Remote prover endpoint",
-          "  AGENC_PROVER_API_KEY           Adds x-api-key header automatically",
-          '  AGENC_PROVER_HEADERS_JSON      JSON object of additional headers, e.g. {"authorization":"Bearer ..."}',
-          "",
-          "Expected local verifier setup:",
-          "  bash scripts/setup-verifier-localnet.sh --mode real",
-          "  npx tsx scripts/setup-verifier-localnet.ts",
-        ].join("\n"),
-      );
-      process.exit(0);
+      printHelpAndExit();
     }
+
+    const parsedValue = readCliValue(argv, i, arg);
+    applyCliOption(options, arg, parsedValue.value);
+    i = parsedValue.nextIndex;
   }
 
   if (!options.proverEndpoint) {
@@ -388,13 +419,72 @@ function makeId(seed: string): Buffer {
   return createHash("sha256").update(seed).digest();
 }
 
-function safeGitCommit(): string | null {
+function resolveGitDir(cwd: string): string | null {
+  const dotGitPath = path.join(cwd, ".git");
+  if (!existsSync(dotGitPath)) {
+    return null;
+  }
+
   try {
-    return execSync("git rev-parse HEAD", {
-      cwd: process.cwd(),
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    const dotGitContents = readFileSync(dotGitPath, "utf8").trim();
+    if (dotGitContents.startsWith("gitdir:")) {
+      return path.resolve(cwd, dotGitContents.slice("gitdir:".length).trim());
+    }
+  } catch {
+    return dotGitPath;
+  }
+
+  return dotGitPath;
+}
+
+function readPackedRef(gitDir: string, refPath: string): string | null {
+  const packedRefsPath = path.join(gitDir, "packed-refs");
+  if (!existsSync(packedRefsPath)) {
+    return null;
+  }
+
+  const packedRefs = readFileSync(packedRefsPath, "utf8")
+    .split(/\r?\n/)
+    .filter(Boolean);
+  for (const line of packedRefs) {
+    if (line.startsWith("#") || line.startsWith("^")) {
+      continue;
+    }
+    const [commit, ref] = line.split(" ");
+    if (ref === refPath && commit) {
+      return commit;
+    }
+  }
+  return null;
+}
+
+function safeGitCommit(cwd = process.cwd()): string | null {
+  const envCommit = process.env.GITHUB_SHA?.trim();
+  if (envCommit) {
+    return envCommit;
+  }
+
+  const gitDir = resolveGitDir(cwd);
+  if (!gitDir) {
+    return null;
+  }
+
+  try {
+    const head = readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
+    if (!head) {
+      return null;
+    }
+    if (!head.startsWith("ref: ")) {
+      return head;
+    }
+
+    const refPath = head.slice("ref: ".length).trim();
+    const looseRefPath = path.join(gitDir, refPath);
+    if (existsSync(looseRefPath)) {
+      return readFileSync(looseRefPath, "utf8").trim() || null;
+    }
+
+    return readPackedRef(gitDir, refPath);
   } catch {
     return null;
   }
@@ -410,9 +500,26 @@ function median(values: number[]): number {
   const ordered = [...values].sort((left, right) => left - right);
   const mid = Math.floor(ordered.length / 2);
   if (ordered.length % 2 === 0) {
-    return (ordered[mid - 1]! + ordered[mid]!) / 2;
+    return (ordered[mid - 1] + ordered[mid]) / 2;
   }
-  return ordered[mid]!;
+  return ordered[mid];
+}
+
+async function requireActiveImageId(
+  program: Program<AgencCoordination>,
+): Promise<Uint8Array> {
+  const zkConfig = await getZkConfig(program);
+  if (!zkConfig) {
+    throw new Error(
+      "zk_config is not initialized. Run: npx tsx scripts/setup-verifier-localnet.ts",
+    );
+  }
+  if (zkConfig.activeImageId.length !== METHOD_ID_LEN) {
+    throw new Error(
+      `zk_config active image ID must be ${METHOD_ID_LEN} bytes, got ${zkConfig.activeImageId.length}`,
+    );
+  }
+  return zkConfig.activeImageId;
 }
 
 async function fundKeypair(
@@ -668,10 +775,20 @@ async function runRound(params: {
   program: Program<AgencCoordination>;
   protocolPda: PublicKey;
   stakeLamports: number;
+  activeImageId: Uint8Array;
   logger: ReturnType<typeof createLogger>;
 }): Promise<BenchmarkRoundArtifact> {
   const roundStartedAt = Date.now();
-  const { round, options, provider, program, protocolPda, stakeLamports, logger } = params;
+  const {
+    round,
+    options,
+    provider,
+    program,
+    protocolPda,
+    stakeLamports,
+    activeImageId,
+    logger,
+  } = params;
   const roundLabel = `private-bench:${nowIso()}:round:${round}`;
 
   const creator = Keypair.generate();
@@ -733,7 +850,7 @@ async function runRound(params: {
   );
 
   const proofEngine = new ProofEngine({
-    methodId: TRUSTED_RISC0_IMAGE_ID,
+    methodId: activeImageId,
     routerConfig: {
       routerProgramId: ROUTER_PROGRAM_ID,
       routerPda: deriveRouterPda(),
@@ -838,6 +955,7 @@ function buildArtifact(params: {
   rounds: BenchmarkRoundArtifact[];
   provider: anchor.AnchorProvider;
   bootstrap: ProtocolBootstrapResult;
+  activeImageId: Uint8Array;
 }): BenchmarkArtifact {
   const proofDurations = params.rounds.map((round) => round.timingsMs.proofGeneration);
   const submitDurations = params.rounds.map(
@@ -864,7 +982,7 @@ function buildArtifact(params: {
       endpoint: sanitizeEndpoint(params.options.proverEndpoint),
       timeoutMs: params.options.proverTimeoutMs ?? null,
       configuredHeaders: Object.keys(params.options.proverHeaders),
-      methodIdHex: Buffer.from(TRUSTED_RISC0_IMAGE_ID).toString("hex"),
+      methodIdHex: Buffer.from(params.activeImageId).toString("hex"),
     },
     config: {
       rounds: params.options.rounds,
@@ -962,6 +1080,7 @@ async function main(): Promise<void> {
   ) as Program<AgencCoordination>;
   const protocolPda = deriveProtocolPda(program.programId);
   const bootstrap = await ensureProtocolInitialized(provider, program);
+  const activeImageId = await requireActiveImageId(program);
 
   const rawProtocol = await program.account.protocolConfig.fetch(protocolPda);
   const configuredMinAgentStake = Number(rawProtocol.minAgentStake.toString());
@@ -981,6 +1100,7 @@ async function main(): Promise<void> {
         program,
         protocolPda,
         stakeLamports,
+        activeImageId,
         logger,
       }),
     );
@@ -992,6 +1112,7 @@ async function main(): Promise<void> {
       rounds,
       provider,
       bootstrap,
+      activeImageId,
     }),
     provider,
   );
@@ -1017,8 +1138,12 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.stack ?? error.message : String(error);
-  console.error(`Private E2E benchmark failed: ${message}`);
-  process.exit(1);
-});
+void (async () => {
+  try {
+    await main();
+  } catch (error) {
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    console.error(`Private E2E benchmark failed: ${message}`);
+    process.exit(1);
+  }
+})();

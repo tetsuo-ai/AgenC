@@ -738,6 +738,108 @@ describe("SubAgentManager", () => {
       }
     });
 
+    it("passes child-specific toolBudgetPerRequest to ChatExecutor.execute", async () => {
+      const executeSpy = vi.spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValueOnce({
+          content: "sub-agent output",
+          provider: "mock",
+          model: "mock",
+          usedFallback: false,
+          toolCalls: [],
+          tokenUsage: {
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
+          callUsage: [],
+          durationMs: 1,
+          compacted: false,
+          stopReason: "completed",
+        });
+
+      try {
+        const manager = new SubAgentManager(makeManagerConfig());
+        await manager.spawn({
+          parentSessionId: "p",
+          task: "a",
+          toolBudgetPerRequest: 57,
+        });
+        await settle();
+
+        expect(executeSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            toolBudgetPerRequest: 57,
+          }),
+        );
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
+    it("preserves delegated validation codes from non-completed chat executor results", async () => {
+      const executeSpy = vi.spyOn(ChatExecutor.prototype, "execute")
+        .mockResolvedValueOnce({
+          content:
+            '{"phase":"implement_parser","status":"complete","artifacts":["src/parser.ts"],"blocked":"node exec denied in bash; no runtime verification performed"}',
+          provider: "mock",
+          model: "mock",
+          usedFallback: false,
+          toolCalls: [{
+            name: "system.writeFile",
+            args: {
+              path: "/workspace/regex-lab/src/parser.ts",
+              content: "export const parser = true;\n",
+            },
+            result:
+              '{"path":"/workspace/regex-lab/src/parser.ts","bytesWritten":28}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
+          callUsage: [],
+          durationMs: 1,
+          compacted: false,
+          stopReason: "validation_error",
+          stopReasonDetail:
+            "Delegated task output reported the phase as blocked or incomplete instead of completing it: " +
+            '{"phase":"implement_parser","status":"complete","artifacts":["src/parser.ts"],"blocked":"node exec denied in bash; no runtime verification performed"}',
+          validationCode: "blocked_phase_output",
+        });
+
+      try {
+        const manager = new SubAgentManager(makeManagerConfig());
+        const sessionId = await manager.spawn({
+          parentSessionId: "p",
+          task: "a",
+          requireToolCall: true,
+          delegationSpec: {
+            task: "implement_parser",
+            objective: "Implement the parser and verify the acceptance checks",
+            inputContract: "Return JSON object with edited files and verification notes",
+            acceptanceCriteria: [
+              "Parser implementation written",
+              "Acceptance commands verified",
+            ],
+            requiredToolCapabilities: ["system.writeFile", "system.bash"],
+          },
+        });
+        await settle();
+
+        const result = manager.getResult(sessionId);
+        expect(result).not.toBeNull();
+        expect(result!.success).toBe(false);
+        expect(result!.stopReason).toBe("validation_error");
+        expect(result!.validationCode).toBe("blocked_phase_output");
+        expect(result!.stopReasonDetail).toContain("blocked or incomplete");
+      } finally {
+        executeSpy.mockRestore();
+      }
+    });
+
     it("enforces successful tool-call evidence when the sub-agent phase requires tools", async () => {
       const executeSpy = vi.spyOn(ChatExecutor.prototype, "execute")
         .mockResolvedValueOnce({

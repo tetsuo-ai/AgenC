@@ -1,7 +1,12 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useRuns } from './useRuns';
-import type { RunDetail, RunSummary, WSMessage } from '../types';
+import type {
+  GatewayStatus,
+  RunDetail,
+  RunSummary,
+  WSMessage,
+} from '../types';
 
 type UseRunsHook = ReturnType<typeof useRuns> & {
   handleMessage: (msg: WSMessage) => void;
@@ -44,6 +49,12 @@ function makeRunSummary(sessionId = 'session-run-1'): RunSummary {
 function makeRunDetail(sessionId = 'session-run-1'): RunDetail {
   return {
     ...makeRunSummary(sessionId),
+    availability: {
+      enabled: true,
+      operatorAvailable: true,
+      inspectAvailable: true,
+      controlAvailable: true,
+    },
     policyScope: {
       tenantId: 'tenant-a',
       projectId: 'project-x',
@@ -95,10 +106,47 @@ function makeRunDetail(sessionId = 'session-run-1'): RunDetail {
   };
 }
 
+function makeBackgroundRunStatus(
+  overrides: Partial<NonNullable<GatewayStatus['backgroundRuns']>> = {},
+): NonNullable<GatewayStatus['backgroundRuns']> {
+  return {
+    enabled: true,
+    operatorAvailable: true,
+    inspectAvailable: true,
+    controlAvailable: true,
+    multiAgentEnabled: true,
+    activeTotal: 1,
+    queuedSignalsTotal: 0,
+    stateCounts: {
+      pending: 0,
+      running: 0,
+      working: 1,
+      blocked: 0,
+      paused: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      suspended: 0,
+    },
+    recentAlerts: [],
+    metrics: {
+      startedTotal: 1,
+      completedTotal: 0,
+      failedTotal: 0,
+      blockedTotal: 0,
+      recoveredTotal: 0,
+    },
+    ...overrides,
+  };
+}
+
 describe('useRuns', () => {
   it('requests list and inspect flows and updates local state', () => {
     const send = vi.fn();
-    const { result } = renderHook(() => useRuns({ send, connected: false }));
+    const backgroundRunStatus = makeBackgroundRunStatus();
+    const { result, unmount } = renderHook(() =>
+      useRuns({ send, connected: false, backgroundRunStatus }),
+    );
 
     act(() => {
       result.current.refresh();
@@ -136,11 +184,15 @@ describe('useRuns', () => {
 
     expect(result.current.selectedRun?.sessionId).toBe('session-run-1');
     expect(result.current.error).toBeNull();
+    unmount();
   });
 
   it('ignores unrelated errors and only applies errors for matching run requests', () => {
     const send = vi.fn();
-    const { result } = renderHook(() => useRuns({ send, connected: false }));
+    const backgroundRunStatus = makeBackgroundRunStatus();
+    const { result, unmount } = renderHook(() =>
+      useRuns({ send, connected: false, backgroundRunStatus }),
+    );
 
     act(() => {
       (result.current as UseRunsHook).handleMessage({
@@ -166,5 +218,58 @@ describe('useRuns', () => {
     });
 
     expect(result.current.error).toBe('run list failed');
+    unmount();
+  });
+
+  it('exposes disabled operator availability from status and structured inspect errors', () => {
+    const send = vi.fn();
+    const { result, rerender, unmount } = renderHook(
+      ({ backgroundRunStatus }) => useRuns({ send, connected: false, backgroundRunStatus }),
+      {
+        initialProps: {
+          backgroundRunStatus: makeBackgroundRunStatus({
+            enabled: false,
+            operatorAvailable: false,
+            inspectAvailable: false,
+            controlAvailable: false,
+            disabledCode: 'background_runs_feature_disabled',
+            disabledReason: 'Durable background runs are disabled in autonomy feature flags.',
+          }),
+        },
+      },
+    );
+
+    expect(result.current.operatorAvailability?.enabled).toBe(false);
+    expect(result.current.runNotice).toContain('disabled');
+
+    rerender({ backgroundRunStatus: makeBackgroundRunStatus() });
+
+    act(() => {
+      result.current.inspect('session-run-1');
+    });
+
+    const inspectRequest = send.mock.calls[0]?.[0] as { id: string };
+    act(() => {
+      (result.current as UseRunsHook).handleMessage({
+        type: 'error',
+        id: inspectRequest.id,
+        error: 'No active durable background run for session "session-run-1"',
+        payload: {
+          code: 'background_run_missing',
+          sessionId: 'session-run-1',
+          backgroundRunAvailability: {
+            enabled: true,
+            operatorAvailable: true,
+            inspectAvailable: true,
+            controlAvailable: true,
+          },
+        },
+      });
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.runNotice).toContain('No active durable background run');
+    expect(result.current.operatorAvailability?.operatorAvailable).toBe(true);
+    unmount();
   });
 });

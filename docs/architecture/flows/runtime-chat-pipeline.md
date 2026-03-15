@@ -153,7 +153,7 @@ These caps are driven by:
 
 - `llm.maxToolRounds`
 - `llm.toolBudgetPerRequest`
-- `llm.maxModelRecallsPerRequest`
+- `llm.maxModelRecallsPerRequest` (`0` = unlimited)
 - `llm.maxFailureBudgetPerRequest`
 - `llm.sessionTokenBudget` (with compaction fallback)
 
@@ -163,7 +163,7 @@ These caps are driven by:
 - `llm.subagents.maxFanoutPerTurn`
 - `llm.subagents.maxTotalSubagentsPerRequest`
 - `llm.subagents.maxCumulativeToolCallsPerRequestTree`
-- `llm.subagents.maxCumulativeTokensPerRequestTree`
+- `llm.subagents.maxCumulativeTokensPerRequestTree` (`0` = unlimited)
 
 ### Timeout layering
 
@@ -171,7 +171,7 @@ Timeouts are explicitly layered:
 
 - `llm.timeoutMs` (provider request timeout + stream inactivity timeout)
 - `llm.toolCallTimeoutMs` (per tool invocation)
-- `llm.requestTimeoutMs` (end-to-end request timeout)
+- `llm.requestTimeoutMs` (end-to-end request timeout, `0`/unset = unlimited default)
 - `llm.subagents.defaultTimeoutMs` (default child execution timeout)
 
 ## Fallback and Retry Rules

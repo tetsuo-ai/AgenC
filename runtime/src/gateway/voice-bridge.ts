@@ -82,18 +82,20 @@ const VM = {
  */
 const VOICE_DELEGATION_PROMPT =
   "\n\n## Voice Conversation Rules\n\n" +
-  "You are in a VOICE conversation. Rules:\n\n" +
-  "RESPONSE LENGTH: 1-2 sentences max. NEVER monologue or list steps.\n\n" +
-  "DELEGATION: Use `execute_with_agent` for ANY task involving code, commands, " +
-  "files, browsing, desktop, or multi-step work.\n\n" +
-  "BEFORE DELEGATING: Say ONLY \"On it.\", \"Working on it.\", or \"Let me " +
-  "handle that.\" — NOTHING ELSE. Do NOT describe your plan. Do NOT list steps. " +
-  "Do NOT explain what you will do. The user sees tool progress in real time.\n\n" +
-  "AFTER DELEGATION: Say \"Done.\" or one short sentence about the result. " +
-  "NEVER read code, file contents, or long output aloud.\n\n" +
-  "DIRECT RESPONSE (no delegation): Greetings, simple questions, opinions.\n\n" +
-  "FORBIDDEN: Narrating plans. Listing steps. Over-explaining. Repeating yourself. " +
-  "Using markdown. Giving unsolicited information.";
+  "You are in a VOICE conversation. Keep responses short and natural.\n\n" +
+  "WHEN TO DELEGATE: Use `execute_with_agent` for anything involving code, commands, " +
+  "files, browsing, desktop actions, or multi-step work.\n\n" +
+  "BEFORE DELEGATING: Say something brief and natural like \"On it\" or " +
+  "\"Let me handle that\" — then delegate immediately. Do NOT narrate your plan.\n\n" +
+  "AFTER DELEGATION: You will receive a summary of what was done. " +
+  "Give the user a brief natural spoken summary of the result. " +
+  "Do NOT read code, file paths, or raw output verbatim.\n\n" +
+  "DIRECT RESPONSE (no delegation): Greetings, quick questions, opinions, " +
+  "clarifications — keep to 1-2 sentences.\n\n" +
+  "IMPORTANT: The user may interrupt you at any time. This is normal. " +
+  "Do not repeat what you were saying — just listen and respond to the new input.\n\n" +
+  "FORBIDDEN: Monologuing. Listing steps. Reading code aloud. Markdown. " +
+  "Repeating yourself after being interrupted.";
 
 
 // ============================================================================
@@ -275,22 +277,25 @@ export class VoiceBridge {
         workspaceId: "default",
       }).id ?? effectiveSessionId;
 
-    // Load memory context from persistent backend (cross-session awareness)
+    // Load memory context from persistent backend (cross-session awareness).
+    // Pull last 15 entries to give the voice model meaningful context about
+    // what the user has been working on across sessions.
     let memoryContext = "";
     if (this.config.memoryBackend) {
       try {
         const recentEntries = await this.config.memoryBackend.getThread(
           effectiveSessionId,
-          5,
+          15,
         );
         if (recentEntries.length > 0) {
           const summaries = recentEntries
             .filter((e) => e.content.trim())
-            .map((e) => `- ${e.role}: ${e.content.slice(0, 200)}`)
+            .map((e) => `- ${e.role}: ${e.content.slice(0, 300)}`)
             .join("\n");
           if (summaries) {
             memoryContext =
-              "\n\n## Recent Context\nRecent conversation context:\n" +
+              "\n\n## Session Context\n" +
+              "Prior conversation context (use this to maintain continuity):\n" +
               summaries;
           }
         }
@@ -571,11 +576,16 @@ export class VoiceBridge {
       onSpeechStarted: () => {
         this.beginTurnTrace(clientId, sessionId);
         send({ type: VM.SPEECH_STARTED });
-        // During active delegation, clear any buffered audio to prevent
-        // frustrated utterances from queuing as new delegation tasks.
         const session = this.sessions.get(clientId);
-        if (session?.delegationAbort) {
-          session.client.clearAudio();
+        if (session) {
+          // Cancel any in-progress xAI response so the agent shuts up
+          // immediately when the user starts talking — even mid-sentence.
+          session.client.cancelResponse();
+          // During active delegation, also clear buffered audio to prevent
+          // frustrated utterances from queuing as new delegation tasks.
+          if (session.delegationAbort) {
+            session.client.clearAudio();
+          }
         }
       },
       onSpeechStopped: () => { send({ type: VM.SPEECH_STOPPED }); },
@@ -789,9 +799,9 @@ export class VoiceBridge {
         );
       }
 
-      // Never return actual content to xAI — it will read it aloud verbatim.
-      // The full result is already in the browser chat panel via voice.delegation.
-      return `Task completed. The result is displayed in the chat panel. Say "Done." or a one-sentence summary of what you did. Do NOT describe the output.`;
+      // Return a truncated summary so xAI can speak something useful.
+      // Full result is already in the browser chat panel via voice.delegation.
+      return this.buildSpokenSummary(result.content, result.toolCalls.length);
     } catch (error) {
       const errorMsg = (error as Error).message;
       this.logger?.error?.("Voice delegation error:", error);
@@ -836,6 +846,41 @@ export class VoiceBridge {
       return { error: JSON.stringify({ error: parsed.error }) };
     }
     return parsed.value.task;
+  }
+
+  /**
+   * Build a brief spoken summary from the delegation result.
+   * Gives xAI enough context to speak a natural one-liner without
+   * reading the entire output (code, file contents, etc.) aloud.
+   */
+  private buildSpokenSummary(content: string, toolCallCount: number): string {
+    const MAX_SUMMARY_CHARS = 300;
+    const trimmed = content.trim();
+
+    // Short results can be returned directly — xAI will speak them naturally.
+    if (trimmed.length <= MAX_SUMMARY_CHARS) {
+      return (
+        `Task completed. Here is the result:\n\n${trimmed}\n\n` +
+        "Give the user a brief spoken summary. Do NOT read code or long output verbatim."
+      );
+    }
+
+    // For long results, extract the first meaningful chunk and let xAI
+    // summarize. Strip markdown fences/headers which sound bad spoken aloud.
+    const firstChunk = trimmed
+      .replace(/^```[\s\S]*?```/m, "")
+      .replace(/^#+\s+/gm, "")
+      .slice(0, MAX_SUMMARY_CHARS)
+      .trim();
+    const suffix = toolCallCount > 0
+      ? ` (used ${toolCallCount} tool${toolCallCount === 1 ? "" : "s"})`
+      : "";
+
+    return (
+      `Task completed${suffix}. Summary of the result:\n\n${firstChunk}...\n\n` +
+      "The full output is in the chat panel. Give a brief one-sentence spoken summary. " +
+      "Do NOT read code, file paths, or raw output aloud."
+    );
   }
 
   private requireChatExecutor(): ChatExecutor {
@@ -967,15 +1012,27 @@ export class VoiceBridge {
     const history = storedSession.history;
     if (history.length === 0) return;
 
-    // Filter to user/assistant text messages, cap at last 20
-    const MAX_HISTORY_ITEMS = 20;
+    // Filter to user/assistant text messages, cap at last 40.
+    // Voice sessions need enough context to maintain conversation coherence
+    // across delegation results and prior exchanges.
+    const MAX_HISTORY_ITEMS = 40;
+    const MAX_CONTENT_CHARS = 500;
     const eligible = history.filter(
       (m) =>
         (m.role === "user" || m.role === "assistant") &&
         typeof m.content === "string" &&
         (m.content as string).trim(),
     );
-    const recent = eligible.slice(-MAX_HISTORY_ITEMS);
+    // Truncate long messages (code output, etc.) to keep injection bounded
+    const recent = eligible.slice(-MAX_HISTORY_ITEMS).map((m) => {
+      const text = (m.content as string).trim();
+      return {
+        ...m,
+        content: text.length > MAX_CONTENT_CHARS
+          ? text.slice(0, MAX_CONTENT_CHARS) + "..."
+          : text,
+      };
+    });
 
     if (recent.length > 0) {
       client.injectConversationHistory(

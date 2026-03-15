@@ -110,8 +110,8 @@ RUN useradd -m -s /bin/bash -d /home/agenc agenc \
 # =============================================================================
 # Branding: wallpaper + icon
 # =============================================================================
-COPY branding/wallpaper.svg /tmp/agenc-wallpaper.svg
-COPY branding/agenc-logo.svg /usr/share/icons/hicolor/scalable/apps/agenc-logo.svg
+COPY containers/desktop/branding/wallpaper.svg /tmp/agenc-wallpaper.svg
+COPY containers/desktop/branding/agenc-logo.svg /usr/share/icons/hicolor/scalable/apps/agenc-logo.svg
 # Rasterize wallpaper SVG to PNG (XFCE SVG rendering is unreliable on Xvfb)
 RUN rsvg-convert -w 1920 -h 1080 /tmp/agenc-wallpaper.svg -o /usr/share/backgrounds/agenc-wallpaper.png \
     && rm /tmp/agenc-wallpaper.svg \
@@ -149,16 +149,16 @@ RUN chmod +x /usr/local/bin/chromium-wrapper \
 # =============================================================================
 # XFCE configuration (dark theme, branded wallpaper, clean panel, no screensaver)
 # =============================================================================
-COPY xfce-config/xfce4-desktop.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
-COPY xfce-config/xfce4-power-manager.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
-COPY xfce-config/xfce4-screensaver.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
-COPY xfce-config/xfce4-session.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
-COPY xfce-config/xsettings.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
-COPY xfce-config/xfwm4.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
-COPY xfce-config/xfce4-panel.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
+COPY containers/desktop/xfce-config/xfce4-desktop.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
+COPY containers/desktop/xfce-config/xfce4-power-manager.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
+COPY containers/desktop/xfce-config/xfce4-screensaver.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
+COPY containers/desktop/xfce-config/xfce4-session.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
+COPY containers/desktop/xfce-config/xsettings.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
+COPY containers/desktop/xfce-config/xfwm4.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
+COPY containers/desktop/xfce-config/xfce4-panel.xml /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
 
 # Terminal config (dark theme, JetBrains Mono, Tokyo Night palette)
-COPY xfce-config/xfce4-terminal/ /home/agenc/.config/xfce4/terminal/
+COPY containers/desktop/xfce-config/xfce4-terminal/ /home/agenc/.config/xfce4/terminal/
 
 # =============================================================================
 # Shell configuration (nice prompt, aliases)
@@ -218,26 +218,27 @@ set -g pane-active-border-style "fg=#818cf8"\n\
 # =============================================================================
 # Supervisor configuration
 # =============================================================================
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY containers/desktop/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 RUN chmod 644 /etc/supervisor/conf.d/supervisord.conf
 
 # =============================================================================
 # REST server
 # =============================================================================
-COPY server/package.json server/package-lock.json* /opt/server/
-WORKDIR /opt/server
+COPY sdk/ /opt/agenc/sdk/
+COPY containers/desktop/server/package.json containers/desktop/server/package-lock.json* /opt/agenc/containers/desktop/server/
+WORKDIR /opt/agenc/containers/desktop/server
 RUN npm install --production
 
-COPY server/dist/ /opt/server/dist/
-COPY entrypoint.sh /usr/local/bin/agenc-desktop-entrypoint
-COPY install-secure-path-launchers.sh /tmp/install-secure-path-launchers.sh
-COPY secure-path-launchers.txt /tmp/secure-path-launchers.txt
-COPY patches/doom-mcp-god-mode.patch /tmp/doom-mcp-god-mode.patch
+COPY containers/desktop/server/dist/ /opt/agenc/containers/desktop/server/dist/
+COPY containers/desktop/entrypoint.sh /usr/local/bin/agenc-desktop-entrypoint
+COPY containers/desktop/install-secure-path-launchers.sh /tmp/install-secure-path-launchers.sh
+COPY containers/desktop/secure-path-launchers.txt /tmp/secure-path-launchers.txt
+COPY containers/desktop/patches/doom-mcp-god-mode.patch /tmp/doom-mcp-god-mode.patch
 
 # =============================================================================
 # Fix ownership
 # =============================================================================
-RUN chown -R agenc:agenc /home/agenc /opt/server /tmp
+RUN chown -R agenc:agenc /home/agenc /opt/agenc /tmp
 RUN chmod 755 /usr/local/bin/agenc-desktop-entrypoint
 RUN chmod 755 /tmp/install-secure-path-launchers.sh \
     && /tmp/install-secure-path-launchers.sh /tmp/secure-path-launchers.txt \

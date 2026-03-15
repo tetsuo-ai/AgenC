@@ -1,5 +1,29 @@
 export const DEFAULT_INPUT_BATCH_DELAY_MS = 45;
 
+/**
+ * Known Grok chat model IDs available for `/model` tab completion.
+ * Kept in sync with runtime/src/gateway/context-window.ts KNOWN_GROK_MODEL_IDS.
+ */
+export const KNOWN_CHAT_MODELS = Object.freeze([
+  "grok-4.20-multi-agent-beta-0309",
+  "grok-4.20-beta-0309-reasoning",
+  "grok-4.20-beta-0309-non-reasoning",
+  "grok-4-1-fast-reasoning",
+  "grok-4-1-fast-non-reasoning",
+  "grok-code-fast-1",
+  "grok-4-0709",
+  "grok-3",
+  "grok-3-mini",
+]);
+
+export function matchModelNames(query, { limit = 8 } = {}) {
+  const q = (query ?? "").toLowerCase();
+  if (!q) return KNOWN_CHAT_MODELS.slice(0, limit);
+  return KNOWN_CHAT_MODELS
+    .filter((id) => id.toLowerCase().includes(q))
+    .slice(0, limit);
+}
+
 export const WATCH_COMMANDS = Object.freeze([
   Object.freeze({
     name: "/help",
@@ -11,6 +35,11 @@ export const WATCH_COMMANDS = Object.freeze([
     name: "/new",
     usage: "/new",
     description: "Start a fresh chat session.",
+  }),
+  Object.freeze({
+    name: "/init",
+    usage: "/init [--force]",
+    description: "Generate an AGENC.md contributor guide for this repo.",
   }),
   Object.freeze({
     name: "/sessions",
@@ -53,6 +82,27 @@ export const WATCH_COMMANDS = Object.freeze([
     description: "Fetch gateway status and active channel info.",
   }),
   Object.freeze({
+    name: "/model",
+    aliases: ["/models"],
+    usage: "/model [model-name | current | list]",
+    description: "Show or switch the current LLM model.",
+  }),
+  Object.freeze({
+    name: "/voice",
+    usage: "/voice [start|stop|Ara|Rex|Sal|Eve|Leo|status]",
+    description: "Start/stop voice session or change persona.",
+  }),
+  Object.freeze({
+    name: "/memory",
+    usage: "/memory [search-query]",
+    description: "Search conversation memory or list memory sessions.",
+  }),
+  Object.freeze({
+    name: "/context",
+    usage: "/context",
+    description: "Show current context window and token usage.",
+  }),
+  Object.freeze({
     name: "/pause",
     usage: "/pause",
     description: "Pause the current background run.",
@@ -76,6 +126,12 @@ export const WATCH_COMMANDS = Object.freeze([
     name: "/clear",
     usage: "/clear",
     description: "Clear the local transcript surface.",
+  }),
+  Object.freeze({
+    name: "/export",
+    aliases: ["/copy"],
+    usage: "/export",
+    description: "Write the current detail view or transcript to a temp file.",
   }),
   Object.freeze({
     name: "/quit",

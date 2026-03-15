@@ -289,12 +289,33 @@ const PRODUCTIVITY_STAGE_TEMPLATES = [
   },
 ];
 
+const DELEGATION_STAGE_TEMPLATES = [
+  {
+    id: "del1",
+    title: "Delegated Child Tool Grounding",
+    timeoutMs: DEFAULT_BACKGROUND_STAGE_TIMEOUT_MS,
+    actions: [
+      {
+        id: "prompt",
+        kind: "input",
+        input:
+          "Use the execute_with_agent tool exactly once for this exact task. " +
+          "In the child agent, use system.bash to run /bin/pwd with working directory /home/tetsuo/git/AgenC. " +
+          "After running it, without extra words return exactly /home/tetsuo/git/AgenC. " +
+          "Return exactly the child answer.",
+        evaluationId: "delegation_stage_child",
+      },
+    ],
+  },
+];
+
 const SCENARIO_STAGE_TEMPLATES = {
   baseline: BASELINE_STAGE_TEMPLATES,
   server: SERVER_STAGE_TEMPLATES,
   spreadsheet: SPREADSHEET_STAGE_TEMPLATES,
   "office-document": OFFICE_DOCUMENT_STAGE_TEMPLATES,
   productivity: PRODUCTIVITY_STAGE_TEMPLATES,
+  delegation: DELEGATION_STAGE_TEMPLATES,
 };
 
 export function replaceRunToken(value, runToken) {
@@ -414,8 +435,10 @@ export function pickLatestTrace(traces, startedAt = 0) {
     const rightTime = Number(right?.updatedAt ?? right?.startedAt ?? 0);
     return rightTime - leftTime;
   });
-  return (
-    sorted.find((trace) => Number(trace?.updatedAt ?? trace?.startedAt ?? 0) >= startedAt) ??
-    sorted[0]
-  );
+  const roots = sorted.filter((trace) => !String(trace?.traceId ?? "").includes(":sub:"));
+  const pool = roots.length > 0 ? roots : sorted;
+  if (startedAt > 0) {
+    return pool.find((trace) => Number(trace?.updatedAt ?? trace?.startedAt ?? 0) >= startedAt);
+  }
+  return pool[0];
 }

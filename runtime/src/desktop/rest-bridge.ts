@@ -38,6 +38,17 @@ interface RESTToolDefinition {
   inputSchema: Record<string, unknown>;
 }
 
+interface DesktopHealthResponse {
+  readonly status: "ok";
+  readonly display?: string;
+  readonly uptime?: number;
+  readonly workingDirectory?: string;
+  readonly workspaceRoot?: string | null;
+  readonly features?: readonly string[];
+}
+
+const REQUIRED_DESKTOP_SERVER_FEATURES = ["foreground_bash_cwd"] as const;
+
 export interface DesktopBridgeEvent {
   readonly type: string;
   readonly timestamp: number;
@@ -90,10 +101,23 @@ export class DesktopRESTBridge {
 
   /** Fetch tool definitions from the container and create bridged Tool objects. */
   async connect(): Promise<void> {
-    await this.fetchJsonOrThrow<unknown>(
+    const health = await this.fetchJsonOrThrow<DesktopHealthResponse>(
       `${this.baseUrl}/health`,
       "Health check failed",
     );
+
+    const features = Array.isArray(health.features)
+      ? health.features.filter((value): value is string => typeof value === "string")
+      : [];
+    const missingFeatures = REQUIRED_DESKTOP_SERVER_FEATURES.filter((feature) =>
+      !features.includes(feature)
+    );
+    if (missingFeatures.length > 0) {
+      this.logger.warn?.(
+        `Desktop REST bridge ${this.containerId} is connected to a server missing required features: ${missingFeatures.join(", ")}. ` +
+        "This usually means the desktop image is stale and may ignore requested cwd values for desktop.bash.",
+      );
+    }
 
     const definitions = await this.fetchJsonOrThrow<RESTToolDefinition[]>(
       `${this.baseUrl}/tools`,
@@ -105,7 +129,7 @@ export class DesktopRESTBridge {
     this.startEventStream();
 
     this.logger.info(
-      `Desktop REST bridge connected to ${this.containerId} (${this.tools.length} tools)`,
+      `Desktop REST bridge connected to ${this.containerId} (${this.tools.length} tools, cwd=${health.workingDirectory ?? "unknown"}, workspace=${health.workspaceRoot ?? "none"}, features=${features.length > 0 ? features.join(",") : "none"})`,
     );
   }
 

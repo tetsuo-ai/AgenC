@@ -11,6 +11,7 @@ import {
 } from "./delegation-runtime.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 import { SessionCredentialBroker } from "../policy/session-credentials.js";
+import { SESSION_ALLOWED_ROOTS_ARG } from "../tools/system/filesystem.js";
 
 function createTempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -120,6 +121,56 @@ describe("createSessionToolHandler", () => {
     expect(JSON.parse(result)).toEqual({
       error: "Executor not running. Start game with async_player=True.",
     });
+  });
+
+  it("marks non-zero exitCode tool results as isError in client and subagent lifecycle events", async () => {
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
+    const lifecycleEmitter = {
+      emit: vi.fn((event: Record<string, unknown>) => {
+        lifecycleEvents.push(event);
+      }),
+    };
+
+    const handler = createSessionToolHandler({
+      sessionId: "subagent:test-session",
+      baseHandler: vi.fn(async () =>
+        JSON.stringify({ stdout: "", stderr: "build failed", exitCode: 1 })
+      ),
+      routerId: "router-a",
+      send,
+      delegation: () => ({
+        subAgentManager: null,
+        policyEngine: null,
+        verifier: null,
+        lifecycleEmitter: lifecycleEmitter as any,
+      }),
+    });
+
+    await handler("system.bash", {
+      command: "npm",
+      args: ["run", "build"],
+    });
+
+    const resultPayload = sentMessages.find((msg) => msg.type === "tools.result")
+      ?.payload as
+      | { isError?: boolean; toolName?: string }
+      | undefined;
+    expect(resultPayload).toMatchObject({
+      toolName: "system.bash",
+      isError: true,
+    });
+
+    const lifecyclePayload = lifecycleEvents.find(
+      (event) => event.type === "subagents.tool.result",
+    )?.payload as
+      | { isError?: boolean; toolCallId?: string }
+      | undefined;
+    expect(lifecyclePayload?.isError).toBe(true);
+    expect(lifecyclePayload?.toolCallId).toBeDefined();
   });
 
   it("does not block same-turn Doom follow-up calls after a failed launch", async () => {
@@ -320,6 +371,107 @@ describe("createSessionToolHandler", () => {
     });
   });
 
+  it("resolves workspace context per call and injects the session root only into path-gated tool executions", async () => {
+    const sessionWorkspaceRoot = createTempDir("agenc-tool-handler-session-root-");
+    const sentMessages: ControlResponse[] = [];
+    const send = vi.fn((msg: ControlResponse): void => {
+      sentMessages.push(msg);
+    });
+    const baseHandler = vi.fn(async () => '{"ok":true}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send,
+      defaultWorkingDirectory: "/tmp/daemon-root",
+      resolveWorkspaceContext: async () => ({
+        defaultWorkingDirectory: sessionWorkspaceRoot,
+        workspaceAliasRoot: sessionWorkspaceRoot,
+        scopedFilesystemRoot: sessionWorkspaceRoot,
+        additionalAllowedPaths: [sessionWorkspaceRoot],
+      }),
+    });
+
+    try {
+      await handler("system.writeFile", {
+        path: "src/session.ts",
+        content: "export const sessionScoped = true;\n",
+      });
+    } finally {
+      rmSync(sessionWorkspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: `${sessionWorkspaceRoot}/src/session.ts`,
+      content: "export const sessionScoped = true;\n",
+      [SESSION_ALLOWED_ROOTS_ARG]: [sessionWorkspaceRoot],
+    });
+    expect(sentMessages[0]).toMatchObject({
+      type: "tools.executing",
+      payload: {
+        toolName: "system.writeFile",
+        args: {
+          path: `${sessionWorkspaceRoot}/src/session.ts`,
+          content: "export const sessionScoped = true;\n",
+        },
+      },
+    });
+    expect((sentMessages[0]?.payload as Record<string, unknown>)).not.toHaveProperty(
+      SESSION_ALLOWED_ROOTS_ARG,
+    );
+  });
+
+  it("strips spoofed internal allowed-root args from caller-controlled input", async () => {
+    const workspaceRoot = createTempDir("agenc-tool-handler-spoofed-root-");
+    const baseHandler = vi.fn(async () => '{"ok":true}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: workspaceRoot,
+    });
+
+    try {
+      await handler("system.writeFile", {
+        path: "src/index.ts",
+        content: "export const safe = true;\n",
+        [SESSION_ALLOWED_ROOTS_ARG]: ["/tmp/evil-root"],
+      });
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: `${workspaceRoot}/src/index.ts`,
+      content: "export const safe = true;\n",
+    });
+  });
+
+  it("rebases relative desktop text editor paths under the delegated working directory", async () => {
+    const baseHandler = vi.fn(async () => '{"ok":true}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: "/tmp/project-root",
+      scopedFilesystemRoot: "/tmp/project-root",
+    });
+
+    await handler("desktop.text_editor", {
+      command: "create",
+      path: "src/store.ts",
+      file_text: "export const ok = true;\n",
+    });
+
+    expect(baseHandler).toHaveBeenCalledWith("desktop.text_editor", {
+      command: "create",
+      path: "/tmp/project-root/src/store.ts",
+      file_text: "export const ok = true;\n",
+    });
+  });
+
   it("injects a default cwd for structured shell tools and resolves relative cwd values", async () => {
     const workspaceRoot = createTempDir("agenc-tool-handler-");
     const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
@@ -345,6 +497,32 @@ describe("createSessionToolHandler", () => {
       command: "npm",
       args: ["test"],
       cwd: `${workspaceRoot}/packages/app`,
+    });
+  });
+
+  it("injects the delegated cwd into desktop bash commands", async () => {
+    const workspaceRoot = createTempDir("agenc-tool-handler-desktop-bash-");
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: workspaceRoot,
+      scopedFilesystemRoot: workspaceRoot,
+    });
+
+    try {
+      await handler("desktop.bash", {
+        command: "npm run build",
+      });
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseHandler).toHaveBeenCalledWith("desktop.bash", {
+      command: "npm run build",
+      cwd: workspaceRoot,
     });
   });
 
@@ -615,6 +793,28 @@ describe("createSessionToolHandler", () => {
         "Delegated workspace root violation: shell mode command references a path outside the delegated workspace root. Keep all filesystem paths under /home/tetsuo/agent-test/terrain-router-ts-1.",
     });
     expect(baseHandler).not.toHaveBeenCalled();
+  });
+
+  it("allows shell-mode redirect targets that use /dev/null under a delegated workspace root", async () => {
+    const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
+    const handler = createSessionToolHandler({
+      sessionId: "session-1",
+      baseHandler,
+      routerId: "router-a",
+      send: vi.fn(),
+      defaultWorkingDirectory: "/home/tetsuo/agent-test/terrain-router-ts-1",
+      scopedFilesystemRoot: "/home/tetsuo/agent-test/terrain-router-ts-1",
+    });
+
+    const result = await handler("system.bash", {
+      command: "echo ok > /dev/null",
+    });
+
+    expect(JSON.parse(result)).toEqual({
+      stdout: "",
+      exitCode: 0,
+    });
+    expect(baseHandler).toHaveBeenCalledTimes(1);
   });
 
   it("does not treat sed expressions as escaped filesystem paths in delegated bash commands", async () => {
@@ -2610,6 +2810,16 @@ describe("createSessionToolHandler", () => {
       success?: boolean;
       status?: string;
     };
+    const plannedEvent = lifecycleEvents.find(
+      (event) => event.type === "subagents.planned",
+    ) as
+      | {
+        payload?: {
+          decisionThreshold?: number;
+          objective?: string;
+        };
+      }
+      | undefined;
     const bypassEvent = lifecycleEvents.find(
       (event) => event.type === "subagents.policy_bypassed",
     ) as
@@ -2618,16 +2828,22 @@ describe("createSessionToolHandler", () => {
           unsafeBenchmarkMode?: boolean;
           matchedRule?: string;
           decisionThreshold?: number;
+          objective?: string;
         };
       }
       | undefined;
 
     expect(parsed.success).toBe(true);
     expect(parsed.status).toBe("completed");
+    expect(plannedEvent?.payload).toMatchObject({
+      decisionThreshold: 0.2,
+      objective: "Scaffold the workspace and validate npm install",
+    });
     expect(bypassEvent?.payload).toMatchObject({
       unsafeBenchmarkMode: true,
       matchedRule: "unsafe_benchmark_bypass",
       decisionThreshold: 0.2,
+      objective: "Scaffold the workspace and validate npm install",
     });
   });
 
@@ -2677,7 +2893,7 @@ describe("createSessionToolHandler", () => {
     expect(subAgentManager.spawn).not.toHaveBeenCalled();
   });
 
-  it("recovers execute_with_agent child tools to desktop-safe semantic fallback tools", async () => {
+  it("keeps execute_with_agent explicit child tools exact instead of widening them", async () => {
     const subAgentManager = {
       spawn: vi.fn(async () => "subagent:spawned"),
       getResult: vi
@@ -2733,17 +2949,19 @@ describe("createSessionToolHandler", () => {
       inputContract: "JSON output with created files",
       tools: ["system.bash", "system.writeFile"],
     });
-    const parsed = JSON.parse(result) as { success?: boolean };
+    const parsed = JSON.parse(result) as {
+      success?: boolean;
+      error?: string;
+      removedByPolicy?: string[];
+    };
 
-    expect(parsed.success).toBe(true);
-    expect(subAgentManager.spawn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tools: [
-          "desktop.bash",
-          "desktop.text_editor",
-        ],
-      }),
-    );
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toContain("No permitted child tools remain");
+    expect(parsed.removedByPolicy).toEqual([
+      "system.bash",
+      "system.writeFile",
+    ]);
+    expect(subAgentManager.spawn).not.toHaveBeenCalled();
   });
 
   it("keeps the explicit execute_with_agent delegation spec while promoting an objective-rich child prompt", async () => {

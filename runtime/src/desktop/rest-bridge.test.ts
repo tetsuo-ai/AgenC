@@ -34,7 +34,15 @@ const TOOL_DEFS = [
 function mockHealthAndTools(): void {
   mockFetch.mockImplementation(async (url: string) => {
     if (url.includes("/health")) {
-      return { ok: true, json: async () => ({ status: "ok" }) };
+      return {
+        ok: true,
+        json: async () => ({
+          status: "ok",
+          workingDirectory: "/workspace",
+          workspaceRoot: "/workspace",
+          features: ["foreground_bash_cwd"],
+        }),
+      };
     }
     if (url.endsWith("/tools") && !url.includes("/tools/")) {
       return { ok: true, json: async () => TOOL_DEFS };
@@ -45,13 +53,26 @@ function mockHealthAndTools(): void {
 
 describe("DesktopRESTBridge", () => {
   let bridge: DesktopRESTBridge;
+  let logger: {
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+    debug: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     mockFetch.mockReset();
+    logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
     bridge = new DesktopRESTBridge({
       apiHostPort: 32769,
       containerId: "abc123",
       authToken: "test-token",
+      logger: logger as any,
     });
   });
 
@@ -100,7 +121,15 @@ describe("DesktopRESTBridge", () => {
     it("throws ConnectionError when tool list fails", async () => {
       mockFetch.mockImplementation(async (url: string) => {
         if (url.includes("/health")) {
-          return { ok: true, json: async () => ({ status: "ok" }) };
+          return {
+            ok: true,
+            json: async () => ({
+              status: "ok",
+              workingDirectory: "/workspace",
+              workspaceRoot: "/workspace",
+              features: ["foreground_bash_cwd"],
+            }),
+          };
         }
         throw new Error("tool fetch failed");
       });
@@ -131,12 +160,21 @@ describe("DesktopRESTBridge", () => {
         apiHostPort: 32769,
         containerId: "abc123",
         authToken: "test-token",
+        logger: logger as any,
         onEvent,
       });
 
       mockFetch.mockImplementation(async (url: string) => {
         if (url.includes("/health")) {
-          return { ok: true, json: async () => ({ status: "ok" }) };
+          return {
+            ok: true,
+            json: async () => ({
+              status: "ok",
+              workingDirectory: "/workspace",
+              workspaceRoot: "/workspace",
+              features: ["foreground_bash_cwd"],
+            }),
+          };
         }
         if (url.endsWith("/tools") && !url.includes("/tools/")) {
           return { ok: true, json: async () => TOOL_DEFS };
@@ -155,6 +193,32 @@ describe("DesktopRESTBridge", () => {
         payload: { processId: "proc_123", state: "exited" },
       });
       bridge.disconnect();
+    });
+
+    it("warns when the desktop server is missing required cwd features", async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes("/health")) {
+          return {
+            ok: true,
+            json: async () => ({
+              status: "ok",
+              workingDirectory: "/workspace",
+              workspaceRoot: "/workspace",
+              features: [],
+            }),
+          };
+        }
+        if (url.endsWith("/tools") && !url.includes("/tools/")) {
+          return { ok: true, json: async () => TOOL_DEFS };
+        }
+        return { ok: false, status: 404, json: async () => ({ error: "not found" }) };
+      });
+
+      await bridge.connect();
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("missing required features: foreground_bash_cwd"),
+      );
     });
   });
 

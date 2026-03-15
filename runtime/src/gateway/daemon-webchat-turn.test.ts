@@ -372,6 +372,151 @@ You have broad access to this machine via the system.bash tool.`,
     });
   });
 
+  it("broadcasts planner trace events to webchat even when trace logging is disabled", async () => {
+    const logger = createLoggerStub();
+    const memoryBackend = createMemoryBackendStub();
+    const session = createSession();
+    const sessionMgr = {
+      getOrCreate: vi.fn(() => session),
+      appendMessage: vi.fn(),
+      compact: vi.fn(async () => undefined),
+    } as any;
+    const webChat = {
+      createAbortController: vi.fn(() => new AbortController()),
+      clearAbortController: vi.fn(),
+      send: vi.fn(async () => undefined),
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+    } as any;
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const signals = {
+      signalThinking: vi.fn(),
+      signalIdle: vi.fn(),
+    };
+    const execute = vi.fn(async (params: Record<string, unknown>) => {
+      const trace = params.trace as
+        | {
+            onExecutionTraceEvent?: (event: {
+              type: string;
+              phase?: string;
+              callIndex?: number;
+              payload: Record<string, unknown>;
+            }) => void;
+          }
+        | undefined;
+      trace?.onExecutionTraceEvent?.({
+        type: "planner_plan_parsed",
+        phase: "planner",
+        callIndex: 1,
+        payload: {
+          routeReason: "dag",
+          steps: [{ name: "build_core", stepType: "subagent_task" }],
+          edges: [],
+        },
+      });
+      trace?.onExecutionTraceEvent?.({
+        type: "tool_dispatch_started",
+        phase: "planner",
+        callIndex: 1,
+        payload: {
+          pipelineId: "pipe-1",
+          stepName: "verify_build",
+          stepIndex: 1,
+          tool: "system.bash",
+          args: { command: "npm", args: ["test"] },
+        },
+      });
+      trace?.onExecutionTraceEvent?.({
+        type: "tool_dispatch_finished",
+        phase: "planner",
+        callIndex: 1,
+        payload: {
+          pipelineId: "pipe-1",
+          stepName: "verify_build",
+          stepIndex: 1,
+          tool: "system.bash",
+          isError: false,
+          result: "{\"exitCode\":0}",
+        },
+      });
+      return createResult();
+    });
+
+    await executeWebChatConversationTurn({
+      logger,
+      msg: {
+        sessionId: "session:test",
+        senderId: "operator-1",
+        channel: "webchat",
+        content: "build something",
+      },
+      webChat,
+      chatExecutor: {
+        execute,
+      } as any,
+      sessionMgr,
+      getSystemPrompt: () => "system",
+      sessionToolHandler: vi.fn() as any,
+      sessionStreamCallback: vi.fn(),
+      signals,
+      hooks,
+      memoryBackend,
+      sessionTokenBudget: 16_000,
+      defaultMaxToolRounds: 3,
+      contextWindowTokens: 64_000,
+      traceConfig: {
+        enabled: false,
+        includeHistory: true,
+        includeSystemPrompt: true,
+        includeToolArgs: true,
+        includeToolResults: true,
+        includeProviderPayloads: false,
+        maxChars: 20_000,
+      },
+      turnTraceId: "trace-1",
+      buildToolRoutingDecision: () => undefined,
+      recordToolRoutingOutcome: vi.fn(),
+      getSessionTokenUsage: () => 0,
+      onModelInfo: vi.fn(),
+      onSubagentSynthesis: vi.fn(),
+    });
+
+    expect(webChat.broadcastEvent).toHaveBeenCalledWith("planner_plan_parsed", {
+      sessionId: "session:test",
+      traceId: "trace-1",
+      phase: "planner",
+      callIndex: 1,
+      routeReason: "dag",
+      steps: [{ name: "build_core", stepType: "subagent_task" }],
+      edges: [],
+    });
+    expect(webChat.broadcastEvent).toHaveBeenCalledWith("planner_step_started", {
+      sessionId: "session:test",
+      traceId: "trace-1",
+      phase: "planner",
+      callIndex: 1,
+      pipelineId: "pipe-1",
+      stepName: "verify_build",
+      stepIndex: 1,
+      tool: "system.bash",
+      args: { command: "npm", args: ["test"] },
+    });
+    expect(webChat.broadcastEvent).toHaveBeenCalledWith("planner_step_finished", {
+      sessionId: "session:test",
+      traceId: "trace-1",
+      phase: "planner",
+      callIndex: 1,
+      pipelineId: "pipe-1",
+      stepName: "verify_build",
+      stepIndex: 1,
+      tool: "system.bash",
+      isError: false,
+      result: "{\"exitCode\":0}",
+    });
+  });
+
   it("surfaces failures to webchat and skips outbound persistence side effects", async () => {
     const logger = createLoggerStub();
     const memoryBackend = createMemoryBackendStub();

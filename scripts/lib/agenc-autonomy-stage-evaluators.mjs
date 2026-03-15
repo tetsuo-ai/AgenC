@@ -35,7 +35,12 @@ function containsOne(text, parts) {
 }
 
 function textOfEvidence(evidence) {
-  return [evidence.paneText ?? "", evidence.traceText ?? "", evidence.runText ?? ""]
+  return [
+    evidence.paneText ?? "",
+    evidence.traceSummariesText ?? "",
+    evidence.traceText ?? "",
+    evidence.runText ?? "",
+  ]
     .filter(Boolean)
     .join("\n");
 }
@@ -51,6 +56,7 @@ function buildStageEvaluationContext(evidence, context = {}) {
   return {
     paneText,
     traceDetail,
+    traceSummaries: Array.isArray(evidence.traceSummaries) ? evidence.traceSummaries : [],
     runDetail,
     toolNames: extractToolNames(traceDetail),
     combinedText: textOfEvidence(evidence),
@@ -340,6 +346,80 @@ function evaluateTraceStage(ctx) {
   );
 }
 
+function evaluateDelegatedChildStage(ctx) {
+  const traceSummaryEventNames = ctx.traceSummaries
+    .map((trace) => trace?.lastEventName)
+    .filter((eventName) => typeof eventName === "string");
+  const strictLifecycleSeenFromSummaries =
+    traceSummaryEventNames.includes("subagents.spawned") &&
+    traceSummaryEventNames.includes("subagents.started") &&
+    traceSummaryEventNames.includes("subagents.tool.executing") &&
+    traceSummaryEventNames.includes("subagents.tool.result") &&
+    traceSummaryEventNames.includes("subagents.completed");
+  const durableLifecycleSeenFromSummaries =
+    traceSummaryEventNames.includes("subagents.spawned") &&
+    traceSummaryEventNames.includes("subagents.started") &&
+    (traceSummaryEventNames.includes("subagents.completed") ||
+      traceSummaryEventNames.includes("subagents.synthesized"));
+  const lifecycleSeenFromText = containsAll(ctx.combinedText, [
+    "subagents.spawned",
+    "subagents.started",
+    "subagents.tool.executing",
+    "subagents.tool.result",
+    "subagents.completed",
+  ]);
+  const delegatedToolSeen =
+    ctx.toolNames.includes("execute_with_agent") ||
+    containsOne(ctx.combinedText, ["execute_with_agent"]);
+  const parentGroundingSeen =
+    containsOne(ctx.combinedText, [
+      "webchat.tool.result",
+      "webchat.executor.tool_dispatch_finished",
+    ]) &&
+    containsOne(ctx.combinedText, [
+      "\"success\":true",
+      "\"status\":\"completed\"",
+      "\"output\":\"/home/tetsuo/git/AgenC\"",
+      "\"output\":\"/home/tetsuo/git/AgenC. Return exactly the child answer\"",
+    ]);
+  const lifecycleSeen =
+    strictLifecycleSeenFromSummaries ||
+    lifecycleSeenFromText ||
+    (durableLifecycleSeenFromSummaries && parentGroundingSeen);
+  const childOutputSeen = containsOne(ctx.paneText, [
+    "/home/tetsuo/git/AgenC",
+    "Delegated child",
+  ]);
+  const childFailed = containsOne(ctx.combinedText, [
+    "subagents.failed",
+    "Acceptance criteria not evidenced in child output",
+  ]);
+  return stagePass(
+    delegatedToolSeen &&
+      lifecycleSeen &&
+      childOutputSeen &&
+      !childFailed &&
+      ctx.traceCompleted &&
+      !ctx.paneBusy,
+    [
+      delegatedToolSeen
+        ? undefined
+        : "trace did not show execute_with_agent",
+      lifecycleSeen
+        ? undefined
+        : "evidence did not show the full delegated child lifecycle",
+      childOutputSeen
+        ? undefined
+        : "pane did not show the delegated child result",
+      !childFailed
+        ? undefined
+        : "delegated child flow recorded a failure",
+      ctx.traceCompleted ? undefined : "trace did not reach completed status",
+      ctx.paneBusy ? "pane still showed an active typing state" : undefined,
+    ].filter(Boolean),
+  );
+}
+
 function evaluateRestartStage(ctx) {
   const sameRun = !ctx.priorRunId || ctx.priorRunId === ctx.currentRunId;
   const recovered =
@@ -425,6 +505,7 @@ const STAGE_EVALUATORS = {
   stage5_resume: evaluateResumeStage,
   stage5_inspect: evaluateInspectStage,
   stage6: evaluateTraceStage,
+  delegation_stage_child: evaluateDelegatedChildStage,
   stage7: evaluateRestartStage,
   stage8: evaluateStopStage,
   spreadsheet_stage_read: createTypedArtifactEvaluator({

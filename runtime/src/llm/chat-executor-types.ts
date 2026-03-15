@@ -39,7 +39,10 @@ import type {
 } from "../workflow/pipeline.js";
 import type { WorkflowGraphEdge } from "../workflow/types.js";
 import type { DelegationDecision, DelegationDecisionConfig } from "./delegation-decision.js";
-import type { DelegationContractSpec } from "../utils/delegation-validation.js";
+import type {
+  DelegationContractSpec,
+  DelegationOutputValidationCode,
+} from "../utils/delegation-validation.js";
 import type { HostToolingProfile } from "../gateway/host-tooling.js";
 import type {
   DelegationBanditPolicyTuner,
@@ -107,6 +110,7 @@ export type ChatExecutionTraceEventType =
   | "model_call_prepared"
   | "planner_path_finished"
   | "planner_pipeline_finished"
+  | "planner_synthesis_fallback_applied"
   | "planner_pipeline_started"
   | "planner_plan_parsed"
   | "planner_refinement_requested"
@@ -148,7 +152,7 @@ export interface ChatExecuteParams {
   readonly toolBudgetPerRequest?: number;
   /** Per-call model recall budget (calls after the first) — overrides the constructor default. */
   readonly maxModelRecallsPerRequest?: number;
-  /** Per-call end-to-end timeout in milliseconds — overrides the constructor default. */
+  /** Per-call end-to-end timeout in milliseconds — overrides the constructor default. 0 = unlimited. */
   readonly requestTimeoutMs?: number;
   /** Optional per-turn tool-routing subset and expansion policy. */
   readonly toolRouting?: {
@@ -259,7 +263,7 @@ export interface ChatPlannerSummary {
 }
 
 export interface PlannerDiagnostic {
-  readonly category: "parse" | "validation" | "policy";
+  readonly category: "parse" | "validation" | "policy" | "runtime";
   readonly code: string;
   readonly message: string;
   readonly details?: Readonly<Record<string, string | number | boolean>>;
@@ -308,6 +312,8 @@ export interface ChatExecutorResult {
   readonly stopReason: LLMPipelineStopReason;
   /** Optional detail for non-completed stop reasons. */
   readonly stopReasonDetail?: string;
+  /** Optional delegated-output validation code associated with a validation_error stop. */
+  readonly validationCode?: DelegationOutputValidationCode;
   /** Result of response evaluation, if evaluator is configured. */
   readonly evaluation?: EvaluationResult;
 }
@@ -373,6 +379,13 @@ export interface ChatExecutorConfig {
   readonly plannerEnabled?: boolean;
   /** Max output tokens for the planner pass (bounded planning call). */
   readonly plannerMaxTokens?: number;
+  /**
+   * Current delegation nesting depth (0 = top-level, 1 = first child, etc.).
+   * Propagated through the delegation chain so the planner can generate
+   * capability-aware plans — e.g. avoiding subagent_task steps that require
+   * delegation when the child won't have execute_with_agent available.
+   */
+  readonly delegationNestingDepth?: number;
   /** Optional deterministic workflow executor used when planner emits executable steps. */
   readonly pipelineExecutor?: DeterministicPipelineExecutor;
   /** Delegation utility scoring controls for planner-emitted subagent tasks. */
@@ -398,7 +411,7 @@ export interface ChatExecutorConfig {
   };
   /** Maximum tool calls allowed for a single execute() invocation. */
   readonly toolBudgetPerRequest?: number;
-  /** Maximum model recalls (calls after the first) for a single execute() invocation. */
+  /** Maximum model recalls (calls after the first) for a single execute() invocation. 0 = unlimited. */
   readonly maxModelRecallsPerRequest?: number;
   /** Maximum total failed tool calls allowed for a single execute() invocation. */
   readonly maxFailureBudgetPerRequest?: number;
@@ -715,6 +728,7 @@ export interface ExecutionContext {
   compacted: boolean;
   stopReason: LLMPipelineStopReason;
   stopReasonDetail?: string;
+  validationCode?: DelegationOutputValidationCode;
   activeRoutedToolNames: readonly string[];
   transientRoutedToolNames: readonly string[] | undefined;
   routedToolsExpanded: boolean;
@@ -763,6 +777,7 @@ export interface BuildExecutionContextConfig {
   readonly toolBudgetPerRequest: number;
   readonly maxModelRecallsPerRequest: number;
   readonly maxFailureBudgetPerRequest: number;
+  /** End-to-end request timeout in milliseconds. 0 = unlimited. */
   readonly requestTimeoutMs: number;
   readonly providerName: string;
   readonly plannerEnabled: boolean;
@@ -793,7 +808,10 @@ export function buildDefaultExecutionContext(
     effectiveFailureBudget: config.maxFailureBudgetPerRequest,
     effectiveRequestTimeoutMs: config.requestTimeoutMs,
     startTime,
-    requestDeadlineAt: startTime + config.requestTimeoutMs,
+    requestDeadlineAt:
+      config.requestTimeoutMs > 0
+        ? startTime + config.requestTimeoutMs
+        : Number.POSITIVE_INFINITY,
     parentTurnId: `parent:${params.sessionId}:${startTime}`,
     trajectoryTraceId: `trace:${params.sessionId}:${startTime}`,
     initialRoutedToolNames: params.initialRoutedToolNames,
@@ -844,6 +862,7 @@ export function buildDefaultExecutionContext(
     compacted: params.compacted,
     stopReason: "completed",
     stopReasonDetail: undefined,
+    validationCode: undefined,
     activeRoutedToolNames: params.initialRoutedToolNames,
     transientRoutedToolNames: undefined,
     routedToolsExpanded: false,

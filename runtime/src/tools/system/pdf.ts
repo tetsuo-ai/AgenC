@@ -15,7 +15,7 @@ import { promisify } from "node:util";
 import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import { silentLogger } from "../../utils/logger.js";
-import { safePath } from "./filesystem.js";
+import { resolveToolAllowedPaths, safePath } from "./filesystem.js";
 import type { SystemPdfToolConfig } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -58,11 +58,12 @@ function normalizePositiveInteger(
 async function resolvePdfPath(
   rawPath: unknown,
   allowedPaths: readonly string[],
+  args: Record<string, unknown>,
 ): Promise<string | ToolResult> {
   if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
     return errorResult("Missing or invalid path");
   }
-  const safe = await safePath(rawPath, allowedPaths);
+  const safe = await safePath(rawPath, resolveToolAllowedPaths(allowedPaths, args));
   if (!safe.safe) {
     return errorResult(safe.reason ?? "PDF path is outside allowed directories");
   }
@@ -149,7 +150,7 @@ function createPdfInfoTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolvePdfPath(args.path, allowedPaths);
+      const resolved = await resolvePdfPath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }
@@ -228,7 +229,7 @@ function createPdfExtractTextTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolvePdfPath(args.path, allowedPaths);
+      const resolved = await resolvePdfPath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }

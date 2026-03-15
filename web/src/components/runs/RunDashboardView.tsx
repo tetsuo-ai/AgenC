@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { RunControlAction, RunDetail, RunSummary } from '../../types';
+import type {
+  RunControlAction,
+  RunDetail,
+  RunOperatorAvailability,
+  RunSummary,
+} from '../../types';
 import {
   buildRunEditorState,
   EMPTY_RUN_EDITOR_STATE,
@@ -15,6 +20,8 @@ interface RunDashboardViewProps {
   selectedSessionId: string | null;
   loading: boolean;
   error: string | null;
+  runNotice: string | null;
+  operatorAvailability: RunOperatorAvailability | null;
   browserNotificationsEnabled: boolean;
   notificationPermission: NotificationPermission | 'unsupported';
   onSelectRun: (sessionId: string) => void;
@@ -31,6 +38,8 @@ export function RunDashboardView(props: RunDashboardViewProps) {
     selectedSessionId,
     loading,
     error,
+    runNotice,
+    operatorAvailability,
     browserNotificationsEnabled,
     notificationPermission,
     onSelectRun,
@@ -67,6 +76,7 @@ export function RunDashboardView(props: RunDashboardViewProps) {
           <RunSidebar
             runs={runs}
             selectedSessionId={selectedSessionId}
+            operatorAvailability={operatorAvailability}
             onSelectRun={onSelectRun}
             onInspect={onInspect}
           />
@@ -78,6 +88,8 @@ export function RunDashboardView(props: RunDashboardViewProps) {
             selectedSessionId={selectedSessionId}
             loading={loading}
             error={error}
+            runNotice={runNotice}
+            operatorAvailability={operatorAvailability}
             editor={editor}
             onEditorChange={updateEditor}
             onControl={onControl}

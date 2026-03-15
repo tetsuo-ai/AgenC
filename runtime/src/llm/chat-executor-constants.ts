@@ -11,7 +11,7 @@
 /** Max chars for URL preview in tool summaries. */
 export const MAX_URL_PREVIEW_CHARS = 80;
 /** Max chars for bash output in tool summaries. */
-export const MAX_BASH_OUTPUT_CHARS = 2000;
+export const MAX_BASH_OUTPUT_CHARS = 100_000;
 /** Max chars for command preview in tool summaries. */
 export const MAX_COMMAND_PREVIEW_CHARS = 60;
 /**
@@ -40,33 +40,33 @@ export const SHELL_BUILTIN_COMMANDS = new Set([
   "builtin",
 ]);
 /** Max chars for JSON result previews. */
-export const MAX_RESULT_PREVIEW_CHARS = 500;
+export const MAX_RESULT_PREVIEW_CHARS = 10_000;
 /** Max chars for error message previews. */
-export const MAX_ERROR_PREVIEW_CHARS = 300;
+export const MAX_ERROR_PREVIEW_CHARS = 10_000;
 /** Max chars of user message sent to the evaluator. */
 export const MAX_EVAL_USER_CHARS = 500;
 /** Max chars of response sent to the evaluator. */
 export const MAX_EVAL_RESPONSE_CHARS = 2000;
 /** Cap history depth sent to providers per request. */
-export const MAX_HISTORY_MESSAGES = 20;
+export const MAX_HISTORY_MESSAGES = 100;
 /** Max chars retained per history message. */
-export const MAX_HISTORY_MESSAGE_CHARS = 2_000;
+export const MAX_HISTORY_MESSAGE_CHARS = 100_000;
 /** Max chars from a single injected system context block (skills/memory/progress). */
-export const MAX_CONTEXT_INJECTION_CHARS = 12_000;
+export const MAX_CONTEXT_INJECTION_CHARS = 100_000;
 /** Hard prompt-size guard (approx chars) to avoid provider context-length errors. */
-export const MAX_PROMPT_CHARS_BUDGET = 100_000;
+export const MAX_PROMPT_CHARS_BUDGET = 500_000;
 /** Max chars kept from a tool result when feeding it back into the LLM. */
-export const MAX_TOOL_RESULT_CHARS = 12_000;
+export const MAX_TOOL_RESULT_CHARS = 100_000;
 /** Max chars retained for any single string field inside JSON tool output. */
-export const MAX_TOOL_RESULT_FIELD_CHARS = 2_000;
+export const MAX_TOOL_RESULT_FIELD_CHARS = 100_000;
 /** Max chars retained for one replayed assistant tool-call argument payload. */
-export const MAX_TOOL_CALL_ARGUMENT_CHARS = 512;
+export const MAX_TOOL_CALL_ARGUMENT_CHARS = 100_000;
 /** Max chars of raw preview kept when tool-call args are truncated for replay. */
-export const MAX_TOOL_CALL_ARGUMENT_PREVIEW_CHARS = 320;
+export const MAX_TOOL_CALL_ARGUMENT_PREVIEW_CHARS = 4_000;
 /** Max array items retained in JSON tool output summaries. */
-export const MAX_TOOL_RESULT_ARRAY_ITEMS = 40;
+export const MAX_TOOL_RESULT_ARRAY_ITEMS = 500;
 /** Max object keys retained in JSON tool output summaries. */
-export const MAX_TOOL_RESULT_OBJECT_KEYS = 48;
+export const MAX_TOOL_RESULT_OBJECT_KEYS = 500;
 export const TOOL_RESULT_PRIORITY_KEYS = [
   "error",
   "stderr",
@@ -118,14 +118,14 @@ export const MAX_PLANNER_CONTEXT_MEMORY_CHARS = 1_200;
 export const MAX_PLANNER_CONTEXT_TOOL_OUTPUT_CHARS = 1_200;
 /** Default per-request tool-call budget. */
 export const DEFAULT_TOOL_BUDGET_PER_REQUEST = 24;
-/** Default per-request model recall budget (calls after first). */
-export const DEFAULT_MODEL_RECALLS_PER_REQUEST = 24;
+/** Default per-request model recall budget (calls after first). 0 = unlimited. */
+export const DEFAULT_MODEL_RECALLS_PER_REQUEST = 0;
 /** Default per-request failed-tool-call budget. */
 export const DEFAULT_FAILURE_BUDGET_PER_REQUEST = 8;
 /** Default timeout for a single tool execution call in ms. */
 export const DEFAULT_TOOL_CALL_TIMEOUT_MS = 180_000;
-/** Default end-to-end timeout for one execute() invocation in ms. */
-export const DEFAULT_REQUEST_TIMEOUT_MS = 600_000;
+/** Default end-to-end timeout for one execute() invocation in ms. 0 = unlimited. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 0;
 /**
  * Absolute adaptive ceiling for tool rounds.
  * Keep aligned with gateway config validation for `llm.maxToolRounds`.

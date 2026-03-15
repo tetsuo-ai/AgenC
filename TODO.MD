@@ -562,3 +562,28 @@ This roadmap is only complete when all of the following are true:
 - Multi-agent execution is layered on the same durable runtime contract instead of being an exception path.
 
 Until then, AgenC should be described as a **durable task runtime in progress**, not as a fully autonomous system.
+
+
+## Additional Coding and Testing Standards
+
+To ensure high quality implementation:
+- Require full unit + integration tests for all functionality
+- Use VERY small single-use subroutines only
+- No code duplication whatsoever
+- No magic numbers; define all constants explicitly
+- Make heavy use of macros where applicable for code generation and constants
+- Place function prototypes in headers or at the tops of files (use `static` where applicable for internal functions)
+- Make proper use of `const` for all read-only parameters and variables
+
+Update existing tasks to incorporate these standards where relevant.
+
+## Coding and Implementation Standards
+
+All implementation must adhere to:
+- Full unit + integration test coverage for every feature and component.
+- Very small, single-use subroutines only (no large multi-purpose functions).
+- Zero code duplication.
+- No magic numbers; use named constants or macros.
+- Heavy use of macros for reusable patterns where appropriate.
+- Function prototypes belong in headers or at the top of files (use `static` where applicable).
+- Proper and consistent use of `const` for all read-only data and parameters.

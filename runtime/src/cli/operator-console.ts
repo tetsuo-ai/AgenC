@@ -1,10 +1,15 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import { createLogger } from "../utils/logger.js";
 import { getDefaultConfigPath, loadGatewayConfig } from "../gateway/config-watcher.js";
 import { getDefaultPidPath, isProcessAlive, readPidFile } from "../gateway/daemon.js";
-import { runStartCommand } from "./daemon.js";
+import {
+  findDaemonProcessesByIdentity,
+  runStartCommand,
+  type DaemonIdentityMatch,
+} from "./daemon.js";
 import type {
   CliLogger,
   CliOutputFormat,
@@ -52,7 +57,14 @@ export interface OperatorConsoleDeps {
     context: CliRuntimeContext,
     options: DaemonStartOptions,
   ) => Promise<CliStatusCode>;
+  readonly findDaemonProcessesByIdentity: (
+    params: {
+      pidPath?: string;
+      configPath?: string;
+    },
+  ) => Promise<readonly DaemonIdentityMatch[]>;
   readonly resolveConsoleEntryPath: () => string | null;
+  readonly resolveOperatorEventsModulePath: () => string | null;
   readonly spawnProcess: (
     command: string,
     args: string[],
@@ -71,7 +83,9 @@ const DEFAULT_DEPS: OperatorConsoleDeps = {
   readPidFile,
   isProcessAlive,
   runStartCommand,
+  findDaemonProcessesByIdentity,
   resolveConsoleEntryPath,
+  resolveOperatorEventsModulePath,
   spawnProcess: spawn,
   processExecPath: process.execPath,
   cwd: process.cwd(),
@@ -79,11 +93,41 @@ const DEFAULT_DEPS: OperatorConsoleDeps = {
   createLogger,
 };
 
+function deriveProjectWatchClientKey(launchCwd: string): string {
+  const resolvedCwd = resolve(launchCwd);
+  const normalizedCwd = existsSync(resolvedCwd)
+    ? realpathSync.native(resolvedCwd)
+    : resolvedCwd;
+  const baseName = basename(normalizedCwd)
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase() || "workspace";
+  const digest = createHash("sha256")
+    .update(normalizedCwd)
+    .digest("hex")
+    .slice(0, 12);
+  return `agenc-${baseName}-${digest}`;
+}
+
 function resolveConsoleEntryPath(): string | null {
   const candidates = [
     resolve(dirname(__filename), "..", "bin", "agenc-watch.js"),
     resolve(dirname(__filename), "..", "..", "..", "scripts", "agenc-watch.mjs"),
     resolve(process.cwd(), "scripts", "agenc-watch.mjs"),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function resolveOperatorEventsModulePath(): string | null {
+  const candidates = [
+    resolve(dirname(__filename), "..", "operator-events.mjs"),
+    resolve(process.cwd(), "runtime", "dist", "operator-events.mjs"),
+    resolve(process.cwd(), "dist", "operator-events.mjs"),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
@@ -150,6 +194,29 @@ async function ensureDaemon(
     };
   }
 
+  const existingDaemons = await deps.findDaemonProcessesByIdentity({
+    pidPath,
+    configPath,
+  });
+  if (existingDaemons.length > 1) {
+    throw new Error(
+      `multiple daemon processes already match this config/pid-path (${existingDaemons.map((entry) => entry.pid).join(", ")}); run \`restart\` to recover`,
+    );
+  }
+  const existingDaemon = existingDaemons[0];
+  if (existingDaemon) {
+    if (existingDaemon.matchedConfigPath) {
+      return {
+        pid: existingDaemon.pid,
+        port: config.gateway.port,
+        configPath,
+      };
+    }
+    throw new Error(
+      `daemon already running with config ${existingDaemon.configPath ?? "<unknown>"}; stop it or use the matching --config`,
+    );
+  }
+
   const logger = deps.createLogger("warn", "[AgenC]");
   const { context, getLastError } = createSilentContext(logger);
   const code = await deps.runStartCommand(context, {
@@ -182,18 +249,33 @@ async function launchConsoleProcess(
       "unable to locate the operator console entrypoint (expected scripts/agenc-watch.mjs)",
     );
   }
+  const operatorEventsModulePath = deps.resolveOperatorEventsModulePath();
+  if (!operatorEventsModulePath) {
+    throw new Error(
+      "unable to locate the built operator event contract (expected runtime/dist/operator-events.mjs); run `npm --prefix runtime run build`",
+    );
+  }
+
+  const launchCwd = resolve(options.cwd ?? deps.cwd);
+  const mergedEnv: NodeJS.ProcessEnv = {
+    ...deps.env,
+    ...options.env,
+    AGENC_WATCH_WS_URL: `ws://127.0.0.1:${port}`,
+    AGENC_WATCH_OPERATOR_EVENTS_MODULE: operatorEventsModulePath,
+    AGENC_WATCH_PROJECT_ROOT: launchCwd,
+  };
+  const explicitClientKey = mergedEnv.AGENC_WATCH_CLIENT_KEY?.trim();
+  if (!explicitClientKey) {
+    mergedEnv.AGENC_WATCH_CLIENT_KEY = deriveProjectWatchClientKey(launchCwd);
+  }
 
   const child = deps.spawnProcess(
     deps.processExecPath,
     [consoleEntryPath],
     {
       stdio: "inherit",
-      cwd: options.cwd ?? deps.cwd,
-      env: {
-        ...deps.env,
-        ...options.env,
-        AGENC_WATCH_WS_URL: `ws://127.0.0.1:${port}`,
-      },
+      cwd: launchCwd,
+      env: mergedEnv,
     },
   );
 
@@ -217,14 +299,30 @@ export async function runOperatorConsole(
 ): Promise<CliStatusCode> {
   const configPath = options.configPath ?? deps.defaultConfigPath();
   const pidPath = options.pidPath ?? deps.defaultPidPath();
-  const daemon = await ensureDaemon(
-    {
-      configPath,
-      pidPath,
-      logLevel: options.logLevel,
-      yolo: options.yolo,
-    },
+
+  // Try to resolve port from existing daemon first (instant if already running).
+  const config = await deps.loadGatewayConfig(resolve(configPath));
+  const running = await deps.readPidFile(resolve(pidPath));
+  const alreadyRunning = running && deps.isProcessAlive(running.pid);
+  const port = running?.port ?? config.gateway.port;
+
+  if (alreadyRunning) {
+    return launchConsoleProcess(port, options, deps);
+  }
+
+  // Daemon not running — launch the TUI immediately with the expected port
+  // so the user sees the loading/connecting screen instead of a blank terminal.
+  // Start the daemon in the background; the TUI will reconnect when it's ready.
+  const consolePromise = launchConsoleProcess(port, options, deps);
+
+  // Fire-and-forget daemon start — the TUI handles reconnection.
+  ensureDaemon(
+    { configPath, pidPath, logLevel: options.logLevel, yolo: options.yolo },
     deps,
-  );
-  return launchConsoleProcess(daemon.port, options, deps);
+  ).catch(() => {
+    // If daemon fails to start, the TUI will show a connection error
+    // and the user can diagnose from there.
+  });
+
+  return consolePromise;
 }

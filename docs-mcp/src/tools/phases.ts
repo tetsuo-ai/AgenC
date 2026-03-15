@@ -5,7 +5,7 @@ import type { IssueResolver } from '../issue-resolver.js';
 export function registerPhaseTools(server: McpServer, resolver: IssueResolver): void {
   server.tool(
     'docs_get_phase_graph',
-    'Get the dependency graph and implementation order for a specific phase. Returns a Mermaid flowchart of issue dependencies and a recommended build sequence.',
+    'Get the dependency graph and implementation order for a specific legacy runtime-roadmap phase. Returns a Mermaid flowchart of issue dependencies and a recommended build sequence.',
     { phase: z.number().int().min(1).max(10).describe('Phase number (1-10)') },
     async ({ phase }) => {
       const graph = resolver.getPhaseDependencyGraph(phase);

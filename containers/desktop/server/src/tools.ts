@@ -155,6 +155,7 @@ function exec(
   cmd: string,
   args: string[],
   timeoutMs = EXEC_TIMEOUT_MS,
+  cwd?: string,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -164,6 +165,7 @@ function exec(
         timeout: timeoutMs,
         maxBuffer: MAX_EXEC_BUFFER_BYTES,
         env: { ...process.env, DISPLAY },
+        ...(cwd ? { cwd } : {}),
       },
       (err, stdout, stderr) => {
         if (err) {
@@ -1008,7 +1010,7 @@ async function readCapturedPid(
 async function spawnDetachedCommand(
   command: string,
   logPath: string,
-  options?: { wrapAsBackground?: boolean },
+  options?: { wrapAsBackground?: boolean; cwd?: string },
 ): Promise<{
   pid?: number;
   launcherPid?: number;
@@ -1032,6 +1034,7 @@ async function spawnDetachedCommand(
       env: { ...process.env, DISPLAY },
       detached: true,
       stdio: ["ignore", stdoutFd, stderrFd],
+      ...(options?.cwd ? { cwd: options.cwd } : {}),
     });
     child.unref();
     const launcherPid =
@@ -1068,6 +1071,7 @@ async function bash(args: Record<string, unknown>): Promise<ToolResult> {
   const command = String(args.command ?? "");
   if (!command) return fail("command is required");
   const normalizedCommand = normalizeAptCommand(command);
+  const cwd = await resolveManagedProcessCwd(args.cwd);
   const timeoutMs = Number(args.timeoutMs ?? BASH_TIMEOUT_MS);
 
   // GUI launch commands should be detached automatically so the tool call
@@ -1084,6 +1088,7 @@ async function bash(args: Record<string, unknown>): Promise<ToolResult> {
       const { pid, launcherPid, backgroundPid, pidSemantics } = await spawnDetachedCommand(
         trimmed,
         "/tmp/agenc-bg/last-background.log",
+        { cwd },
       );
       return ok({
         stdout: "",
@@ -1102,7 +1107,7 @@ async function bash(args: Record<string, unknown>): Promise<ToolResult> {
       const { pid, launcherPid, backgroundPid, pidSemantics } = await spawnDetachedCommand(
         trimmed,
         "/tmp/agenc-gui/last-launch.log",
-        { wrapAsBackground: true },
+        { wrapAsBackground: true, cwd },
       );
       return ok({
         stdout: "",
@@ -1126,6 +1131,7 @@ async function bash(args: Record<string, unknown>): Promise<ToolResult> {
         "/bin/bash",
         [scriptPath],
         timeoutMs,
+        cwd,
       );
       return ok({
         stdout: truncateOutput(stdout),

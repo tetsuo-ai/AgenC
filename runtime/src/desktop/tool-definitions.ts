@@ -174,6 +174,10 @@ export const TOOL_DEFINITIONS: DesktopToolDefinition[] = [
           "type": "string",
           "description": "Bash command to execute"
         },
+        "cwd": {
+          "type": "string",
+          "description": "Absolute working directory. Defaults to /workspace when available."
+        },
         "timeoutMs": {
           "type": "number",
           "description": "Timeout in milliseconds",

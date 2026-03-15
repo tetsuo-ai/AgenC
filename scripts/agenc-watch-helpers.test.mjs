@@ -79,7 +79,10 @@ test("matchWatchCommands filters by prefix and aliases", () => {
     matchWatchCommands("/se").map((command) => command.name),
     ["/session", "/sessions"],
   );
+  assert.equal(findWatchCommandDefinition("/init")?.name, "/init");
   assert.equal(findWatchCommandDefinition("/commands")?.name, "/help");
+  assert.equal(findWatchCommandDefinition("/copy")?.name, "/export");
+  assert.equal(findWatchCommandDefinition("/models")?.name, "/model");
 });
 
 test("parseWatchSlashCommand resolves canonical command metadata and args", () => {
@@ -88,6 +91,18 @@ test("parseWatchSlashCommand resolves canonical command metadata and args", () =
     commandToken: "/logs",
     args: ["200"],
     command: findWatchCommandDefinition("/logs"),
+  });
+  assert.deepEqual(parseWatchSlashCommand("/copy"), {
+    raw: "/copy",
+    commandToken: "/copy",
+    args: [],
+    command: findWatchCommandDefinition("/copy"),
+  });
+  assert.deepEqual(parseWatchSlashCommand("/model grok-4"), {
+    raw: "/model grok-4",
+    commandToken: "/model",
+    args: ["grok-4"],
+    command: findWatchCommandDefinition("/model"),
   });
   assert.equal(parseWatchSlashCommand("ship it"), null);
   assert.equal(parseWatchSlashCommand("/unknown")?.command, null);

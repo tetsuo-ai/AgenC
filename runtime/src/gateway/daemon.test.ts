@@ -26,19 +26,19 @@ vi.mock("../utils/logger.js", () => {
 
 // Mock gateway.js to avoid @coral-xyz/anchor dependency chain
 vi.mock("./gateway.js", () => {
-  const MockGateway = vi.fn().mockImplementation(() => ({
-    start: vi.fn(async () => {}),
-    stop: vi.fn(async () => {}),
-    state: "running",
-    getStatus: vi.fn(() => ({
+  const MockGateway = vi.fn(class MockGateway {
+    start = vi.fn(async () => {});
+    stop = vi.fn(async () => {});
+    state = "running";
+    getStatus = vi.fn(() => ({
       state: "running",
       uptimeMs: 1000,
       channels: [],
       activeSessions: 0,
       controlPlanePort: 9000,
-    })),
-    reloadConfig: vi.fn(() => ({ safe: [], unsafe: [] })),
-  }));
+    }));
+    reloadConfig = vi.fn(() => ({ safe: [], unsafe: [] }));
+  });
   return { Gateway: MockGateway };
 });
 
@@ -53,17 +53,17 @@ vi.mock("./config-watcher.js", () => ({
 }));
 
 vi.mock("../desktop/manager.js", () => ({
-  DesktopSandboxManager: vi.fn().mockImplementation(() => ({
-    start: mockDesktopManagerStart,
-    stop: mockDesktopManagerStop,
-  })),
+  DesktopSandboxManager: vi.fn(class DesktopSandboxManager {
+    start = mockDesktopManagerStart;
+    stop = mockDesktopManagerStop;
+  }),
 }));
 
 vi.mock("../desktop/health.js", () => ({
-  DesktopSandboxWatchdog: vi.fn().mockImplementation(() => ({
-    start: mockWatchdogStart,
-    stop: mockWatchdogStop,
-  })),
+  DesktopSandboxWatchdog: vi.fn(class DesktopSandboxWatchdog {
+    start = mockWatchdogStart;
+    stop = mockWatchdogStop;
+  }),
 }));
 
 import {
@@ -87,6 +87,7 @@ import {
   didEvalScriptPass,
   resolveTraceFanoutEnabled,
   resolveBashToolEnv,
+  resolveBashToolTimeoutConfig,
   resolveRuntimeSkillDiscoveryPaths,
   resolveBashDenyExclusions,
   resolveStructuredExecDenyExclusions,
@@ -110,6 +111,7 @@ import type { ToolCallRecord } from "../llm/chat-executor.js";
 import type { ChatExecutorResult } from "../llm/chat-executor.js";
 import { didToolCallFail } from "../llm/chat-executor-tool-utils.js";
 import { resolveToolContractExecutionBlock } from "../llm/chat-executor-contract-guidance.js";
+import { SESSION_ALLOWED_ROOTS_ARG } from "../tools/system/filesystem.js";
 import {
   SESSION_STATEFUL_HISTORY_COMPACTED_METADATA_KEY,
   SESSION_STATEFUL_RESUME_ANCHOR_METADATA_KEY,
@@ -141,6 +143,8 @@ describe("DaemonManager host workspace prompt and memory resolution", () => {
       });
 
       expect(prompt).toContain("local engineering and automation tasks");
+      expect(prompt).toContain("Start executing immediately");
+      expect(prompt).toContain("Never end the turn with only a plan");
       expect(prompt).not.toContain("AgenC protocol");
       expect(prompt).not.toContain("Solana");
       expect(prompt).not.toContain("# Identity");
@@ -237,6 +241,56 @@ describe("resolveSessionTokenBudget", () => {
         64_000,
       ),
     ).toBe(64_000);
+  });
+});
+
+describe("resolveBashToolTimeoutConfig", () => {
+  it("caps desktop bash timeout to the chat tool timeout budget", () => {
+    expect(
+      resolveBashToolTimeoutConfig({
+        desktop: { enabled: true },
+        llm: {},
+      } as any),
+    ).toEqual({
+      timeoutMs: 180_000,
+      maxTimeoutMs: 180_000,
+    });
+  });
+
+  it("preserves the shorter direct bash default when desktop mode is off", () => {
+    expect(
+      resolveBashToolTimeoutConfig({
+        desktop: { enabled: false },
+        llm: {},
+      } as any),
+    ).toEqual({
+      timeoutMs: 30_000,
+      maxTimeoutMs: 30_000,
+    });
+  });
+
+  it("respects an explicitly lower llm tool timeout", () => {
+    expect(
+      resolveBashToolTimeoutConfig({
+        desktop: { enabled: true },
+        llm: { toolCallTimeoutMs: 45_000 },
+      } as any),
+    ).toEqual({
+      timeoutMs: 45_000,
+      maxTimeoutMs: 45_000,
+    });
+  });
+
+  it("allows longer configured llm tool timeouts up to the desktop bash ceiling", () => {
+    expect(
+      resolveBashToolTimeoutConfig({
+        desktop: { enabled: true },
+        llm: { toolCallTimeoutMs: 480_000 },
+      } as any),
+    ).toEqual({
+      timeoutMs: 300_000,
+      maxTimeoutMs: 480_000,
+    });
   });
 });
 
@@ -1387,6 +1441,126 @@ describe("buildDesktopContext", () => {
   });
 });
 
+describe("project init", () => {
+  it("routes slash /init through the shared init operation", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const runProjectInitOperation = vi
+      .spyOn(dm as any, "runProjectInitOperation")
+      .mockResolvedValue({
+        status: "created",
+        filePath: "/repo/AGENC.md",
+        content: "# Repository Guidelines",
+        attempts: 1,
+        delegatedInvestigations: 3,
+        result: null,
+      });
+    const pushToSession = vi.fn();
+    (dm as any)._webChatChannel = {
+      loadSessionWorkspaceRoot: vi.fn(async () => "/repo"),
+      pushToSession,
+    };
+    (dm as any).gateway = { config: {} };
+
+    const registry = (dm as any).createCommandRegistry(
+      {} as any,
+      (sessionKey: string) => sessionKey,
+      [],
+      {} as any,
+      {} as any,
+      [],
+      [],
+      { dispatch: vi.fn() } as any,
+      vi.fn(),
+      null,
+    );
+
+    const reply = vi.fn(async () => undefined);
+    const handled = await registry.dispatch(
+      "/init --force",
+      "session-init",
+      "sender-init",
+      "webchat",
+      reply,
+    );
+
+    expect(handled).toBe(true);
+    expect(runProjectInitOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceRoot: "/repo",
+        force: true,
+        sessionId: "session-init",
+        channel: "webchat",
+      }),
+    );
+    expect(reply).toHaveBeenCalledWith(
+      expect.stringContaining("Starting AGENC.md generation"),
+    );
+    expect(reply).toHaveBeenLastCalledWith(
+      expect.stringContaining("Created AGENC.md at /repo/AGENC.md"),
+    );
+    expect(pushToSession).toHaveBeenCalledWith(
+      "session-init",
+      expect.objectContaining({
+        type: "chat.typing",
+      }),
+    );
+  });
+
+  it("returns a structured payload for init.run control messages", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const runProjectInitOperation = vi
+      .spyOn(dm as any, "runProjectInitOperation")
+      .mockResolvedValue({
+        status: "updated",
+        filePath: "/repo/AGENC.md",
+        content: "# Repository Guidelines",
+        attempts: 2,
+        delegatedInvestigations: 4,
+        result: {
+          provider: "grok",
+          model: "grok-code-fast-1",
+          usedFallback: false,
+        },
+      });
+    (dm as any).gateway = { config: {} };
+    const sendResponse = vi.fn();
+
+    const handled = await (dm as any).handleGatewayControlMessage({
+      clientId: "client-7",
+      message: {
+        type: "init.run",
+        payload: { path: "/repo", force: true },
+      },
+      sendResponse,
+    });
+
+    expect(handled).toBe(true);
+    expect(runProjectInitOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceRoot: "/repo",
+        force: true,
+        channel: "control",
+      }),
+    );
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "init.run",
+        payload: expect.objectContaining({
+          projectRoot: "/repo",
+          filePath: "/repo/AGENC.md",
+          result: "updated",
+          delegatedInvestigations: 4,
+          attempts: 2,
+          modelBacked: true,
+          provider: "grok",
+          model: "grok-code-fast-1",
+          usedFallback: false,
+        }),
+      }),
+    );
+  });
+});
+
 describe("webchat background-run routing", () => {
   it("routes durable server prompts with natural until-stop phrasing into background supervision", async () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
@@ -2148,6 +2322,28 @@ describe("DaemonManager", () => {
     await dm.stop();
   });
 
+  it("includes static desktop tools in the subagent catalog for desktop sessions", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const registry = {
+      listAll: () => [{
+        name: "system.bash",
+        description: "host shell",
+        inputSchema: { type: "object", properties: {} },
+        execute: vi.fn(),
+      }],
+    };
+
+    (dm as any).refreshSubAgentToolCatalog(registry, "desktop", {
+      includeStaticDesktopTools: true,
+    });
+
+    const names = ((dm as any)._subAgentToolCatalog as Array<{ name: string }>)
+      .map((tool) => tool.name);
+    expect(names).toContain("desktop.bash");
+    expect(names).toContain("desktop.text_editor");
+    expect(names).not.toContain("system.bash");
+  });
+
   it("discoverSkills ignores ~/.agenc/skills unless explicitly enabled", async () => {
     const homeDir = await mkdtemp(join(tmpdir(), "agenc-home-"));
     const userSkillsDir = join(homeDir, ".agenc", "skills");
@@ -2664,6 +2860,87 @@ describe("DaemonManager", () => {
         2,
       ),
     });
+  });
+
+  it("uses the session workspace root for webchat tool calls when workspace.hostPath is not pinned", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const sessionWorkspaceRoot = await mkdtemp(
+      join(tmpdir(), "agenc-daemon-session-root-"),
+    );
+    (dm as any)._hostWorkspacePath = "/tmp/daemon-root";
+    (dm as any)._hostWorkspacePathPinned = false;
+    (dm as any)._llmTools = [];
+    const baseToolHandler = vi.fn(async () => JSON.stringify({ ok: true }));
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+      loadSessionWorkspaceRoot: vi.fn(async () => sessionWorkspaceRoot),
+    } as any;
+
+    try {
+      const handler = (dm as any).createWebChatSessionToolHandler({
+        sessionId: "session-project-root",
+        webChat,
+        hooks,
+        baseToolHandler,
+        traceLabel: "webchat",
+        traceConfig: { enabled: false },
+        traceId: "trace-project-root",
+      });
+
+      await handler("system.writeFile", {
+        path: "src/app.ts",
+        content: "export const ok = true;\n",
+      });
+    } finally {
+      await rm(sessionWorkspaceRoot, { recursive: true, force: true });
+    }
+
+    expect(baseToolHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: `${sessionWorkspaceRoot}/src/app.ts`,
+      content: "export const ok = true;\n",
+      [SESSION_ALLOWED_ROOTS_ARG]: [sessionWorkspaceRoot],
+    });
+  });
+
+  it("keeps the configured host workspace root authoritative when workspace.hostPath is pinned", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    (dm as any)._hostWorkspacePath = "/tmp/pinned-workspace";
+    (dm as any)._hostWorkspacePathPinned = true;
+    (dm as any)._llmTools = [];
+    const baseToolHandler = vi.fn(async () => JSON.stringify({ ok: true }));
+    const hooks = {
+      dispatch: vi.fn(async () => ({ completed: true, payload: {} })),
+    } as any;
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+      loadSessionWorkspaceRoot: vi.fn(async () => "/tmp/other-project"),
+    } as any;
+
+    const handler = (dm as any).createWebChatSessionToolHandler({
+      sessionId: "session-pinned-root",
+      webChat,
+      hooks,
+      baseToolHandler,
+      traceLabel: "webchat",
+      traceConfig: { enabled: false },
+      traceId: "trace-pinned-root",
+    });
+
+    await handler("system.writeFile", {
+      path: "src/app.ts",
+      content: "export const pinned = true;\n",
+    });
+
+    expect(baseToolHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: "/tmp/pinned-workspace/src/app.ts",
+      content: "export const pinned = true;\n",
+    });
+    expect(webChat.loadSessionWorkspaceRoot).not.toHaveBeenCalled();
   });
 
   it("adds provider-native web_search to research routing but not interactive browser routing", () => {
@@ -3356,6 +3633,88 @@ describe("DaemonManager", () => {
     );
   });
 
+  it("enriches synthesized lifecycle events with the latest delegated child context", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const webChat = {
+      pushToSession: vi.fn(),
+      broadcastEvent: vi.fn(),
+    } as unknown as {
+      pushToSession: (sessionId: string, response: unknown) => void;
+      broadcastEvent: (eventType: string, data: Record<string, unknown>) => void;
+    };
+
+    (dm as any)._activeSessionTraceIds.set("session-parent", "trace-parent");
+    (dm as any)._subAgentManager = {
+      getInfo: vi.fn().mockReturnValue({
+        sessionId: "subagent:child",
+        parentSessionId: "session-parent",
+        status: "completed",
+        startedAt: 1,
+        task: "test",
+      }),
+    };
+
+    (dm as any).relaySubAgentLifecycleEvent(webChat as any, {
+      type: "subagents.completed",
+      timestamp: 1_234,
+      sessionId: "subagent:child",
+      subagentSessionId: "subagent:child",
+      toolName: "execute_with_agent",
+      payload: {
+        stepName: "runtime_probe",
+        objective: "Create src/parser.js and inspect it",
+        toolCalls: 3,
+      },
+    });
+
+    (dm as any).relaySubAgentLifecycleEvent(webChat as any, {
+      type: "subagents.synthesized",
+      timestamp: 1_235,
+      sessionId: "session-parent",
+      parentSessionId: "session-parent",
+      payload: {
+        stopReason: "completed",
+        stopReasonDetail: "Compiled parser, ran probes, and emitted final synthesis",
+        outputChars: 128,
+        toolCalls: 3,
+        outputPreview: "Compiled parser, ran probes, and emitted final synthesis",
+      },
+    });
+
+    const synthesisPushPayload = (webChat.pushToSession as any).mock.calls[1][1] as {
+      type: string;
+      payload: {
+        subagentSessionId?: string;
+        data?: Record<string, unknown>;
+      };
+    };
+    expect(synthesisPushPayload.type).toBe("subagents.synthesized");
+    expect(synthesisPushPayload.payload.subagentSessionId).toBe("subagent:child");
+    expect(synthesisPushPayload.payload.data).toMatchObject({
+      stepName: "runtime_probe",
+      objective: "Create src/parser.js and inspect it",
+      stopReason: "completed",
+      stopReasonDetail: "Compiled parser, ran probes, and emitted final synthesis",
+      outputChars: 128,
+      toolCalls: 3,
+      outputPreview: "Compiled parser, ran probes, and emitted final synthesis",
+    });
+
+    const [, synthesisBroadcast] = (webChat.broadcastEvent as any).mock.calls[1] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(synthesisBroadcast.subagentSessionId).toBe("subagent:child");
+    expect(synthesisBroadcast.stepName).toBe("runtime_probe");
+    expect(synthesisBroadcast.objective).toBe("Create src/parser.js and inspect it");
+    expect(synthesisBroadcast.stopReasonDetail).toBe(
+      "Compiled parser, ran probes, and emitted final synthesis",
+    );
+    expect(synthesisBroadcast.outputPreview).toBe(
+      "Compiled parser, ran probes, and emitted final synthesis",
+    );
+  });
+
   it("writes relayed subagent lifecycle events into trace logs when trace logging is enabled", () => {
     const logger = {
       debug: vi.fn(),
@@ -3921,6 +4280,120 @@ describe("DaemonManager", () => {
         state: "completed",
         currentPhase: "completed",
         unsafeToContinue: false,
+      },
+    });
+  });
+
+  it("reports disabled durable-run capability in gateway status snapshots", () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+
+    (dm as any).gateway = {
+      config: {
+        autonomy: {
+          enabled: true,
+          featureFlags: { backgroundRuns: false },
+        },
+      },
+    };
+
+    const status = (dm as any).buildBackgroundRunStatusSummary();
+
+    expect(status).toMatchObject({
+      enabled: false,
+      operatorAvailable: false,
+      inspectAvailable: false,
+      controlAvailable: false,
+      disabledCode: "background_runs_feature_disabled",
+    });
+    expect(status.disabledReason).toContain("disabled");
+  });
+
+  it("annotates inspected runs with durable-run availability", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+
+    (dm as any).gateway = {
+      config: {
+        autonomy: {
+          enabled: true,
+          featureFlags: { backgroundRuns: true },
+        },
+      },
+    };
+    (dm as any)._backgroundRunSupervisor = {
+      getOperatorDetail: vi.fn().mockResolvedValue({
+        runId: "run-session-owned",
+        sessionId: "session-owned",
+        objective: "Watch the managed process.",
+        state: "working",
+        currentPhase: "active",
+        explanation: "Run is active.",
+        unsafeToContinue: false,
+        createdAt: 1,
+        updatedAt: 2,
+        cycleCount: 1,
+        contractKind: "finite",
+        contractDomain: "generic",
+        requiresUserStop: false,
+        pendingSignals: 0,
+        watchCount: 1,
+        fenceToken: 1,
+        approvalRequired: false,
+        approvalState: "none",
+        checkpointAvailable: true,
+        contract: {
+          domain: "generic",
+          kind: "finite",
+          successCriteria: ["Observe completion."],
+          completionCriteria: ["Verify terminal evidence."],
+          blockedCriteria: ["Missing evidence."],
+          nextCheckMs: 4_000,
+          heartbeatMs: 12_000,
+          requiresUserStop: false,
+          managedProcessPolicy: { mode: "none" },
+        },
+        approval: { status: "none", summary: undefined },
+        budget: {
+          runtimeStartedAt: 1,
+          lastActivityAt: 2,
+          lastProgressAt: 2,
+          totalTokens: 4,
+          lastCycleTokens: 2,
+          managedProcessCount: 1,
+          maxRuntimeMs: 60_000,
+          maxCycles: 32,
+          maxIdleMs: 10_000,
+          nextCheckIntervalMs: 4_000,
+          heartbeatIntervalMs: 12_000,
+          firstAcknowledgedAt: 1,
+          firstVerifiedUpdateAt: 2,
+          stopRequestedAt: undefined,
+        },
+        compaction: {
+          lastCompactedAt: undefined,
+          lastCompactedCycle: 0,
+          refreshCount: 0,
+          lastHistoryLength: 4,
+          lastMilestoneAt: undefined,
+          lastCompactionReason: undefined,
+          repairCount: 0,
+          lastProviderAnchorAt: undefined,
+        },
+        artifacts: [],
+        observedTargets: [],
+        watchRegistrations: [],
+        recentEvents: [],
+      }),
+    };
+
+    const detail = await (dm as any).inspectOwnedBackgroundRun("session-owned");
+
+    expect(detail).toMatchObject({
+      sessionId: "session-owned",
+      availability: {
+        enabled: true,
+        operatorAvailable: true,
+        inspectAvailable: true,
+        controlAvailable: true,
       },
     });
   });

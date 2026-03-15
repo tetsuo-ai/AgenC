@@ -10,10 +10,13 @@ import type {
   SubagentLifecycleType,
 } from '../../runtime/src/channels/webchat/protocol.ts';
 import type {
+  BackgroundRunOperatorAvailability,
   BackgroundRunControlAction,
   BackgroundRunOperatorDetail,
+  BackgroundRunOperatorErrorPayload,
   BackgroundRunOperatorSummary,
 } from '../../runtime/src/gateway/background-run-operator.ts';
+import type { GatewayBackgroundRunStatus } from '../../runtime/src/gateway/types.ts';
 import type {
   ObservabilityArtifactResponse,
   ObservabilityEventRecord,
@@ -139,47 +142,7 @@ export interface GatewayStatus {
   activeSessions: number;
   controlPlanePort: number;
   agentName?: string;
-  backgroundRuns?: {
-    multiAgentEnabled: boolean;
-    activeTotal: number;
-    queuedSignalsTotal: number;
-    stateCounts: Record<
-      | 'pending'
-      | 'running'
-      | 'working'
-      | 'blocked'
-      | 'paused'
-      | 'completed'
-      | 'failed'
-      | 'cancelled'
-      | 'suspended',
-      number
-    >;
-    recentAlerts: Array<{
-      id: string;
-      severity: 'info' | 'warn' | 'error';
-      code: string;
-      message: string;
-      createdAt: number;
-      sessionId?: string;
-      runId?: string;
-    }>;
-    metrics: {
-      startedTotal: number;
-      completedTotal: number;
-      failedTotal: number;
-      blockedTotal: number;
-      recoveredTotal: number;
-      meanLatencyMs?: number;
-      meanTimeToFirstAckMs?: number;
-      meanTimeToFirstVerifiedUpdateMs?: number;
-      falseCompletionRate?: number;
-      blockedWithoutNoticeRate?: number;
-      meanStopLatencyMs?: number;
-      recoverySuccessRate?: number;
-      verifierAccuracyRate?: number;
-    };
-  };
+  backgroundRuns?: GatewayBackgroundRunStatus;
 }
 
 // ============================================================================
@@ -283,6 +246,8 @@ export interface ActivityEvent {
 export type RunSummary = BackgroundRunOperatorSummary;
 export type RunDetail = BackgroundRunOperatorDetail;
 export type RunControlAction = BackgroundRunControlAction;
+export type RunOperatorAvailability = BackgroundRunOperatorAvailability;
+export type RunOperatorErrorPayload = BackgroundRunOperatorErrorPayload;
 
 // ============================================================================
 // Observability

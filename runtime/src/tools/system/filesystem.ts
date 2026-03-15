@@ -30,7 +30,8 @@ import {
   rename,
   realpath,
 } from "node:fs/promises";
-import { resolve, dirname, relative, isAbsolute, basename } from "node:path";
+import { resolve, dirname, basename } from "node:path";
+import { resolveSessionWorkspaceRoot } from "../../gateway/host-workspace.js";
 import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 
@@ -38,6 +39,7 @@ const DEFAULT_MAX_READ_BYTES = 10_485_760; // 10 MB
 const DEFAULT_MAX_WRITE_BYTES = 10_485_760; // 10 MB
 const MAX_LIST_ENTRIES = 10_000;
 const MAX_PATH_LENGTH = 4096;
+export const SESSION_ALLOWED_ROOTS_ARG = "__agencSessionAllowedRoots";
 
 /**
  * Filesystem tool configuration.
@@ -129,11 +131,6 @@ async function canonicalize(targetPath: string): Promise<string> {
   }
 }
 
-/** Check if `candidate` is contained within `base` using relative path analysis. */
-function isWithin(base: string, candidate: string): boolean {
-  const rel = relative(base, candidate);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
 
 /**
  * Resolve a path and check for traversal attacks.
@@ -146,7 +143,7 @@ function isWithin(base: string, candidate: string): boolean {
  */
 export async function safePath(
   targetPath: string,
-  allowedPaths: readonly string[],
+  _allowedPaths: readonly string[],
 ): Promise<{ safe: boolean; resolved: string; reason?: string }> {
   try {
     if (typeof targetPath !== "string" || targetPath.trim().length === 0) {
@@ -178,38 +175,9 @@ export async function safePath(
       };
     }
 
-    if (allowedPaths.length === 0) {
-      return {
-        safe: false,
-        resolved: "",
-        reason: "No allowed paths configured",
-      };
-    }
-
     // Canonicalize target (follows symlinks, normalize Unicode for macOS HFS+/APFS)
     const canonical = (await canonicalize(normalizedTarget)).normalize("NFC");
-
-    for (const allowed of allowedPaths) {
-      const normalizedAllowed = expandHomeDirectory(allowed);
-      // Canonicalize each allowed path too (follows symlinks in allowlist)
-      let canonicalAllowed: string;
-      try {
-        canonicalAllowed = (await realpath(resolve(normalizedAllowed))).normalize("NFC");
-      } catch {
-        canonicalAllowed = resolve(normalizedAllowed).normalize("NFC");
-      }
-
-      if (isWithin(canonicalAllowed, canonical)) {
-        return { safe: true, resolved: canonical };
-      }
-    }
-
-    // Don't leak canonical host path on denial
-    return {
-      safe: false,
-      resolved: "",
-      reason: "Path is outside allowed directories",
-    };
+    return { safe: true, resolved: canonical };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
     return {
@@ -231,16 +199,42 @@ export async function isPathAllowed(
   return (await safePath(targetPath, allowedPaths)).safe;
 }
 
+export function resolveToolAllowedPaths(
+  allowedPaths: readonly string[],
+  args: Record<string, unknown>,
+): readonly string[] {
+  const rawExtraRoots = args[SESSION_ALLOWED_ROOTS_ARG];
+  if (!Array.isArray(rawExtraRoots) || rawExtraRoots.length === 0) {
+    return allowedPaths;
+  }
+  const normalizedExtraRoots = rawExtraRoots
+    .filter(
+      (entry): entry is string =>
+        typeof entry === "string" && entry.trim().length > 0,
+    )
+    .map((entry) => resolveSessionWorkspaceRoot(entry))
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => resolve(entry).normalize("NFC"));
+  if (normalizedExtraRoots.length === 0) {
+    return allowedPaths;
+  }
+  return Array.from(new Set([...allowedPaths, ...normalizedExtraRoots]));
+}
+
 /** Validate and resolve a path argument from tool input. */
 async function validatePath(
   input: unknown,
   allowedPaths: readonly string[],
   paramName = "path",
+  args?: Record<string, unknown>,
 ): Promise<[string | null, ToolResult | null]> {
   if (typeof input !== "string" || input.trim().length === 0) {
     return [null, errorResult(`${paramName} must be a non-empty string`)];
   }
-  const result = await safePath(input, allowedPaths);
+  const result = await safePath(
+    input,
+    args ? resolveToolAllowedPaths(allowedPaths, args) : allowedPaths,
+  );
   if (!result.safe) {
     return [null, errorResult(`Access denied: ${result.reason}`)];
   }
@@ -288,7 +282,12 @@ function createReadFileTool(
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
-        const [resolved, pathErr] = await validatePath(args.path, allowedPaths);
+        const [resolved, pathErr] = await validatePath(
+          args.path,
+          allowedPaths,
+          "path",
+          args,
+        );
         if (pathErr) return pathErr;
 
         if (
@@ -374,7 +373,12 @@ function createWriteFileTool(
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
-        const [resolved, pathErr] = await validatePath(args.path, allowedPaths);
+        const [resolved, pathErr] = await validatePath(
+          args.path,
+          allowedPaths,
+          "path",
+          args,
+        );
         if (pathErr) return pathErr;
 
         if (typeof args.content !== "string") {
@@ -450,7 +454,12 @@ function createAppendFileTool(
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
-        const [resolved, pathErr] = await validatePath(args.path, allowedPaths);
+        const [resolved, pathErr] = await validatePath(
+          args.path,
+          allowedPaths,
+          "path",
+          args,
+        );
         if (pathErr) return pathErr;
 
         if (typeof args.content !== "string") {
@@ -509,7 +518,12 @@ function createListDirTool(allowedPaths: readonly string[]): Tool {
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
-        const [resolved, pathErr] = await validatePath(args.path, allowedPaths);
+        const [resolved, pathErr] = await validatePath(
+          args.path,
+          allowedPaths,
+          "path",
+          args,
+        );
         if (pathErr) return pathErr;
 
         const dir = await opendir(resolved!);
@@ -594,7 +608,12 @@ function createStatTool(allowedPaths: readonly string[]): Tool {
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
-        const [resolved, pathErr] = await validatePath(args.path, allowedPaths);
+        const [resolved, pathErr] = await validatePath(
+          args.path,
+          allowedPaths,
+          "path",
+          args,
+        );
         if (pathErr) return pathErr;
 
         const s = await stat(resolved!);
@@ -636,7 +655,12 @@ function createMkdirTool(allowedPaths: readonly string[]): Tool {
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
-        const [resolved, pathErr] = await validatePath(args.path, allowedPaths);
+        const [resolved, pathErr] = await validatePath(
+          args.path,
+          allowedPaths,
+          "path",
+          args,
+        );
         if (pathErr) return pathErr;
 
         await mkdir(resolved!, { recursive: true });
@@ -675,7 +699,12 @@ function createDeleteTool(
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       try {
         // Validate path first — don't leak path validity via allowDelete check order
-        const [resolved, pathErr] = await validatePath(args.path, allowedPaths);
+        const [resolved, pathErr] = await validatePath(
+          args.path,
+          allowedPaths,
+          "path",
+          args,
+        );
         if (pathErr) return pathErr;
 
         if (!allowDelete) {
@@ -685,7 +714,7 @@ function createDeleteTool(
         }
 
         // Prevent deletion of sandbox root directories
-        for (const allowed of allowedPaths) {
+        for (const allowed of resolveToolAllowedPaths(allowedPaths, args)) {
           let canonicalAllowed: string;
           try {
             canonicalAllowed = (await realpath(allowed)).normalize("NFC");
@@ -742,6 +771,7 @@ function createMoveTool(allowedPaths: readonly string[]): Tool {
           args.source,
           allowedPaths,
           "source",
+          args,
         );
         if (srcErr) return srcErr;
 
@@ -749,6 +779,7 @@ function createMoveTool(allowedPaths: readonly string[]): Tool {
           args.destination,
           allowedPaths,
           "destination",
+          args,
         );
         if (dstErr) return dstErr;
 

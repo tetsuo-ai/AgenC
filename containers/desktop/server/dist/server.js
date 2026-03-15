@@ -1,6 +1,11 @@
 import { createServer } from "node:http";
 import { TOOL_DEFINITIONS, executeTool, subscribeDesktopToolEvents, } from "./tools.js";
 import { isAuthorizedRequest, resolveAllowedOrigin } from "./auth.js";
+const DESKTOP_SERVER_FEATURES = [
+    "foreground_bash_cwd",
+    "background_bash_cwd",
+    "managed_process_identity",
+];
 function json(res, status, data) {
     const body = JSON.stringify(data);
     res.writeHead(status, {
@@ -65,6 +70,9 @@ function handleHealthRequest(req, res, path, startTime) {
         status: "ok",
         display: process.env.DISPLAY ?? ":1",
         uptime: Math.floor((Date.now() - startTime) / 1000),
+        workingDirectory: process.cwd(),
+        workspaceRoot: process.env.AGENC_WORKSPACE_ROOT?.trim() || null,
+        features: [...DESKTOP_SERVER_FEATURES],
     };
     json(res, 200, health);
     return true;

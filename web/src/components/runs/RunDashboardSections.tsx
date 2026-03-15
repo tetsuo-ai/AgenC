@@ -1,5 +1,10 @@
 import type { ReactNode } from 'react';
-import type { RunControlAction, RunDetail, RunSummary } from '../../types';
+import type {
+  RunControlAction,
+  RunDetail,
+  RunOperatorAvailability,
+  RunSummary,
+} from '../../types';
 
 export interface RunEditorState {
   objective: string;
@@ -237,10 +242,31 @@ export function RunDashboardHeader(props: {
 export function RunSidebar(props: {
   runs: RunSummary[];
   selectedSessionId: string | null;
+  operatorAvailability: RunOperatorAvailability | null;
   onSelectRun: (sessionId: string) => void;
   onInspect: (sessionId?: string) => void;
 }) {
   if (props.runs.length === 0) {
+    if (props.operatorAvailability && !props.operatorAvailability.enabled) {
+      return (
+        <div className="border border-bbs-yellow/40 bg-bbs-dark px-4 py-4 text-xs text-bbs-yellow font-mono space-y-2">
+          <div className="font-bold">[DISABLED] durable background runs are off</div>
+          <div className="text-bbs-gray leading-relaxed">
+            {props.operatorAvailability.disabledReason ?? 'Enable autonomy durable runs to inspect or control supervised work.'}
+          </div>
+        </div>
+      );
+    }
+    if (props.operatorAvailability && !props.operatorAvailability.operatorAvailable) {
+      return (
+        <div className="border border-bbs-red/40 bg-bbs-dark px-4 py-4 text-xs text-bbs-red font-mono space-y-2">
+          <div className="font-bold">[UNAVAILABLE] durable run operator offline</div>
+          <div className="text-bbs-gray leading-relaxed">
+            {props.operatorAvailability.disabledReason ?? 'The durable-run supervisor is not attached to this runtime.'}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="border border-dashed border-bbs-border px-4 py-4 text-xs text-bbs-gray font-mono">
         no durable runs recorded for this operator
@@ -855,6 +881,8 @@ export function RunDashboardContent(props: {
   selectedSessionId: string | null;
   loading: boolean;
   error: string | null;
+  runNotice: string | null;
+  operatorAvailability: RunOperatorAvailability | null;
   editor: RunEditorState;
   onEditorChange: <K extends keyof RunEditorState>(
     key: K,
@@ -866,6 +894,40 @@ export function RunDashboardContent(props: {
     props.selectedRun?.sessionId ?? props.selectedSessionId ?? undefined;
 
   if (!props.selectedRun) {
+    if (props.error) {
+      return (
+        <div className="border border-bbs-red/40 bg-bbs-dark px-5 py-6 text-sm text-bbs-red font-mono">
+          [ERROR] {props.error}
+        </div>
+      );
+    }
+    if (props.operatorAvailability && !props.operatorAvailability.enabled) {
+      return (
+        <div className="border border-bbs-yellow/40 bg-bbs-dark px-5 py-6 text-sm text-bbs-yellow font-mono space-y-2">
+          <div className="font-bold">[DISABLED] durable background runs are disabled</div>
+          <div className="text-bbs-gray leading-relaxed">
+            {props.operatorAvailability.disabledReason ?? 'Enable durable background runs to inspect supervised work here.'}
+          </div>
+        </div>
+      );
+    }
+    if (props.operatorAvailability && !props.operatorAvailability.operatorAvailable) {
+      return (
+        <div className="border border-bbs-red/40 bg-bbs-dark px-5 py-6 text-sm text-bbs-red font-mono space-y-2">
+          <div className="font-bold">[UNAVAILABLE] durable run operator offline</div>
+          <div className="text-bbs-gray leading-relaxed">
+            {props.operatorAvailability.disabledReason ?? 'The durable-run supervisor is not attached to this runtime.'}
+          </div>
+        </div>
+      );
+    }
+    if (props.runNotice) {
+      return (
+        <div className="border border-bbs-yellow/40 bg-bbs-dark px-5 py-6 text-sm text-bbs-yellow font-mono">
+          [INFO] {props.runNotice}
+        </div>
+      );
+    }
     return (
       <div className="border border-dashed border-bbs-border px-5 py-6 text-sm text-bbs-gray font-mono">
         Select a run to inspect its contract, evidence, blockers, and controls.

@@ -11,6 +11,7 @@
 import {
   mkdir,
   readFile,
+  stat,
   unlink,
   writeFile,
   access,
@@ -34,6 +35,8 @@ import type {
   ConfigDiff,
   GatewayLoggingConfig,
   ControlResponse,
+  InitRunControlPayload,
+  InitRunControlResponsePayload,
 } from "./types.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
@@ -123,6 +126,7 @@ import {
   InMemoryDelegationTrajectorySink,
   type DelegationBanditArm,
 } from "../llm/delegation-learning.js";
+import { DEFAULT_TOOL_CALL_TIMEOUT_MS } from "../llm/chat-executor-constants.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { createBashTool } from "../tools/system/bash.js";
 import { createHttpTools } from "../tools/system/http.js";
@@ -133,6 +137,7 @@ import { createPdfTools } from "../tools/system/pdf.js";
 import { createOfficeDocumentTools } from "../tools/system/office-document.js";
 import { createEmailMessageTools } from "../tools/system/email-message.js";
 import { createCalendarTools } from "../tools/system/calendar.js";
+import { TOOL_DEFINITIONS as DESKTOP_TOOL_DEFINITIONS } from "../desktop/tool-definitions.js";
 import {
   createRemoteJobTools,
   SystemRemoteJobManager,
@@ -142,6 +147,7 @@ import { createSandboxTools } from "../tools/system/sandbox-handle.js";
 import { createServerTools } from "../tools/system/server.js";
 import { createSqliteTools } from "../tools/system/sqlite.js";
 import { createSpreadsheetTools } from "../tools/system/spreadsheet.js";
+import { DEFAULT_TIMEOUT_MS as DEFAULT_BASH_TOOL_TIMEOUT_MS } from "../tools/system/types.js";
 import { resolveBrowserToolMode } from "./browser-tool-mode.js";
 import { createExecuteWithAgentTool } from "./delegation-tool.js";
 import {
@@ -197,9 +203,14 @@ import type { WorkspaceFiles } from "./workspace-files.js";
 import { loadPersonalityTemplate, mergePersonality } from "./personality.js";
 import { SlashCommandRegistry, createDefaultCommands } from "./commands.js";
 import { HookDispatcher, createBuiltinHooks } from "./hooks.js";
+import {
+  INIT_ROUTED_TOOL_NAMES,
+  runModelBackedProjectGuide,
+} from "./init-runner.js";
 import { ProgressTracker, summarizeToolResult } from "./progress.js";
 import {
   inferContextWindowTokens,
+  listKnownGrokModels,
   normalizeGrokModel,
   resolveContextWindowProfile,
 } from "./context-window.js";
@@ -233,6 +244,15 @@ import {
   isBackgroundRunStatusRequest,
   isBackgroundRunStopRequest,
 } from "./background-run-supervisor.js";
+
+function firstSurfaceSummaryLine(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const line = value
+    .split(/\r?\n/)
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0);
+  return line && line.length > 0 ? line : undefined;
+}
 import { BackgroundRunNotifier } from "./background-run-notifier.js";
 import { BackgroundRunStore } from "./background-run-store.js";
 import type {
@@ -241,6 +261,7 @@ import type {
 } from "./background-run-store.js";
 import type {
   BackgroundRunControlAction,
+  BackgroundRunOperatorAvailability,
   BackgroundRunOperatorDetail,
   BackgroundRunOperatorSummary,
 } from "./background-run-operator.js";
@@ -306,6 +327,22 @@ export type { LLMFailureSurfaceSummary } from "./daemon-llm-failure.js";
 const DEFAULT_GROK_MODEL = "grok-4-1-fast-reasoning";
 const DEFAULT_GROK_FALLBACK_MODEL = "grok-4-1-fast-non-reasoning";
 const DEFAULT_DOOM_FIT_RESOLUTION = "RES_1024X768";
+const STATIC_SUBAGENT_DESKTOP_TOOLS: readonly Tool[] = DESKTOP_TOOL_DEFINITIONS
+  .filter((definition) => definition.name !== "screenshot")
+  .map((definition) => {
+    const fullName = `desktop.${definition.name}`;
+    return {
+      name: fullName,
+      description: definition.description,
+      inputSchema: definition.inputSchema,
+      execute: async () => ({
+        content: JSON.stringify({
+          error: `Tool "${fullName}" requires desktop routing context`,
+        }),
+        isError: true,
+      }),
+    } satisfies Tool;
+  });
 
 function chooseDoomResolutionForDisplay(width: number, height: number): string {
   if (width >= 1280 && height >= 720) return "RES_1280X720";
@@ -621,6 +658,29 @@ export function resolveStructuredExecDenyExclusions(
     return baseExclusions.length > 0 ? [...baseExclusions] : undefined;
   }
   return [...new Set([...baseExclusions, ...STRUCTURED_EXEC_RUNTIME_DENY_EXCLUSIONS])];
+}
+
+export function resolveBashToolTimeoutConfig(
+  config: Pick<GatewayConfig, "desktop" | "llm">,
+): {
+  timeoutMs: number;
+  maxTimeoutMs: number;
+} {
+  const chatToolTimeoutMs = Math.max(
+    1,
+    Math.floor(config.llm?.toolCallTimeoutMs ?? DEFAULT_TOOL_CALL_TIMEOUT_MS),
+  );
+  const baseTimeoutMs = config.desktop?.enabled
+    ? 300_000
+    : DEFAULT_BASH_TOOL_TIMEOUT_MS;
+  const baseMaxTimeoutMs = config.desktop?.enabled
+    ? 600_000
+    : baseTimeoutMs;
+
+  return {
+    timeoutMs: Math.min(baseTimeoutMs, chatToolTimeoutMs),
+    maxTimeoutMs: Math.min(baseMaxTimeoutMs, chatToolTimeoutMs),
+  };
 }
 
 function mapScopedActionBudgets(
@@ -1105,7 +1165,7 @@ function resolveSubAgentRuntimeConfig(
     ),
     maxCumulativeTokensPerRequestTree: Math.min(
       SUBAGENT_CONFIG_HARD_CAPS.maxCumulativeTokensPerRequestTree,
-      Math.max(1, subagents?.maxCumulativeTokensPerRequestTree ?? 250_000),
+      Math.max(0, subagents?.maxCumulativeTokensPerRequestTree ?? 0),
     ),
     maxCumulativeTokensPerRequestTreeExplicitlyConfigured,
     defaultTimeoutMs: Math.min(
@@ -1266,10 +1326,11 @@ export function resolveSessionTokenBudget(
   const inferredContextWindow =
     contextWindowTokens ?? inferContextWindowTokens(llmConfig);
   if (inferredContextWindow !== undefined) {
-    // Huge context windows preserve correctness but destroy latency if we defer
-    // local compaction until the provider limit. Cap the implicit budget to the
-    // operational default unless the user explicitly overrides it.
-    return Math.min(inferredContextWindow, DEFAULT_SESSION_TOKEN_BUDGET);
+    // Use 60% of the model's context window as the session budget,
+    // leaving room for system prompt, tools, and output tokens.
+    // Floor at 120K for small models, no cap for large ones.
+    const proportionalBudget = Math.floor(inferredContextWindow * 0.6);
+    return Math.max(proportionalBudget, DEFAULT_SESSION_TOKEN_BUDGET);
   }
   return DEFAULT_SESSION_TOKEN_BUDGET;
 }
@@ -1719,6 +1780,15 @@ export class DaemonManager {
   private _subAgentLifecycleUnsubscribe: (() => void) | null = null;
   private readonly _activeSessionTraceIds = new Map<string, string>();
   private readonly _subagentActivityTraceBySession = new Map<string, string>();
+  private readonly _latestDelegationSurfaceContextBySession = new Map<
+    string,
+    {
+      objective?: string;
+      stepName?: string;
+      subagentSessionId?: string;
+      toolName?: string;
+    }
+  >();
   private readonly _textApprovalDispatchBySession = new Map<
     string,
     {
@@ -1729,6 +1799,7 @@ export class DaemonManager {
   private _resolvedContextWindowTokens: number | undefined;
   private _hostToolingProfile: HostToolingProfile | null = null;
   private _hostWorkspacePath: string | null = null;
+  private _hostWorkspacePathPinned = false;
   private _allLlmTools: LLMTool[] = [];
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
@@ -1936,15 +2007,33 @@ export class DaemonManager {
   private refreshSubAgentToolCatalog(
     registry: ToolRegistry,
     environment: ToolEnvironmentMode,
+    options: {
+      readonly includeStaticDesktopTools?: boolean;
+    } = {},
   ): void {
     const tools = filterNamedToolsByEnvironment(
       registry.listAll(),
       environment,
     );
+    const mergedTools = [...tools];
+    if (options.includeStaticDesktopTools) {
+      const knownToolNames = new Set(mergedTools.map((tool) => tool.name));
+      const desktopTools = filterNamedToolsByEnvironment(
+        STATIC_SUBAGENT_DESKTOP_TOOLS,
+        environment,
+      );
+      for (const tool of desktopTools) {
+        if (knownToolNames.has(tool.name)) {
+          continue;
+        }
+        knownToolNames.add(tool.name);
+        mergedTools.push(tool);
+      }
+    }
     this._subAgentToolCatalog.splice(
       0,
       this._subAgentToolCatalog.length,
-      ...tools,
+      ...mergedTools,
     );
   }
 
@@ -2243,6 +2332,9 @@ export class DaemonManager {
       daemonCwd: process.cwd(),
     });
     this._hostWorkspacePath = hostWorkspacePath;
+    this._hostWorkspacePathPinned =
+      typeof gatewayConfig.workspace?.hostPath === "string" &&
+      gatewayConfig.workspace.hostPath.trim().length > 0;
 
     await this.configureSubAgentInfrastructure(gatewayConfig);
 
@@ -2273,6 +2365,12 @@ export class DaemonManager {
       logger: this.logger,
       configPath: this.configPath,
     });
+    gateway.setStatusProvider?.((baseStatus) =>
+      this.buildGatewayStatusSnapshot(baseStatus),
+    );
+    gateway.setControlMessageDelegate?.((params) =>
+      this.handleGatewayControlMessage(params),
+    );
 
     await gateway.start();
     this.initializeObservabilityService(gatewayConfig.logging);
@@ -2385,7 +2483,6 @@ export class DaemonManager {
       telemetry ?? undefined,
     );
     const environment = config.desktop?.environment ?? "both";
-    this.refreshSubAgentToolCatalog(registry, environment);
 
     const llmTools = registry.toLLMTools();
     let baseToolHandler = registry.createToolHandler();
@@ -2395,6 +2492,10 @@ export class DaemonManager {
       llmTools,
       baseToolHandler,
     );
+
+    this.refreshSubAgentToolCatalog(registry, environment, {
+      includeStaticDesktopTools: config.desktop?.enabled === true,
+    });
 
     this._allLlmTools = [...llmTools];
     this._llmTools = filterLlmToolsByEnvironment(llmTools, environment);
@@ -2699,6 +2800,9 @@ export class DaemonManager {
       registry,
       availableSkills,
       skillList,
+      hooks,
+      baseToolHandler,
+      approvalEngine,
       progressTracker,
       pipelineExecutor,
     );
@@ -2722,9 +2826,10 @@ export class DaemonManager {
 
     const webChat = new WebChatChannel({
       gateway: {
-        getStatus: () => this.buildGatewayStatusSnapshot(gateway),
+        getStatus: () => gateway.getStatus(),
         config,
       },
+      getDaemonStatus: () => this.getStatus(),
       skills: skillList,
       voiceBridge,
       memoryBackend,
@@ -2768,6 +2873,7 @@ export class DaemonManager {
         ) ?? false,
       listBackgroundRuns: (sessionIds) =>
         this.listOwnedBackgroundRuns(sessionIds),
+      getBackgroundRunAvailability: () => this.getBackgroundRunAvailability(),
       inspectBackgroundRun: (sessionId) =>
         this.inspectOwnedBackgroundRun(sessionId),
       controlBackgroundRun: (params) => this.controlOwnedBackgroundRun(params),
@@ -3019,24 +3125,90 @@ export class DaemonManager {
     return telemetry;
   }
 
-  private buildGatewayStatusSnapshot(gateway: Gateway): GatewayStatus {
+  private buildGatewayStatusSnapshot(baseStatus: GatewayStatus): GatewayStatus {
     return {
-      ...gateway.getStatus(),
+      ...baseStatus,
       backgroundRuns: this.buildBackgroundRunStatusSummary(),
     };
   }
 
+  private buildBackgroundRunOperatorAvailability():
+    BackgroundRunOperatorAvailability {
+    const autonomyConfig = this.gateway?.config.autonomy;
+    if (autonomyConfig?.enabled === false) {
+      return {
+        enabled: false,
+        operatorAvailable: false,
+        inspectAvailable: false,
+        controlAvailable: false,
+        disabledCode: "autonomy_disabled",
+        disabledReason: "Autonomy is disabled for this runtime.",
+      };
+    }
+    if (autonomyConfig?.featureFlags?.backgroundRuns === false) {
+      return {
+        enabled: false,
+        operatorAvailable: false,
+        inspectAvailable: false,
+        controlAvailable: false,
+        disabledCode: "background_runs_feature_disabled",
+        disabledReason:
+          "Durable background runs are disabled in autonomy feature flags.",
+      };
+    }
+    if (autonomyConfig?.killSwitches?.backgroundRuns === true) {
+      return {
+        enabled: false,
+        operatorAvailable: false,
+        inspectAvailable: false,
+        controlAvailable: false,
+        disabledCode: "background_runs_kill_switch",
+        disabledReason:
+          "Durable background runs are disabled by the autonomy kill switch.",
+      };
+    }
+    if (!this._backgroundRunSupervisor) {
+      return {
+        enabled: true,
+        operatorAvailable: false,
+        inspectAvailable: false,
+        controlAvailable: false,
+        disabledCode: "operator_unavailable",
+        disabledReason:
+          "Durable background runs are enabled, but the run operator is not attached to this runtime.",
+      };
+    }
+    return {
+      enabled: true,
+      operatorAvailable: true,
+      inspectAvailable: true,
+      controlAvailable: true,
+    };
+  }
+
+  private attachBackgroundRunAvailability<T extends BackgroundRunOperatorSummary>(
+    value: T,
+  ): T {
+    return {
+      ...value,
+      availability: this.buildBackgroundRunOperatorAvailability(),
+    };
+  }
+
   private buildBackgroundRunStatusSummary():
-    | GatewayBackgroundRunStatus
-    | undefined {
+    GatewayBackgroundRunStatus {
     const fleet = this._backgroundRunSupervisor?.getFleetStatusSnapshot();
     const telemetry = this._telemetry?.getFullSnapshot();
     const multiAgentEnabled = this._durableSubrunOrchestrator !== null;
-    if (!fleet && !telemetry && !multiAgentEnabled) {
-      return undefined;
-    }
+    const availability = this.buildBackgroundRunOperatorAvailability();
 
     return {
+      enabled: availability.enabled,
+      operatorAvailable: availability.operatorAvailable,
+      inspectAvailable: availability.inspectAvailable,
+      controlAvailable: availability.controlAvailable,
+      disabledCode: availability.disabledCode,
+      disabledReason: availability.disabledReason,
       multiAgentEnabled,
       activeTotal: fleet?.activeTotal ?? 0,
       queuedSignalsTotal: fleet?.queuedSignalsTotal ?? 0,
@@ -3213,7 +3385,16 @@ export class DaemonManager {
     if (!this._backgroundRunSupervisor || sessionIds.length === 0) {
       return [];
     }
-    return this._backgroundRunSupervisor.listOperatorSummaries(sessionIds);
+    const summaries =
+      await this._backgroundRunSupervisor.listOperatorSummaries(sessionIds);
+    return summaries.map((summary) =>
+      this.attachBackgroundRunAvailability(summary),
+    );
+  }
+
+  private getBackgroundRunAvailability():
+    BackgroundRunOperatorAvailability {
+    return this.buildBackgroundRunOperatorAvailability();
   }
 
   private async inspectOwnedBackgroundRun(
@@ -3222,7 +3403,10 @@ export class DaemonManager {
     if (!this._backgroundRunSupervisor) {
       return undefined;
     }
-    return this._backgroundRunSupervisor.getOperatorDetail(sessionId);
+    const detail = await this._backgroundRunSupervisor.getOperatorDetail(sessionId);
+    return detail
+      ? this.attachBackgroundRunAvailability(detail)
+      : undefined;
   }
 
   private async controlOwnedBackgroundRun(params: {
@@ -3239,25 +3423,26 @@ export class DaemonManager {
     if (!detail) {
       return undefined;
     }
+    const detailWithAvailability = this.attachBackgroundRunAvailability(detail);
     await this.appendGovernanceAuditEvent({
       type: "run.controlled",
       actor: params.actor ? `webchat:${params.actor}` : undefined,
-      subject: detail.sessionId,
+      subject: detailWithAvailability.sessionId,
       scope: {
-        tenantId: detail.policyScope?.tenantId,
-        projectId: detail.policyScope?.projectId,
-        runId: detail.runId,
-        sessionId: detail.sessionId,
+        tenantId: detailWithAvailability.policyScope?.tenantId,
+        projectId: detailWithAvailability.policyScope?.projectId,
+        runId: detailWithAvailability.runId,
+        sessionId: detailWithAvailability.sessionId,
         channel: params.channel,
       },
       payload: {
         action: params.action.action,
-        state: detail.state,
-        currentPhase: detail.currentPhase,
-        unsafeToContinue: detail.unsafeToContinue,
+        state: detailWithAvailability.state,
+        currentPhase: detailWithAvailability.currentPhase,
+        unsafeToContinue: detailWithAvailability.unsafeToContinue,
       },
     });
-    return detail;
+    return detailWithAvailability;
   }
 
   private getTelemetryCounterTotal(
@@ -3836,7 +4021,10 @@ export class DaemonManager {
               this._allLlmTools,
               env,
             );
-            this.refreshSubAgentToolCatalog(registry, env);
+            this.refreshSubAgentToolCatalog(registry, env, {
+              includeStaticDesktopTools:
+                gateway.config.desktop?.enabled === true,
+            });
           }
           if (llmChanged || envChanged) {
             await this.hotSwapLLMProvider(
@@ -5375,14 +5563,15 @@ export class DaemonManager {
     const bashDenyExclusions = resolveBashDenyExclusions(config);
     const structuredExecDenyExclusions = resolveStructuredExecDenyExclusions(config);
 
+    const bashToolTimeoutConfig = resolveBashToolTimeoutConfig(config);
     registry.register(
       createBashTool({
         logger: this.logger,
         env: safeEnv,
         denyExclusions: bashDenyExclusions,
         unrestricted: unrestrictedHostExec,
-        timeoutMs: config.desktop?.enabled ? 300_000 : undefined,
-        maxTimeoutMs: config.desktop?.enabled ? 600_000 : undefined,
+        timeoutMs: bashToolTimeoutConfig.timeoutMs,
+        maxTimeoutMs: bashToolTimeoutConfig.maxTimeoutMs,
       }),
     );
     registry.registerAll(
@@ -6095,9 +6284,13 @@ export class DaemonManager {
     registry: ToolRegistry,
     availableSkills: DiscoveredSkill[],
     skillList: WebChatSkillSummary[],
+    hooks: HookDispatcher,
+    baseToolHandler: ToolHandler,
+    approvalEngine: ApprovalEngine | null,
     progressTracker?: ProgressTracker,
     pipelineExecutor?: PipelineExecutor,
   ): SlashCommandRegistry {
+    void hooks; void baseToolHandler; void approvalEngine;
     const commandRegistry = new SlashCommandRegistry({ logger: this.logger });
     for (const command of createDefaultCommands()) {
       commandRegistry.register(command);
@@ -6128,6 +6321,45 @@ export class DaemonManager {
           progressTracker,
         });
         await ctx.reply("Session reset. Starting fresh conversation.");
+      },
+    });
+    commandRegistry.register({
+      name: "init",
+      description: "Generate an AGENC.md contributor guide",
+      args: "[--force]",
+      global: true,
+      handler: async (ctx) => {
+        const force = ctx.argv.includes("--force");
+        const workspaceRoot =
+          (typeof this._webChatChannel?.loadSessionWorkspaceRoot === "function"
+            ? await this._webChatChannel.loadSessionWorkspaceRoot(ctx.sessionId)
+            : undefined) ??
+          this._hostWorkspacePath ??
+          process.cwd();
+        const filePath = `${workspaceRoot}/AGENC.md`;
+
+        // Check if file exists and --force not set
+        const { existsSync } = await import("node:fs");
+        if (existsSync(filePath) && !force) {
+          await ctx.reply(`AGENC.md already exists at ${filePath}. Use /init --force to overwrite.`);
+          return;
+        }
+
+        const initPrompt =
+          `List the files in ${workspaceRoot}, read the important ones (package.json, README, Makefile, config files, etc), ` +
+          `then write ${filePath} with these sections: ` +
+          `"# Repository Guidelines", "## Project Structure & Module Organization", ` +
+          `"## Build, Test, and Development Commands", "## Coding Style & Naming Conventions", ` +
+          `"## Testing Guidelines", "## Commit & Pull Request Guidelines". ` +
+          `Base it on what you find. Do NOT build, compile, or run anything — just read and write the guide.`;
+
+        const webChat = this._webChatChannel;
+        if (!webChat) {
+          await ctx.reply("Init unavailable: webchat pipeline is not initialized.");
+          return;
+        }
+        // Inject as a synthetic user message — bypasses planner since it's simple
+        webChat.injectSyntheticUserMessage(ctx.sessionId, ctx.senderId, initPrompt);
       },
     });
     commandRegistry.register({
@@ -6199,13 +6431,47 @@ export class DaemonManager {
           sessionTokenBudget > 0 ? totalTokens / sessionTokenBudget : 0;
         const percent = Math.min(100, Math.max(0, ratio * 100));
 
-        await ctx.reply(
-          `Session: ${ctx.sessionId}\n` +
-            `Usage: ${totalTokens.toLocaleString()} / ${sessionTokenBudget.toLocaleString()} tokens (${percent.toFixed(percent >= 10 ? 0 : 1)}%)\n` +
-            (contextWindowTokens && contextWindowTokens > 0
-              ? `Model context window: ${contextWindowTokens.toLocaleString()} tokens`
-              : "Model context window: unknown"),
-        );
+        // Build breakdown
+        const sessionId = resolveSessionId(ctx.sessionId);
+        const session = sessionMgr.get(sessionId);
+        const historyLen = session?.history.length ?? 0;
+        const systemPromptChars = (this._systemPrompt ?? "").length;
+        const systemPromptTokens = Math.ceil(systemPromptChars / 4);
+        const toolCount = registry.size;
+        const model = normalizeGrokModel(this.gateway?.config.llm?.model) ?? "unknown";
+        const provider = this.gateway?.config.llm?.provider ?? "unknown";
+
+        const overBudget = totalTokens > sessionTokenBudget;
+        const lines = [
+          `Context Window: ${(contextWindowTokens ?? 0).toLocaleString()} tokens (${model} via ${provider})`,
+          `Session Budget: ${sessionTokenBudget.toLocaleString()} tokens`,
+          `Used: ${totalTokens.toLocaleString()} tokens (${percent.toFixed(percent >= 10 ? 0 : 1)}%)` +
+            (overBudget ? " — COMPACTION PENDING (next message will compact)" : ""),
+          `Free: ${overBudget ? "0" : Math.max(0, sessionTokenBudget - totalTokens).toLocaleString()} tokens`,
+          "",
+          "Breakdown:",
+          `  System prompt: ~${systemPromptTokens.toLocaleString()} tokens`,
+          `  Tools: ${toolCount} registered`,
+          `  History: ${historyLen} messages`,
+          `  Memory: ${this._memoryBackend?.name ?? "none"}`,
+          "",
+          "Workspace files loaded:",
+        ];
+
+        // Show which workspace files are loaded
+        const wsFiles: [string, boolean][] = [
+          ["AGENT.md", !!this._systemPrompt?.includes("# Agent")],
+          ["AGENC.md", !!this._systemPrompt?.includes("# Repository Guidelines")],
+          ["SOUL.md", !!this._systemPrompt?.includes("# Soul")],
+          ["TOOLS.md", !!this._systemPrompt?.includes("# Tool")],
+          ["MEMORY.md", !!this._systemPrompt?.includes("# Memory")],
+          ["USER.md", !!this._systemPrompt?.includes("# User")],
+        ];
+        for (const [name, loaded] of wsFiles) {
+          lines.push(`  ${loaded ? "●" : "○"} ${name}`);
+        }
+
+        await ctx.reply(lines.join("\n"));
       },
     });
     commandRegistry.register({
@@ -6648,23 +6914,197 @@ export class DaemonManager {
     });
     commandRegistry.register({
       name: "model",
-      description: "Show current LLM model",
-      args: "[name]",
+      description: "Show or switch the current LLM model",
+      args: "[model-name | current | list]",
       global: true,
       handler: async (ctx) => {
         const sessionId = ctx.sessionId;
         const last = this._sessionModelInfo.get(sessionId);
-        if (last) {
+        const arg = ctx.args.trim();
+        const argLower = arg.toLowerCase();
+        const configuredPrimaryProvider = this.gateway?.config.llm?.provider ?? "none";
+        const configuredPrimaryModel =
+          configuredPrimaryProvider === "grok"
+            ? normalizeGrokModel(this.gateway?.config.llm?.model) ??
+              DEFAULT_GROK_MODEL
+            : this.gateway?.config.llm?.model ?? "unknown";
+        const configuredFallbacks =
+          this.gateway?.config.llm?.fallback?.map((entry) => (
+            `${entry.provider}:${
+              entry.provider === "grok"
+                ? normalizeGrokModel(entry.model) ?? DEFAULT_GROK_MODEL
+                : entry.model ?? "unknown"
+            }`
+          )) ?? [];
+
+        const knownGrokModels = listKnownGrokModels();
+        const chatModels = knownGrokModels.filter((entry) => !entry.modality);
+
+        // /model (no args) or /model current — show current routing
+        if (!arg || argLower === "current") {
+          const lines = [
+            "Model routing:",
+            last
+              ? `  Last completion: ${last.model} (provider: ${last.provider}${last.usedFallback ? ", fallback used" : ""})`
+              : "  Last completion: none recorded for this session",
+            `  Primary: ${configuredPrimaryProvider}:${configuredPrimaryModel}`,
+            `  Fallbacks: ${configuredFallbacks.length > 0 ? configuredFallbacks.join(", ") : "none"}`,
+            "",
+            `Available chat models: ${chatModels.map((m) => m.id).join(", ")}`,
+            "",
+            "Switch with: /model <model-name>",
+          ];
+          await ctx.reply(lines.join("\n"));
+          return;
+        }
+
+        // /model list — show full catalog
+        if (argLower === "list") {
+          const lines = ["Known xAI models:"];
+          for (const entry of knownGrokModels) {
+            if (entry.modality) {
+              lines.push(`  ${entry.id} [${entry.modality}]`);
+            } else {
+              const active = entry.id === configuredPrimaryModel ? " (active)" : "";
+              lines.push(
+                `  ${entry.id} (${entry.contextWindowTokens.toLocaleString("en-US")} ctx)${active}` +
+                  (entry.aliases.length > 0 ? ` aliases: ${entry.aliases.join(", ")}` : ""),
+              );
+            }
+          }
+          await ctx.reply(lines.join("\n"));
+          return;
+        }
+
+        // /model <name> — switch model
+        if (configuredPrimaryProvider !== "grok") {
           await ctx.reply(
-            `Last completion model: ${last.model} (provider: ${last.provider}${last.usedFallback ? ", fallback used" : ""})`,
+            `Model switching is only supported for the grok provider (current: ${configuredPrimaryProvider}).`,
           );
           return;
         }
-        const providerInfo =
-          providers.map((provider) => provider.name).join(", ") || "none";
-        await ctx.reply(
-          `No completion recorded yet for this session. Provider chain: ${providerInfo}`,
+
+        const normalized = normalizeGrokModel(arg) ?? arg;
+        let match = chatModels.find((m) => m.id === normalized);
+        if (!match) {
+          // Try fuzzy: check if any model contains the input
+          const fuzzy = chatModels.filter((m) =>
+            m.id.toLowerCase().includes(argLower) ||
+            m.aliases.some((a) => a.toLowerCase().includes(argLower)),
+          );
+          if (fuzzy.length === 1) {
+            match = fuzzy[0];
+          } else if (fuzzy.length > 1) {
+            await ctx.reply(
+              `Multiple models match "${arg}":\n${fuzzy.map((m) => `  ${m.id}`).join("\n")}\n\nBe more specific.`,
+            );
+            return;
+          } else {
+            await ctx.reply(
+              `Unknown model "${arg}". Available chat models:\n${chatModels.map((m) => `  ${m.id}`).join("\n")}`,
+            );
+            return;
+          }
+        }
+
+        if (match.id === configuredPrimaryModel) {
+          await ctx.reply(`Already using ${match.id}.`);
+          return;
+        }
+
+        // Write updated model to config file and explicitly trigger reload
+        try {
+          const raw = await readFile(this.configPath, "utf-8");
+          const config = JSON.parse(raw) as Record<string, unknown>;
+          const llm = (config.llm ?? {}) as Record<string, unknown>;
+          llm.model = match.id;
+          config.llm = llm;
+          await writeFile(this.configPath, JSON.stringify(config, null, 2) + "\n");
+          this.logger.info(`Model switched to ${match.id} via /model command`);
+          // Trigger config reload explicitly — filesystem watchers can be unreliable
+          await this.handleConfigReload();
+          await ctx.reply(
+            `Model switched: ${configuredPrimaryModel} → ${match.id} (${match.contextWindowTokens.toLocaleString("en-US")} ctx)`,
+          );
+        } catch (err) {
+          this.logger.error("Failed to update model config", { error: toErrorMessage(err) });
+          await ctx.reply(`Failed to switch model: ${toErrorMessage(err)}`);
+        }
+      },
+    });
+
+    // Voice command
+    const XAI_VOICES = ["Ara", "Rex", "Sal", "Eve", "Leo"] as const;
+    commandRegistry.register({
+      name: "voice",
+      description: "Show voice config or change voice persona",
+      args: "[Ara|Rex|Sal|Eve|Leo|status|enable|disable]",
+      global: true,
+      handler: async (ctx) => {
+        const arg = ctx.args.trim();
+        const voiceConfig = this.gateway?.config.voice;
+        const bridge = this._voiceBridge;
+
+        // /voice status — show active sessions
+        if (arg.toLowerCase() === "status") {
+          const count = bridge?.activeSessionCount ?? 0;
+          const lines = [
+            `Voice sessions: ${count} active`,
+            `Enabled: ${voiceConfig?.enabled !== false && bridge ? "yes" : "no"}`,
+            `Voice: ${voiceConfig?.voice ?? "Ara"} (default)`,
+            `Mode: ${voiceConfig?.mode ?? "vad"}`,
+            `Model: ${voiceConfig?.model ?? DEFAULT_GROK_MODEL}`,
+            `VAD threshold: ${voiceConfig?.vadThreshold ?? 0.5}`,
+            `VAD silence: ${voiceConfig?.vadSilenceDurationMs ?? 800}ms`,
+          ];
+          await ctx.reply(lines.join("\n"));
+          return;
+        }
+
+        // /voice enable / disable
+        if (arg.toLowerCase() === "enable" || arg.toLowerCase() === "disable") {
+          const enable = arg.toLowerCase() === "enable";
+          if (this.gateway?.config.voice) {
+            this.gateway.config.voice.enabled = enable;
+          }
+          await ctx.reply(`Voice ${enable ? "enabled" : "disabled"}.`);
+          return;
+        }
+
+        // /voice <VoiceName> — change voice persona
+        const matchedVoice = XAI_VOICES.find(
+          (v) => v.toLowerCase() === arg.toLowerCase(),
         );
+        if (matchedVoice) {
+          if (this.gateway?.config.voice) {
+            this.gateway.config.voice.voice = matchedVoice;
+          } else if (this.gateway?.config) {
+            (this.gateway.config as any).voice = { voice: matchedVoice };
+          }
+          await ctx.reply(
+            `Voice set to ${matchedVoice}. New voice sessions will use this persona.`,
+          );
+          return;
+        }
+
+        // /voice (no args) — show config + available voices
+        const currentVoice = voiceConfig?.voice ?? "Ara";
+        const lines = [
+          `Voice: ${bridge ? "available" : "not configured"}`,
+          `Current persona: ${currentVoice}`,
+          `Mode: ${voiceConfig?.mode ?? "vad"}`,
+          `Sessions: ${bridge?.activeSessionCount ?? 0} active`,
+          "",
+          "Available voices:",
+        ];
+        for (const v of XAI_VOICES) {
+          lines.push(`  ${v === currentVoice ? "●" : "○"} ${v}`);
+        }
+        lines.push(
+          "",
+          "Usage: /voice <name> to switch, /voice status for details",
+        );
+        await ctx.reply(lines.join("\n"));
       },
     });
 
@@ -7199,6 +7639,156 @@ export class DaemonManager {
     });
 
     return commandRegistry;
+  }
+
+  private async runProjectInitOperation(params: {
+    workspaceRoot: string;
+    force?: boolean;
+    sessionId: string;
+    channel: string;
+    traceLabel: string;
+    traceConfig: ResolvedTraceLoggingConfig;
+    turnTraceId: string;
+    sendResponse: (response: ControlResponse) => void;
+    hooks?: HookDispatcher;
+    baseToolHandler?: ToolHandler;
+    approvalEngine?: ApprovalEngine | null;
+  }) {
+    const chatExecutor = this._chatExecutor;
+    const baseToolHandler = params.baseToolHandler ?? this._baseToolHandler;
+    const hooks = params.hooks ?? this._hookDispatcher;
+    const approvalEngine = params.approvalEngine ?? this._approvalEngine;
+    const systemPrompt = this._systemPrompt;
+    const workspaceRoot = resolvePath(params.workspaceRoot);
+
+    const workspaceStats = await stat(workspaceRoot).catch(() => null);
+    if (!workspaceStats?.isDirectory()) {
+      throw new Error(`Init workspace root is not a directory: ${workspaceRoot}`);
+    }
+    if (!chatExecutor) {
+      throw new Error(
+        "Init unavailable: no LLM provider is configured for the runtime.",
+      );
+    }
+    if (!baseToolHandler || !hooks) {
+      throw new Error(
+        "Init unavailable: the runtime tool pipeline is not initialized.",
+      );
+    }
+    if (systemPrompt.trim().length === 0) {
+      throw new Error("Init unavailable: system prompt is not initialized.");
+    }
+
+    const baseSessionHandler = createSessionToolHandler({
+      sessionId: params.sessionId,
+      baseHandler: baseToolHandler,
+      availableToolNames: [...INIT_ROUTED_TOOL_NAMES],
+      routerId: params.sessionId,
+      defaultWorkingDirectory: workspaceRoot,
+      workspaceAliasRoot: workspaceRoot,
+      scopedFilesystemRoot: workspaceRoot,
+      resolveWorkspaceContext: async () => ({
+        defaultWorkingDirectory: workspaceRoot,
+        workspaceAliasRoot: workspaceRoot,
+        scopedFilesystemRoot: workspaceRoot,
+        additionalAllowedPaths: [workspaceRoot],
+      }),
+      send: params.sendResponse,
+      hooks,
+      approvalEngine: approvalEngine ?? undefined,
+      delegation: this.resolveDelegationToolContext,
+      credentialBroker: this._sessionCredentialBroker ?? undefined,
+      resolvePolicyScope: () =>
+        this.resolvePolicyScopeForSession({
+          sessionId: params.sessionId,
+          runId: params.sessionId,
+          channel: params.channel,
+        }),
+    });
+
+    const toolHandler = this.createTracedSessionToolHandler({
+      traceLabel: params.traceLabel,
+      traceConfig: params.traceConfig,
+      turnTraceId: params.turnTraceId,
+      sessionId: params.sessionId,
+      baseSessionHandler,
+    });
+
+    return runModelBackedProjectGuide({
+      workspaceRoot,
+      force: params.force,
+      sessionId: params.sessionId,
+      systemPrompt,
+      chatExecutor,
+      toolHandler,
+    });
+  }
+
+  private async handleGatewayControlMessage(params: {
+    clientId: string;
+    message: {
+      type: string;
+      payload?: unknown;
+    };
+    sendResponse: (response: ControlResponse) => void;
+  }): Promise<boolean> {
+    if (params.message.type !== "init.run") {
+      return false;
+    }
+
+    const rawPayload =
+      typeof params.message.payload === "object" &&
+      params.message.payload !== null &&
+      !Array.isArray(params.message.payload)
+        ? (params.message.payload as InitRunControlPayload)
+        : {};
+    const workspaceRoot = resolvePath(
+      typeof rawPayload.path === "string" && rawPayload.path.trim().length > 0
+        ? rawPayload.path
+        : this._hostWorkspacePath ?? process.cwd(),
+    );
+    const sessionId = `init-control:${params.clientId}:${Date.now().toString(36)}`;
+    const turnTraceId = createTurnTraceId(
+      createGatewayMessage({
+        channel: "system",
+        senderId: params.clientId,
+        senderName: "Init Control",
+        sessionId,
+        scope: "dm",
+        content: `/init ${workspaceRoot}`,
+        metadata: { source: "control-init", workspaceRoot },
+      }),
+    );
+    const result = await this.runProjectInitOperation({
+      workspaceRoot,
+      force: rawPayload.force === true,
+      sessionId,
+      channel: "control",
+      traceLabel: "control.init",
+      traceConfig: resolveTraceLoggingConfig(this.gateway?.config.logging),
+      turnTraceId,
+      sendResponse: params.sendResponse,
+    });
+    const payload: InitRunControlResponsePayload = {
+      projectRoot: workspaceRoot,
+      filePath: result.filePath,
+      result: result.status,
+      delegatedInvestigations: result.delegatedInvestigations,
+      attempts: result.attempts,
+      modelBacked: true,
+      ...(result.result
+        ? {
+            provider: result.result.provider,
+            model: result.result.model,
+            usedFallback: result.result.usedFallback,
+          }
+        : {}),
+    };
+    params.sendResponse({
+      type: "init.run",
+      payload,
+    });
+    return true;
   }
 
   private createOptionalVoiceBridge(
@@ -7984,14 +8574,64 @@ export class DaemonManager {
     event: SubAgentLifecycleEvent,
   ): void {
     const parentSessionId = this.resolveLifecycleParentSessionId(event);
+    const previousContext =
+      this._latestDelegationSurfaceContextBySession.get(parentSessionId);
+    const payloadWithContext =
+      event.type === "subagents.synthesized"
+        ? {
+            ...(event.payload ?? {}),
+            ...(typeof event.payload?.objective === "string" &&
+            event.payload.objective.trim().length > 0
+              ? {}
+              : previousContext?.objective
+                ? { objective: previousContext.objective }
+                : {}),
+            ...(typeof event.payload?.stepName === "string" &&
+            event.payload.stepName.trim().length > 0
+              ? {}
+              : previousContext?.stepName
+                ? { stepName: previousContext.stepName }
+                : {}),
+          }
+        : event.payload;
     const subagentSessionId =
       event.subagentSessionId ??
+      previousContext?.subagentSessionId ??
       (event.sessionId.startsWith("subagent:") ? event.sessionId : undefined);
-    const sanitizedData = sanitizeLifecyclePayloadData(event.payload);
+    const effectiveToolName =
+      event.toolName ?? previousContext?.toolName;
+    const sanitizedData = sanitizeLifecyclePayloadData(payloadWithContext);
     const parentTraceId = this._activeSessionTraceIds.get(parentSessionId);
     const traceId = buildSubagentTraceId(parentTraceId, event);
     if (parentTraceId && event.type !== "subagents.synthesized") {
       this._subagentActivityTraceBySession.set(parentSessionId, parentTraceId);
+    }
+    if (event.type !== "subagents.synthesized") {
+      const nextContext = {
+        objective:
+          typeof payloadWithContext?.objective === "string" &&
+          payloadWithContext.objective.trim().length > 0
+            ? payloadWithContext.objective.trim()
+            : previousContext?.objective,
+        stepName:
+          typeof payloadWithContext?.stepName === "string" &&
+          payloadWithContext.stepName.trim().length > 0
+            ? payloadWithContext.stepName.trim()
+            : previousContext?.stepName,
+        subagentSessionId,
+        toolName: effectiveToolName,
+      };
+      if (
+        nextContext.objective ||
+        nextContext.stepName ||
+        nextContext.subagentSessionId ||
+        nextContext.toolName
+      ) {
+        this._latestDelegationSurfaceContextBySession.set(
+          parentSessionId,
+          nextContext,
+        );
+      }
     }
 
     webChat.pushToSession(parentSessionId, {
@@ -8000,7 +8640,7 @@ export class DaemonManager {
         sessionId: parentSessionId,
         parentSessionId,
         ...(subagentSessionId ? { subagentSessionId } : {}),
-        ...(event.toolName ? { toolName: event.toolName } : {}),
+        ...(effectiveToolName ? { toolName: effectiveToolName } : {}),
         timestamp: event.timestamp,
         ...(Object.keys(sanitizedData).length > 0
           ? { data: sanitizedData }
@@ -8014,7 +8654,7 @@ export class DaemonManager {
       sessionId: parentSessionId,
       parentSessionId,
       ...(subagentSessionId ? { subagentSessionId } : {}),
-      ...(event.toolName ? { toolName: event.toolName } : {}),
+      ...(effectiveToolName ? { toolName: effectiveToolName } : {}),
       timestamp: event.timestamp,
     };
     for (const [key, value] of Object.entries(sanitizedData)) {
@@ -8043,6 +8683,9 @@ export class DaemonManager {
       ...(traceId ? { traceId } : {}),
       ...(parentTraceId ? { parentTraceId } : {}),
     });
+    if (event.type === "subagents.synthesized") {
+      this._latestDelegationSurfaceContextBySession.delete(parentSessionId);
+    }
   }
 
   private attachSubAgentLifecycleBridge(webChat: WebChatChannel): void {
@@ -8334,6 +8977,32 @@ export class DaemonManager {
       availableToolNames: this.getAdvertisedToolNames(),
       defaultWorkingDirectory: this._hostWorkspacePath ?? undefined,
       workspaceAliasRoot: this._hostWorkspacePath ?? undefined,
+      scopedFilesystemRoot: this._hostWorkspacePath ?? undefined,
+      resolveWorkspaceContext: async () => {
+        if (this._hostWorkspacePathPinned) {
+          return {
+            defaultWorkingDirectory: this._hostWorkspacePath ?? undefined,
+            workspaceAliasRoot: this._hostWorkspacePath ?? undefined,
+            scopedFilesystemRoot: this._hostWorkspacePath ?? undefined,
+          };
+        }
+
+        const workspaceRoot =
+          (typeof webChat.loadSessionWorkspaceRoot === "function"
+            ? await webChat.loadSessionWorkspaceRoot(sessionId)
+            : undefined) ??
+          this._hostWorkspacePath ??
+          undefined;
+        if (!workspaceRoot) {
+          return undefined;
+        }
+        return {
+          defaultWorkingDirectory: workspaceRoot,
+          workspaceAliasRoot: workspaceRoot,
+          scopedFilesystemRoot: workspaceRoot,
+          additionalAllowedPaths: [workspaceRoot],
+        };
+      },
       desktopRouterFactory: this._desktopRouterFactory ?? undefined,
       routerId: sessionId,
       send: (m) => webChat.pushToSession(sessionId, m),
@@ -9008,6 +9677,12 @@ export class DaemonManager {
           ) {
             return;
           }
+          const outputPreview = firstSurfaceSummaryLine(result.content);
+          const stopReasonDetail =
+            typeof result.stopReasonDetail === "string" &&
+            result.stopReasonDetail.trim().length > 0
+              ? result.stopReasonDetail.trim()
+              : undefined;
           this.relaySubAgentLifecycleEvent(webChat, {
             type: "subagents.synthesized",
             timestamp: Date.now(),
@@ -9015,11 +9690,14 @@ export class DaemonManager {
             parentSessionId: msg.sessionId,
             payload: {
               stopReason: result.stopReason,
+              ...(stopReasonDetail ? { stopReasonDetail } : {}),
               outputChars: result.content.length,
               toolCalls: result.toolCalls.length,
+              ...(outputPreview ? { outputPreview } : {}),
             },
           });
           this._subagentActivityTraceBySession.delete(msg.sessionId);
+          this._latestDelegationSurfaceContextBySession.delete(msg.sessionId);
         },
       });
     } finally {
@@ -9031,6 +9709,7 @@ export class DaemonManager {
         this._subagentActivityTraceBySession.get(msg.sessionId) === turnTraceId
       ) {
         this._subagentActivityTraceBySession.delete(msg.sessionId);
+        this._latestDelegationSurfaceContextBySession.delete(msg.sessionId);
       }
     }
   }
@@ -9268,11 +9947,15 @@ export class DaemonManager {
         "Execute tasks immediately without narrating your plan. " +
         "Do NOT list steps. Do NOT explain what you will do. Just act."
       : "\n\n## Task Execution Protocol\n\n" +
-        "When given a request that requires multiple steps or tool calls:\n" +
-        "1. First, briefly state your plan as a numbered list (2-6 steps max)\n" +
-        "2. Execute each step in order, confirming the result before proceeding\n" +
-        "3. If a step fails, reassess the plan and adapt\n\n" +
-        "For simple questions or single-step requests, respond directly without a plan.";
+        "When the user asks you to create files, edit code, run commands, validate output, or otherwise use tools:\n" +
+        "1. Start executing immediately\n" +
+        "2. If a brief preamble helps, keep it to one short sentence and continue into tool use in the same turn\n" +
+        "3. Never end the turn with only a plan when execution was requested\n" +
+        "4. If a command fails (build error, test failure, etc), read the error, fix the code, and retry — do NOT stop and report the error as a blocker\n" +
+        "5. Keep iterating until the task succeeds or you have genuinely exhausted your options\n" +
+        "6. Finish with grounded results or a specific blocker backed by the tool evidence\n" +
+        "7. NEVER run interactive programs (games, TUI apps, editors, REPLs) via system.bash — they block the terminal. To test a GUI/TUI program, just compile it and confirm the binary exists\n\n" +
+        "For simple questions or explanation-only requests, respond directly without tools.";
 
     const additionalContext =
       desktopContext + planningInstruction + modelDisclosureContext;
@@ -9281,8 +9964,8 @@ export class DaemonManager {
 
     try {
       const workspaceFiles = await loader.load();
-      // If at least AGENT.md exists, use workspace-driven prompt from the active host workspace.
-      if (workspaceFiles.agent) {
+      // If at least AGENT.md or AGENC.md exists, use workspace-driven prompt.
+      if (workspaceFiles.agent || workspaceFiles.agenc) {
         const prompt = assembleSystemPrompt(workspaceFiles, {
           additionalContext,
           maxLength: MAX_SYSTEM_PROMPT_CHARS,
@@ -9795,8 +10478,10 @@ Concise and action-oriented.
       this._webChatInboundHandler = null;
       this._activeSessionTraceIds.clear();
       this._subagentActivityTraceBySession.clear();
+      this._latestDelegationSurfaceContextBySession.clear();
       this._foregroundSessionLocks.clear();
       this._hostWorkspacePath = null;
+      this._hostWorkspacePathPinned = false;
       if (this.gateway !== null) {
         await this.gateway.stop();
         this.gateway = null;
@@ -9873,7 +10558,7 @@ Concise and action-oriented.
       uptimeMs: this.startedAt > 0 ? Date.now() - this.startedAt : 0,
       gatewayStatus:
         this.gateway !== null
-          ? this.buildGatewayStatusSnapshot(this.gateway)
+          ? this.gateway.getStatus()
           : null,
       memoryUsage: {
         heapUsedMB: Math.round((mem.heapUsed / 1024 / 1024) * 100) / 100,

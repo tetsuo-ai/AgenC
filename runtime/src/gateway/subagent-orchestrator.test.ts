@@ -285,6 +285,58 @@ describe("SubAgentOrchestrator", () => {
     ]);
   });
 
+  it("preserves full webchat session ids when planner pipeline ids include session prefixes", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new FakeSubAgentManager(5, true);
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      resolveLifecycleEmitter: () => ({
+        emit: (event: Record<string, unknown>) => lifecycleEvents.push(event),
+      } as any),
+      pollIntervalMs: 5,
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session:abc123:456",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "delegate_session_scoped_step",
+          stepType: "subagent_task",
+          objective: "Inspect the current workspace state",
+          inputContract: "Return findings",
+          acceptanceCriteria: ["Include grounded evidence"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["cwd=/tmp/session-scope"],
+          maxBudgetHint: "1m",
+          canRunParallel: false,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(manager.spawnCalls).toHaveLength(1);
+    expect(manager.spawnCalls[0]?.parentSessionId).toBe("session:abc123");
+    const plannedEvent = lifecycleEvents.find(
+      (event) => event.type === "subagents.planned",
+    );
+    expect(plannedEvent).toEqual(
+      expect.objectContaining({
+        sessionId: "session:abc123",
+        parentSessionId: "session:abc123",
+      }),
+    );
+  });
+
   it("emits parent pipeline events for delegated DAG steps", async () => {
     const fallback = createFallbackExecutor(async (pipeline) => ({
       status: "completed",
@@ -404,7 +456,7 @@ describe("SubAgentOrchestrator", () => {
     );
     expect(manager.spawnCalls[0]?.delegationSpec?.contextRequirements).toEqual([
       "repo_context",
-      "working_directory:/home/tetsuo/agent-test/grid-router-ts",
+      "cwd=/home/tetsuo/agent-test/grid-router-ts",
     ]);
   });
 
@@ -585,6 +637,46 @@ describe("SubAgentOrchestrator", () => {
 
     expect(manager.spawnCalls).toHaveLength(1);
     expect(manager.spawnCalls[0]?.timeoutMs).toBe(60_000);
+  });
+
+  it("derives a larger child tool budget for long delegated steps", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new FakeSubAgentManager(10, true);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-tool-budget:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "analyze_renderer_logs",
+          stepType: "subagent_task",
+          objective: "Analyze renderer logs and summarize the failure",
+          inputContract: "Recent CI logs exist",
+          acceptanceCriteria: ["Include the renderer failure summary"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["ci_logs"],
+          maxBudgetHint: "8m",
+          canRunParallel: false,
+        },
+      ],
+      edges: [],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(manager.spawnCalls).toHaveLength(1);
+    expect(manager.spawnCalls[0]?.toolBudgetPerRequest).toBe(64);
   });
 
   it("emits normalized child trajectory records when trajectory sink is configured", async () => {
@@ -1070,6 +1162,99 @@ describe("SubAgentOrchestrator", () => {
         cumulativeToolCalls: 0,
       }),
     );
+  });
+
+  it("treats maxCumulativeTokensPerRequestTree=0 as unlimited for autonomous request trees", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output: "Included findings from phase one",
+          success: true,
+          durationMs: 10,
+          toolCalls: [{
+            name: "system.writeFile",
+            args: { path: "/tmp/phase-one.ts", content: "export const phaseOne = true;\n" },
+            result: '{"path":"/tmp/phase-one.ts","bytesWritten":31}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 180_000,
+            completionTokens: 20_000,
+            totalTokens: 200_000,
+          },
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output: "Included findings from phase two",
+          success: true,
+          durationMs: 10,
+          toolCalls: [{
+            name: "system.writeFile",
+            args: { path: "/tmp/phase-two.ts", content: "export const phaseTwo = true;\n" },
+            result: '{"path":"/tmp/phase-two.ts","bytesWritten":31}',
+            isError: false,
+            durationMs: 1,
+          }],
+          tokenUsage: {
+            promptTokens: 180_000,
+            completionTokens: 20_000,
+            totalTokens: 200_000,
+          },
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      maxCumulativeTokensPerRequestTree: 0,
+      maxCumulativeTokensPerRequestTreeExplicitlyConfigured: true,
+      pollIntervalMs: 5,
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-token-unlimited:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "delegate_phase_one",
+          stepType: "subagent_task",
+          objective: "Implement phase one",
+          inputContract: "Return findings",
+          acceptanceCriteria: ["Include findings"],
+          requiredToolCapabilities: ["system.writeFile"],
+          contextRequirements: ["workspace_files"],
+          maxBudgetHint: "5m",
+          canRunParallel: true,
+        },
+        {
+          name: "delegate_phase_two",
+          stepType: "subagent_task",
+          objective: "Implement phase two",
+          inputContract: "Return findings",
+          acceptanceCriteria: ["Include findings"],
+          requiredToolCapabilities: ["system.writeFile"],
+          contextRequirements: ["workspace_files"],
+          maxBudgetHint: "5m",
+          canRunParallel: true,
+          dependsOn: ["delegate_phase_one"],
+        },
+      ],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.completedSteps).toBe(2);
   });
 
   it("scales the effective child-token budget with planned subagent count when using the default ceiling", async () => {
@@ -2940,6 +3125,289 @@ describe("SubAgentOrchestrator", () => {
     expect(taskPrompt).toContain("workspace:*");
     expect(taskPrompt).toContain("\"hostTooling\":{");
     expect(taskPrompt).toContain("\"npmWorkspaceProtocolSupport\":\"unsupported\"");
+  });
+
+  it("does not inject node workspace guidance into Rust cargo workspace child prompts", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => null,
+      pollIntervalMs: 5,
+      resolveAvailableToolNames: () => [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+      ],
+      resolveHostToolingProfile: () => ({
+        nodeVersion: "v25.2.1",
+        npm: {
+          version: "11.7.0",
+          workspaceProtocolSupport: "unsupported",
+          workspaceProtocolEvidence:
+            'Unsupported URL Type "workspace:": workspace:*',
+        },
+      }),
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-rust-workspace:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "implement_core",
+          stepType: "subagent_task",
+          objective:
+            "Implement the Rust parser and routing algorithms in the cargo workspace.",
+          inputContract: "Fresh cargo workspace scaffolded.",
+          acceptanceCriteria: ["gridforge-core compiles cleanly."],
+          requiredToolCapabilities: [
+            "system.writeFile",
+            "system.readFile",
+            "system.bash",
+          ],
+          contextRequirements: ["cwd=/workspace/gridforge", "Cargo.toml workspace"],
+          maxBudgetHint: "6m",
+          canRunParallel: false,
+        },
+        {
+          name: "add_tests_examples_readme",
+          stepType: "subagent_task",
+          dependsOn: ["implement_core"],
+          objective:
+            "Add README, example maps, and Rust tests for the cargo workspace.",
+          inputContract:
+            "gridforge-core and gridforge-cli crates already exist in the Cargo.toml workspace.",
+          acceptanceCriteria: [
+            "README and example maps added.",
+            "cargo test --workspace succeeds.",
+          ],
+          requiredToolCapabilities: [
+            "system.writeFile",
+            "system.readFile",
+            "system.bash",
+          ],
+          contextRequirements: ["cwd=/workspace/gridforge", "Cargo.toml workspace"],
+          maxBudgetHint: "4m",
+          canRunParallel: false,
+        },
+      ],
+      plannerContext: {
+        parentRequest:
+          "Build a Rust cargo workspace and verify it with cargo test --workspace.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const dependencyResult = JSON.stringify({
+      status: "completed",
+      success: true,
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "Cargo.toml",
+            content:
+              '[workspace]\nmembers = ["gridforge-core", "gridforge-cli"]\nresolver = "2"\n',
+          },
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "gridforge-core/src/lib.rs",
+            content: "pub fn dijkstra() -> usize { 0 }\n",
+          },
+        },
+      ],
+    });
+
+    const step = pipeline.plannerSteps[1]!;
+    const toolScope = (orchestrator as unknown as {
+      deriveChildToolAllowlist: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+      ) => {
+        allowedTools: readonly string[];
+        allowsToollessExecution: boolean;
+        semanticFallback: readonly string[];
+        removedLowSignalBrowserTools: readonly string[];
+        removedByPolicy: readonly string[];
+        removedAsDelegationTools: readonly string[];
+        removedAsUnknownTools: readonly string[];
+        parentPolicyAllowed: readonly string[];
+      };
+    }).deriveChildToolAllowlist(step, pipeline);
+    const { taskPrompt } = await (orchestrator as unknown as {
+      buildSubagentTaskPrompt: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+        results: Readonly<Record<string, string>>,
+        toolScope: typeof toolScope,
+      ) => Promise<{ taskPrompt: string }>;
+    }).buildSubagentTaskPrompt(
+      step,
+      pipeline,
+      { implement_core: dependencyResult },
+      toolScope,
+    );
+
+    expect(taskPrompt).toContain("cargo test --workspace succeeds.");
+    expect(taskPrompt).not.toContain("Host tooling constraints:");
+    expect(taskPrompt).not.toContain("workspace:*");
+    expect(taskPrompt).not.toContain(
+      "Buildable TypeScript workspace packages use package-local tsconfig/project references",
+    );
+    expect(taskPrompt).not.toContain("npm run build --workspace=<workspace-name>");
+  });
+
+  it("filters generated rust target artifacts from dependency-derived workspace context", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => null,
+      pollIntervalMs: 5,
+      resolveAvailableToolNames: () => [
+        "system.bash",
+        "system.readFile",
+        "system.writeFile",
+      ],
+    });
+
+    const pipeline: Pipeline = {
+      id: "planner:session-rust-target-filter:123",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "implement_core",
+          stepType: "subagent_task",
+          objective:
+            "Implement the Rust parser and routing algorithms in the cargo workspace.",
+          inputContract: "Fresh cargo workspace scaffolded.",
+          acceptanceCriteria: ["gridforge-core compiles cleanly."],
+          requiredToolCapabilities: [
+            "system.writeFile",
+            "system.readFile",
+            "system.bash",
+          ],
+          contextRequirements: ["cwd=/workspace/gridforge", "Cargo.toml workspace"],
+          maxBudgetHint: "6m",
+          canRunParallel: false,
+        },
+        {
+          name: "add_tests_examples_readme",
+          stepType: "subagent_task",
+          dependsOn: ["implement_core"],
+          objective:
+            "Add tests, example maps, and README while preserving the Cargo.toml workspace build.",
+          inputContract:
+            "Use the existing Cargo.toml workspace and current gridforge-core sources as context.",
+          acceptanceCriteria: [
+            "README and example maps added.",
+            "cargo test --workspace succeeds.",
+          ],
+          requiredToolCapabilities: [
+            "system.writeFile",
+            "system.readFile",
+            "system.bash",
+          ],
+          contextRequirements: ["cwd=/workspace/gridforge", "Cargo.toml workspace"],
+          maxBudgetHint: "4m",
+          canRunParallel: false,
+        },
+      ],
+      plannerContext: {
+        parentRequest:
+          "Build a Rust cargo workspace and verify it with cargo test --workspace.",
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+    };
+
+    const dependencyResult = JSON.stringify({
+      status: "completed",
+      success: true,
+      toolCalls: [
+        {
+          name: "system.writeFile",
+          args: {
+            path: "Cargo.toml",
+            content:
+              '[workspace]\nmembers = ["gridforge-core", "gridforge-cli"]\nresolver = "2"\n',
+          },
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "gridforge-core/src/lib.rs",
+            content: "pub fn dijkstra() -> usize { 0 }\n",
+          },
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "target/.rustc_info.json",
+            content: '{"rustc_fingerprint":"abc123"}',
+          },
+        },
+        {
+          name: "system.writeFile",
+          args: {
+            path: "target/debug/.fingerprint/gridforge-core/hash.json",
+            content: '{"fingerprint":"deadbeef"}',
+          },
+        },
+      ],
+    });
+
+    const step = pipeline.plannerSteps[1]!;
+    const toolScope = (orchestrator as unknown as {
+      deriveChildToolAllowlist: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+      ) => {
+        allowedTools: readonly string[];
+        allowsToollessExecution: boolean;
+        semanticFallback: readonly string[];
+        removedLowSignalBrowserTools: readonly string[];
+        removedByPolicy: readonly string[];
+        removedAsDelegationTools: readonly string[];
+        removedAsUnknownTools: readonly string[];
+        parentPolicyAllowed: readonly string[];
+      };
+    }).deriveChildToolAllowlist(step, pipeline);
+    const { taskPrompt } = await (orchestrator as unknown as {
+      buildSubagentTaskPrompt: (
+        step: Pipeline["plannerSteps"][number],
+        pipeline: Pipeline,
+        results: Readonly<Record<string, string>>,
+        toolScope: typeof toolScope,
+      ) => Promise<{ taskPrompt: string }>;
+    }).buildSubagentTaskPrompt(
+      step,
+      pipeline,
+      { implement_core: dependencyResult },
+      toolScope,
+    );
+
+    expect(taskPrompt).toContain("[artifact:implement_core:Cargo.toml]");
+    expect(taskPrompt).not.toContain("target/.rustc_info.json");
+    expect(taskPrompt).not.toContain(".fingerprint/gridforge-core");
   });
 
   it("surfaces empty package source gaps before verification in implementation prompts", async () => {
@@ -4861,12 +5329,23 @@ describe("SubAgentOrchestrator", () => {
     const failedEvents = lifecycleEvents.filter(
       (event) => event.type === "subagents.failed",
     );
-    expect(failedEvents).toHaveLength(1);
-    const failedPayload = failedEvents[0]?.payload as
-      | { retrying?: boolean; nextRetryDelayMs?: number }
+    expect(failedEvents).toHaveLength(0);
+    const retryEvents = lifecycleEvents.filter(
+      (event) => event.type === "subagents.progress",
+    );
+    expect(retryEvents).toHaveLength(1);
+    const retryPayload = retryEvents[0]?.payload as
+      | {
+          phase?: string;
+          retrying?: boolean;
+          nextRetryDelayMs?: number;
+          failureClass?: string;
+        }
       | undefined;
-    expect(failedPayload?.retrying).toBe(true);
-    expect(failedPayload?.nextRetryDelayMs).toBe(75);
+    expect(retryPayload?.phase).toBe("retry_backoff");
+    expect(retryPayload?.retrying).toBe(true);
+    expect(retryPayload?.failureClass).toBe("timeout");
+    expect(retryPayload?.nextRetryDelayMs).toBe(75);
   });
 
   it("applies malformed result-contract retry semantics and maps validation stop reason", async () => {
@@ -4896,9 +5375,13 @@ describe("SubAgentOrchestrator", () => {
         },
       },
     ]);
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
     const orchestrator = new SubAgentOrchestrator({
       fallbackExecutor: fallback,
       resolveSubAgentManager: () => manager,
+      resolveLifecycleEmitter: () => ({
+        emit: (event: Record<string, unknown>) => lifecycleEvents.push(event),
+      } as any),
       pollIntervalMs: 5,
       fallbackBehavior: "fail_request",
     });
@@ -4994,9 +5477,13 @@ describe("SubAgentOrchestrator", () => {
         },
       },
     ]);
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
     const orchestrator = new SubAgentOrchestrator({
       fallbackExecutor: fallback,
       resolveSubAgentManager: () => manager,
+      resolveLifecycleEmitter: () => ({
+        emit: (event: Record<string, unknown>) => lifecycleEvents.push(event),
+      } as any),
       pollIntervalMs: 5,
       fallbackBehavior: "fail_request",
     });
@@ -5179,15 +5666,90 @@ describe("SubAgentOrchestrator", () => {
         },
       },
     ]);
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
     const orchestrator = new SubAgentOrchestrator({
       fallbackExecutor: fallback,
       resolveSubAgentManager: () => manager,
+      resolveLifecycleEmitter: () => ({
+        emit: (event: Record<string, unknown>) => lifecycleEvents.push(event),
+      } as any),
       pollIntervalMs: 5,
       fallbackBehavior: "fail_request",
     });
 
     const result = await orchestrator.execute({
       id: "planner:session-blocked-phase-output:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "implement_cli",
+          stepType: "subagent_task",
+          objective: "Build the CLI package and keep the workspace buildable",
+          inputContract: "Core package implemented and buildable",
+          acceptanceCriteria: ["CLI reads input and outputs summary"],
+          requiredToolCapabilities: ["system.bash", "system.writeFile"],
+          contextRequirements: ["cwd=/workspace/terrain-router-ts"],
+          maxBudgetHint: "3m",
+          canRunParallel: true,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("blocked or incomplete");
+    expect(result.stopReasonHint).toBe("validation_error");
+    expect(manager.spawnCalls).toHaveLength(1);
+  });
+
+  it("does not retry child validation_error results that already carry blocked phase validation codes", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output:
+            "Delegated task output reported the phase as blocked or incomplete instead of completing it: " +
+            '{"phase":"implement_cli","status":"complete","blocked":"core build is still failing"}',
+          success: false,
+          durationMs: 14,
+          toolCalls: [{
+            name: "system.writeFile",
+            args: {
+              path: "packages/cli/src/index.ts",
+              content: "export {};\n",
+            },
+            result:
+              '{"path":"packages/cli/src/index.ts","bytesWritten":10}',
+            durationMs: 3,
+          }],
+          stopReason: "validation_error",
+          stopReasonDetail:
+            "Delegated task output reported the phase as blocked or incomplete instead of completing it: " +
+            '{"phase":"implement_cli","status":"complete","blocked":"core build is still failing"}',
+          validationCode: "blocked_phase_output",
+        },
+      },
+    ]);
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      resolveLifecycleEmitter: () => ({
+        emit: (event: Record<string, unknown>) => lifecycleEvents.push(event),
+      } as any),
+      pollIntervalMs: 5,
+      fallbackBehavior: "fail_request",
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-blocked-validation-code:1",
       createdAt: Date.now(),
       context: { results: {} },
       steps: [],
@@ -5250,9 +5812,13 @@ describe("SubAgentOrchestrator", () => {
         },
       },
     ]);
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
     const orchestrator = new SubAgentOrchestrator({
       fallbackExecutor: fallback,
       resolveSubAgentManager: () => manager,
+      resolveLifecycleEmitter: () => ({
+        emit: (event: Record<string, unknown>) => lifecycleEvents.push(event),
+      } as any),
       pollIntervalMs: 5,
       fallbackBehavior: "fail_request",
     });
@@ -5355,6 +5921,82 @@ describe("SubAgentOrchestrator", () => {
     });
   });
 
+  it("inherits an absolute delegated workspace from planner context when a downstream child uses cwd=.", async () => {
+    const workspaceRoot = "/tmp/codegen-bench-3dgame-cpp-20260312-r2";
+    const fallback = createFallbackExecutor(async () => ({
+      status: "completed",
+      context: { results: {} },
+      completedSteps: 0,
+      totalSteps: 0,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output: "main.cpp updated",
+          success: true,
+          durationMs: 9,
+          toolCalls: [
+            {
+              name: "system.writeFile",
+              args: {
+                path: `${workspaceRoot}/main.cpp`,
+                content: "int main() { return 0; }\n",
+              },
+              result: `{\"path\":\"${workspaceRoot}/main.cpp\",\"bytesWritten\":25}`,
+              isError: false,
+              durationMs: 2,
+            } as any,
+          ],
+        },
+      },
+    ]);
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      resolveLifecycleEmitter: () => ({
+        emit: (event: Record<string, unknown>) => lifecycleEvents.push(event),
+      } as any),
+      pollIntervalMs: 5,
+      fallbackBehavior: "fail_request",
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-relative-cwd-inherited:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerContext: {
+        parentRequest:
+          `Continue only on the existing project at ${workspaceRoot}.`,
+        history: [],
+        memory: [],
+        toolOutputs: [],
+      },
+      plannerSteps: [
+        {
+          name: "repair_autopilot",
+          stepType: "subagent_task",
+          objective: "Repair the main gameplay loop without leaving the current project.",
+          inputContract: "Current project workspace already exists.",
+          acceptanceCriteria: ["Edit the existing main.cpp file in place."],
+          requiredToolCapabilities: ["system.readFile", "system.writeFile"],
+          contextRequirements: ["cwd=.", "existing source files from the workspace"],
+          maxBudgetHint: "2m",
+          canRunParallel: false,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(manager.spawnCalls).toHaveLength(1);
+    expect(manager.spawnCalls[0]?.workingDirectory).toBe(workspaceRoot);
+    expect(manager.spawnCalls[0]?.delegationSpec?.contextRequirements).toContain(
+      `cwd=${workspaceRoot}`,
+    );
+  });
+
   it("blocks dependent DAG nodes when an upstream delegated step falls back unresolved", async () => {
     const fallback = createFallbackExecutor(async (pipeline) => {
       const step = pipeline.steps[0]!;
@@ -5377,6 +6019,16 @@ describe("SubAgentOrchestrator", () => {
           output: "Tool budget exceeded (24 per request)",
           success: false,
           durationMs: 12,
+          toolCalls: [],
+          stopReason: "budget_exceeded",
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output: "Tool budget exceeded (36 per request)",
+          success: false,
+          durationMs: 13,
           toolCalls: [],
           stopReason: "budget_exceeded",
         },
@@ -5432,7 +6084,7 @@ describe("SubAgentOrchestrator", () => {
     expect(result.error).toContain("implement_cli");
     expect(result.error).toContain("implement_core");
     expect(result.stopReasonHint).toBe("budget_exceeded");
-    expect(manager.spawnCalls).toHaveLength(1);
+    expect(manager.spawnCalls).toHaveLength(2);
     expect(fallback.execute).toHaveBeenCalledTimes(1);
 
     const corePayload = JSON.parse(
@@ -5454,6 +6106,74 @@ describe("SubAgentOrchestrator", () => {
     expect(cliPayload.status).toBe("dependency_blocked");
     expect(cliPayload.stopReasonHint).toBe("budget_exceeded");
     expect(cliPayload.unmetDependencies?.[0]?.stepName).toBe("implement_core");
+  });
+
+  it("retries delegated budget exhaustion once with an expanded child tool budget", async () => {
+    const fallback = createFallbackExecutor(async (pipeline) => ({
+      status: "completed",
+      context: pipeline.context,
+      completedSteps: pipeline.steps.length,
+      totalSteps: pipeline.steps.length,
+    }));
+    const manager = new SequencedSubAgentManager([
+      {
+        delayMs: 5,
+        result: {
+          output: "Tool budget exceeded (64 per request)",
+          success: false,
+          durationMs: 20,
+          toolCalls: [],
+          stopReason: "budget_exceeded",
+        },
+      },
+      {
+        delayMs: 5,
+        result: {
+          output: "Included the renderer failure summary.",
+          success: true,
+          durationMs: 18,
+          toolCalls: [{
+            name: "system.readFile",
+            args: { path: "/tmp/renderer.log" },
+            result: '{"content":"renderer stack trace"}',
+            isError: false,
+            durationMs: 2,
+          }],
+          stopReason: "completed",
+        },
+      },
+    ]);
+    const orchestrator = new SubAgentOrchestrator({
+      fallbackExecutor: fallback,
+      resolveSubAgentManager: () => manager,
+      pollIntervalMs: 5,
+      fallbackBehavior: "fail_request",
+    });
+
+    const result = await orchestrator.execute({
+      id: "planner:session-budget-retry:1",
+      createdAt: Date.now(),
+      context: { results: {} },
+      steps: [],
+      plannerSteps: [
+        {
+          name: "analyze_renderer_logs",
+          stepType: "subagent_task",
+          objective: "Analyze renderer logs and summarize the failure",
+          inputContract: "Recent CI logs exist",
+          acceptanceCriteria: ["Include the renderer failure summary"],
+          requiredToolCapabilities: ["system.readFile"],
+          contextRequirements: ["ci_logs"],
+          maxBudgetHint: "8m",
+          canRunParallel: false,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(manager.spawnCalls).toHaveLength(2);
+    expect(manager.spawnCalls[0]?.toolBudgetPerRequest).toBe(64);
+    expect(manager.spawnCalls[1]?.toolBudgetPerRequest).toBe(96);
   });
 
   it("retries child validation failures that return non-completed stop reasons without tool evidence", async () => {
@@ -5662,9 +6382,13 @@ describe("SubAgentOrchestrator", () => {
         },
       },
     ]);
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
     const orchestrator = new SubAgentOrchestrator({
       fallbackExecutor: fallback,
       resolveSubAgentManager: () => manager,
+      resolveLifecycleEmitter: () => ({
+        emit: (event: Record<string, unknown>) => lifecycleEvents.push(event),
+      } as any),
       pollIntervalMs: 5,
       fallbackBehavior: "fail_request",
     });
@@ -5720,6 +6444,25 @@ describe("SubAgentOrchestrator", () => {
     );
     expect(manager.spawnCalls[1]?.task).toContain("Cannot find module 'fs'");
     expect(acceptanceProbeCalls).toBe(2);
+    expect(
+      lifecycleEvents.filter((event) => event.type === "subagents.acceptance_probe.failed"),
+    ).toHaveLength(1);
+    expect(
+      lifecycleEvents.filter((event) => event.type === "subagents.failed"),
+    ).toHaveLength(0);
+    expect(
+      lifecycleEvents.filter((event) => event.type === "subagents.completed"),
+    ).toHaveLength(1);
+    const retryPayload = lifecycleEvents.find(
+      (event) => event.type === "subagents.progress",
+    )?.payload as
+      | { validationCode?: string; phase?: string; retrying?: boolean }
+      | undefined;
+    expect(retryPayload).toMatchObject({
+      phase: "retry_backoff",
+      validationCode: "acceptance_probe_failed",
+      retrying: true,
+    });
 
     const fallbackCalls = vi.mocked(fallback.execute).mock.calls;
     const acceptanceProbePipeline = fallbackCalls

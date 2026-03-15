@@ -9,11 +9,6 @@ on:
       - ".github/workflows/private-proof-benchmark-pages.yml"
       - "benchmarks/private-proof-e2e/**"
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 concurrency:
   group: private-proof-benchmark-pages
   cancel-in-progress: true
@@ -21,6 +16,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +29,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

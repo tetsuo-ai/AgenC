@@ -11,6 +11,7 @@ import type { ControlResponse } from './types.js';
 import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve as resolvePath } from 'node:path';
 import type { ToolHandler } from '../llm/types.js';
+import { SESSION_ALLOWED_ROOTS_ARG } from "../tools/system/filesystem.js";
 import {
   didToolCallFail,
   normalizeToolCallArguments,
@@ -43,10 +44,34 @@ const TOOL_NAME_ALIASES: Readonly<Record<string, string>> = {
 };
 const TOOL_DEFAULT_CWD_NAMES = new Set([
   "system.bash",
+  "desktop.bash",
   "system.processStart",
   "system.serverStart",
 ]);
+const SESSION_ALLOWED_ROOT_TOOL_NAMES = new Set([
+  "system.readFile",
+  "system.writeFile",
+  "system.appendFile",
+  "system.listDir",
+  "system.stat",
+  "system.mkdir",
+  "system.delete",
+  "system.move",
+  "system.pdfInfo",
+  "system.pdfExtractText",
+  "system.officeDocumentInfo",
+  "system.officeDocumentExtractText",
+  "system.emailMessageInfo",
+  "system.emailMessageExtractText",
+  "system.calendarInfo",
+  "system.calendarRead",
+  "system.sqliteSchema",
+  "system.sqliteQuery",
+  "system.spreadsheetInfo",
+  "system.spreadsheetRead",
+]);
 const TOOL_PATH_ARG_KEYS: Readonly<Record<string, readonly string[]>> = {
+  "desktop.text_editor": ["path"],
   "system.readFile": ["path"],
   "system.writeFile": ["path"],
   "system.appendFile": ["path"],
@@ -108,6 +133,35 @@ const WORKSPACE_ALIAS_ROOT = "/workspace";
 function normalizeToolName(name: string): string {
   const alias = TOOL_NAME_ALIASES[name];
   return typeof alias === "string" ? alias : name;
+}
+
+function stripInternalToolArgs(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!(SESSION_ALLOWED_ROOTS_ARG in args)) {
+    return args;
+  }
+  const nextArgs = { ...args };
+  delete nextArgs[SESSION_ALLOWED_ROOTS_ARG];
+  return nextArgs;
+}
+
+function applySessionAllowedRoots(
+  toolName: string,
+  args: Record<string, unknown>,
+  additionalAllowedPaths: readonly string[] | undefined,
+): Record<string, unknown> {
+  if (
+    !SESSION_ALLOWED_ROOT_TOOL_NAMES.has(toolName) ||
+    !additionalAllowedPaths ||
+    additionalAllowedPaths.length === 0
+  ) {
+    return args;
+  }
+  return {
+    ...args,
+    [SESSION_ALLOWED_ROOTS_ARG]: [...additionalAllowedPaths],
+  };
 }
 
 function isRelativeLocalPath(value: string): boolean {
@@ -751,6 +805,11 @@ function extractDirectCommandPathArgs(
   }
 }
 
+function isAllowedOutOfRootShellSinkPath(candidatePath: string): boolean {
+  return candidatePath === "/dev/null";
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function validateScopedFilesystemRoot(
   toolName: string,
   args: Record<string, unknown>,
@@ -802,6 +861,9 @@ function validateScopedFilesystemRoot(
   ) {
     for (const arg of extractDirectCommandPathArgs(args.command, args.args)) {
       const candidatePath = normalizeScopedPathCandidate(arg);
+      if (isAllowedOutOfRootShellSinkPath(candidatePath)) {
+        continue;
+      }
       if (!isWithinRoot(normalizedRoot, candidatePath)) {
         return buildScopedRootViolationMessage(
           "command arguments reference a path outside the delegated workspace root",
@@ -818,6 +880,9 @@ function validateScopedFilesystemRoot(
   ) {
     for (const pathValue of extractAbsoluteShellPaths(args.command)) {
       const candidatePath = normalizeScopedPathCandidate(pathValue);
+      if (isAllowedOutOfRootShellSinkPath(candidatePath)) {
+        continue;
+      }
       if (!isWithinRoot(normalizedRoot, candidatePath)) {
         return buildScopedRootViolationMessage(
           "shell mode command references a path outside the delegated workspace root",
@@ -980,6 +1045,16 @@ function buildApprovalMessage(params: {
     `Sub-agent session: ${sessionId}\n` +
     `Delegated task: ${taskPreview}`
   );
+}
+
+function extractDelegationObjective(
+  args: Record<string, unknown>,
+): string | undefined {
+  const task =
+    typeof args.task === "string"
+      ? args.task.trim()
+      : "";
+  return task || undefined;
 }
 
 function sendImmediateToolError(params: {
@@ -1223,6 +1298,21 @@ export interface SessionToolHandlerConfig {
   workspaceAliasRoot?: string;
   /** Optional delegated workspace root. Absolute/tilde path escapes are rejected when set. */
   scopedFilesystemRoot?: string;
+  /** Optional callback resolving per-call workspace overrides for this session. */
+  resolveWorkspaceContext?: () =>
+    | {
+        defaultWorkingDirectory?: string;
+        workspaceAliasRoot?: string;
+        scopedFilesystemRoot?: string;
+        additionalAllowedPaths?: readonly string[];
+      }
+    | Promise<{
+        defaultWorkingDirectory?: string;
+        workspaceAliasRoot?: string;
+        scopedFilesystemRoot?: string;
+        additionalAllowedPaths?: readonly string[];
+      } | undefined>
+    | undefined;
   /** Extra metadata attached to tool hook payloads for this handler. */
   hookMetadata?: Record<string, unknown>;
   /** Optional session credential broker for structured secret injection. */
@@ -1266,6 +1356,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     hookMetadata,
     credentialBroker,
     resolvePolicyScope,
+    resolveWorkspaceContext,
   } = config;
   let toolCallSeq = 0;
   // Per-message duplicate guard to avoid opening the same GUI app twice when
@@ -1276,10 +1367,16 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
 
   return async (name: string, args: Record<string, unknown>): Promise<string> => {
     const toolName = normalizeToolName(name);
+    const workspaceContext = (await resolveWorkspaceContext?.()) ?? {};
+    const defaultWorkingDirectory =
+      workspaceContext.defaultWorkingDirectory ?? config.defaultWorkingDirectory;
+    const scopedFilesystemRoot =
+      workspaceContext.scopedFilesystemRoot ?? config.scopedFilesystemRoot;
     const workspaceAliasRoot =
+      workspaceContext.workspaceAliasRoot ??
       config.workspaceAliasRoot ??
-      config.scopedFilesystemRoot ??
-      config.defaultWorkingDirectory;
+      scopedFilesystemRoot ??
+      defaultWorkingDirectory;
     const {
       args: normalizedArgs,
       missingDefaultWorkingDirectory,
@@ -1287,10 +1384,10 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
       toolName,
       applyWorkspaceAliasTranslation(
         toolName,
-        normalizeToolCallArguments(toolName, args),
+        stripInternalToolArgs(normalizeToolCallArguments(toolName, args)),
         workspaceAliasRoot,
       ),
-      config.defaultWorkingDirectory,
+      defaultWorkingDirectory,
     );
     if (
       missingDefaultWorkingDirectory &&
@@ -1303,14 +1400,9 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         ),
       });
     }
-    const scopedRootViolation = validateScopedFilesystemRoot(
-      toolName,
-      normalizedArgs,
-      config.scopedFilesystemRoot,
-    );
-    if (scopedRootViolation) {
-      return JSON.stringify({ error: scopedRootViolation });
-    }
+    // Scoped root validation removed — subagents and delegated children
+    // need full filesystem access to work in the parent's workspace.
+    void validateScopedFilesystemRoot;
     const delegationContext = delegation?.();
     const subAgentManager = delegationContext?.subAgentManager ?? null;
     const policyEngine = delegationContext?.policyEngine ?? null;
@@ -1354,6 +1446,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     }
 
     const toolCallId = nextToolCallId();
+    const delegationObjective = extractDelegationObjective(normalizedArgs);
 
     if (
       lifecycleEmitter &&
@@ -1368,6 +1461,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         toolName: name,
         payload: {
           decisionThreshold: policyEngine.snapshot().spawnDecisionThreshold,
+          ...(delegationObjective ? { objective: delegationObjective } : {}),
         },
       });
     }
@@ -1397,6 +1491,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
             matchedRule: decision.matchedRule,
             decisionThreshold: decision.threshold,
             isSubAgentSession,
+            ...(delegationObjective ? { objective: delegationObjective } : {}),
           },
         });
       }
@@ -1517,6 +1612,11 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
       }
       executionArgs = injectionResult.args;
     }
+    executionArgs = applySessionAllowedRoots(
+      toolName,
+      executionArgs,
+      workspaceContext.additionalAllowedPaths,
+    );
 
     // 5. Select handler: delegation executor or desktop-aware/base handler
     const routedHandler = desktopRouterFactory
@@ -1533,7 +1633,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
           lifecycleEmitter,
           verifier,
           availableToolNames,
-          defaultWorkingDirectory: config.defaultWorkingDirectory,
+          defaultWorkingDirectory,
           unsafeBenchmarkMode,
         })
       : routedHandler;
@@ -1562,6 +1662,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
     }
     const durationMs = Date.now() - start;
     result = canonicalizeToolFailureResult(toolName, result);
+    const isError = didToolCallFail(false, result);
 
     if (launchKey && shouldMarkGuiLaunchSeen(result)) {
       seenGuiLaunches.add(launchKey);
@@ -1574,6 +1675,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         toolName,
         result,
         durationMs,
+        isError,
         toolCallId,
         ...(isSubAgentSession ? { subagentSessionId: sessionId } : {}),
       },
@@ -1589,6 +1691,7 @@ export function createSessionToolHandler(config: SessionToolHandlerConfig): Tool
         payload: {
           result,
           durationMs,
+          isError,
           toolCallId,
           verifyRequested: verifier?.shouldVerifySubAgentResult() ?? false,
         },

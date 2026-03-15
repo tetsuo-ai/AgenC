@@ -501,9 +501,12 @@ export function reconcileStructuredToolOutcome(
     if (allToolCallsFailed && !surfacesFailureDetails) {
       return buildToolFailureFallback(toolCalls);
     }
-    if (hasUnsupportedNarrativeFileClaims(trimmed, toolCalls)) {
-      return buildUnsupportedFileClaimFallback(toolCalls);
-    }
+    // Narrative file claim guard disabled — Grok models sometimes
+    // summarize planned writes before executing them, triggering false
+    // rejections that hide useful partial responses.
+    // if (hasUnsupportedNarrativeFileClaims(trimmed, toolCalls)) {
+    //   return buildUnsupportedFileClaimFallback(toolCalls);
+    // }
     if (
       (hasToolFailure || hasSubagentFailureSignal) &&
       (
@@ -584,7 +587,10 @@ export function reconcileStructuredToolOutcome(
 }
 
 const EXECUTION_PLAN_LINE_RE =
-  /^(?:\d+\.\s+|[-*]\s+)(?:scaffold|create|implement|build|validate|verify|run|research|compare|open|test)\b/i;
+  /^(?:\d+\.\s+|[-*]\s+)(?:scaffold|create|write|edit|implement|build|compile|validate|verify|run|research|compare|open|test|fix|install)\b/i;
+const PLAN_HEADING_RE = /^(?:\*\*)?plan(?:\*\*)?:?/im;
+const FUTURE_EXECUTION_SIGNAL_RE =
+  /\b(?:starting execution|begin(?:ning)? execution|i(?:'ll| will)|going to|next(?: up)?|after that|then)\b/i;
 
 export function reconcileTerminalFailureContent(params: {
   content: string;
@@ -680,7 +686,7 @@ function isLowInformationCompletion(content: string): boolean {
   );
 }
 
-function looksLikeExecutionPlan(content: string): boolean {
+export function looksLikeExecutionPlan(content: string): boolean {
   const lines = content
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -688,6 +694,12 @@ function looksLikeExecutionPlan(content: string): boolean {
   if (lines.length === 0 || lines.length > 12) return false;
   const planLines = lines.filter((line) => EXECUTION_PLAN_LINE_RE.test(line));
   return planLines.length >= Math.min(3, lines.length);
+}
+
+export function isPlanOnlyExecutionResponse(content: string): boolean {
+  const trimmed = content.trim();
+  if (!looksLikeExecutionPlan(trimmed)) return false;
+  return PLAN_HEADING_RE.test(trimmed) || FUTURE_EXECUTION_SIGNAL_RE.test(trimmed);
 }
 
 function normalizeFailurePreview(value: string): string {

@@ -396,9 +396,9 @@ describe("SlashCommandRegistry", () => {
 });
 
 describe("createDefaultCommands", () => {
-  it("returns 14 default commands", () => {
+  it("returns 15 default commands", () => {
     const commands = createDefaultCommands();
-    expect(commands).toHaveLength(14);
+    expect(commands).toHaveLength(15);
   });
 
   it("includes all expected command names", () => {
@@ -408,6 +408,7 @@ describe("createDefaultCommands", () => {
     expect(names).toContain("help");
     expect(names).toContain("status");
     expect(names).toContain("new");
+    expect(names).toContain("init");
     expect(names).toContain("reset");
     expect(names).toContain("stop");
     expect(names).toContain("start");
@@ -428,10 +429,10 @@ describe("createDefaultCommands", () => {
     }
   });
 
-  it("/model has args pattern [name]", () => {
+  it("/model has args pattern", () => {
     const commands = createDefaultCommands();
     const model = commands.find((c) => c.name === "model");
-    expect(model!.args).toBe("[name]");
+    expect(model!.args).toBe("[model-name | current | list]");
   });
 
   it("can be registered on a registry", () => {
@@ -440,7 +441,7 @@ describe("createDefaultCommands", () => {
     for (const cmd of commands) {
       registry.register(cmd);
     }
-    expect(registry.size).toBe(14);
+    expect(registry.size).toBe(15);
   });
 
   it("registry without defaults starts empty", () => {
@@ -483,7 +484,7 @@ describe("createDefaultCommands", () => {
     }
   });
 
-  it("/model [name] appears in help-style listing", () => {
+  it("/model args and description appear in help-style listing", () => {
     const registry = new SlashCommandRegistry({ logger: silentLogger });
     for (const cmd of createDefaultCommands()) {
       registry.register(cmd);
@@ -492,6 +493,12 @@ describe("createDefaultCommands", () => {
     const model = registry.get("model")!;
     const helpLine = `/${model.name}${model.args ? ` ${model.args}` : ""} — ${model.description}`;
 
-    expect(helpLine).toContain("/model [name]");
+    expect(helpLine).toContain("/model [model-name | current | list]");
+  });
+
+  it("/init has args pattern [--force]", () => {
+    const commands = createDefaultCommands();
+    const init = commands.find((c) => c.name === "init");
+    expect(init!.args).toBe("[--force]");
   });
 });

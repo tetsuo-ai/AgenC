@@ -78,6 +78,22 @@ describe("chat-executor-contract-flow", () => {
     ).toContain("Do not claim the phase is complete");
   });
 
+  it("tells contradictory-completion retries to re-emit a completion-only answer after a fix", () => {
+    const instruction = buildRequiredToolEvidenceRetryInstruction({
+      missingEvidenceMessage:
+        "Delegated task output claimed completion while still reporting unresolved work",
+      validationCode: "contradictory_completion_claim",
+      allowedToolNames: ["system.readFile", "system.writeFile"],
+    });
+
+    expect(instruction).toContain(
+      "If the latest allowed-tool evidence fixes the issue, re-emit a completion-only answer grounded in that evidence.",
+    );
+    expect(instruction).toContain(
+      "Report the phase as blocked only when the blocking issue still remains",
+    );
+  });
+
   it("adds forbidden-phase retry guidance", () => {
     expect(
       buildRequiredToolEvidenceRetryInstruction({
@@ -122,5 +138,59 @@ describe("chat-executor-contract-flow", () => {
     );
     expect(instruction).toContain("Do not call additional tools for this retry.");
     expect(instruction).not.toContain("Before answering, call one or more allowed tools");
+  });
+
+  it("allows toolless delegated retries when only the final blocked/completion prose is wrong", () => {
+    const toolCalls = [
+      {
+        name: "system.writeFile",
+        args: { path: "/workspace/space-colony/src/simulation.ts" },
+        result: JSON.stringify({
+          path: "/workspace/space-colony/src/simulation.ts",
+          bytesWritten: 4082,
+        }),
+        isError: false,
+        durationMs: 3,
+      },
+      {
+        name: "system.readFile",
+        args: { path: "/workspace/space-colony/src/simulation.ts" },
+        result: JSON.stringify({
+          content: "export function generateAsteroidSurface() { return []; }\n",
+        }),
+        isError: false,
+        durationMs: 2,
+      },
+    ] as const;
+
+    expect(
+      canRetryDelegatedOutputWithoutAdditionalToolCalls({
+        validationCode: "blocked_phase_output",
+        toolCalls,
+        delegationSpec: {
+          task: "implement_core_drones",
+          objective: "Implement the colony simulation and drone core",
+          acceptanceCriteria: [
+            "Core modules are written in src/",
+            "Deterministic serialization implemented",
+          ],
+        },
+      }),
+    ).toBe(true);
+
+    expect(
+      canRetryDelegatedOutputWithoutAdditionalToolCalls({
+        validationCode: "contradictory_completion_claim",
+        toolCalls,
+        delegationSpec: {
+          task: "implement_core_drones",
+          objective: "Implement the colony simulation and drone core",
+          acceptanceCriteria: [
+            "Core modules are written in src/",
+            "Deterministic serialization implemented",
+          ],
+        },
+      }),
+    ).toBe(false);
   });
 });

@@ -31,7 +31,7 @@ import {
 const DELEGATION_POLL_INTERVAL_MS = 75;
 const DELEGATION_PROGRESS_INTERVAL_MS = 1000;
 const DELEGATION_FAILURE_SIGNAL_RE =
-  /\b(command denied|tool denied|denied by user|timed out|timeout|tool not found|failed to spawn|permission denied)\b/i;
+  /\b(command denied|tool denied|denied by user|timed out|tool not found|failed to spawn|permission denied)\b/i;
 const CHILD_MEMORY_RECALL_RE =
   /\b(?:recall|reveal|return|output|disclose|share)\b.*\b(?:memorized|stored|previous|prior|earlier|from test|child session|secret|token|value)\b|\b(?:previous|prior|earlier|from test)\b.*\b(?:memorized|stored|secret|token|value)\b/i;
 const CHILD_MEMORY_STORE_DIRECTIVE_RE =
@@ -84,18 +84,21 @@ function countFailedChildToolCalls(
     readonly result?: string;
   }[] = [],
 ): number {
+  // Only count tool calls that the runtime explicitly marked as errors.
+  // Do NOT regex-scan tool result strings or model prose — that produces
+  // false positives when the output discusses code containing words like
+  // "timeout", "permission denied", etc.
   return toolCalls.reduce((count, toolCall) => {
     if (toolCall.isError) return count + 1;
-    if (typeof toolCall.result === "string" &&
-      DELEGATION_FAILURE_SIGNAL_RE.test(toolCall.result)) {
-      return count + 1;
-    }
     return count;
   }, 0);
 }
 
-function hasDelegationFailureSignal(output: string): boolean {
-  return DELEGATION_FAILURE_SIGNAL_RE.test(output);
+function hasDelegationFailureSignal(_output: string): boolean {
+  // Disabled — regex-scanning model prose for failure signals produces
+  // too many false positives (e.g. ncurses timeout(), error handling code).
+  // The structured isError flag on tool calls is the reliable signal.
+  return false;
 }
 
 function isDeferredDisclosureStoreTurn(input: ExecuteWithAgentInput): boolean {
@@ -336,6 +339,7 @@ export async function executeDelegationTool(
     parentAllowedTools: availableToolNames,
     availableTools: availableToolNames,
     enforceParentIntersection: true,
+    strictExplicitToolAllowlist: Array.isArray(input.tools) && input.tools.length > 0,
     unsafeBenchmarkMode,
   });
   if (resolvedChildScope.blockedReason) {

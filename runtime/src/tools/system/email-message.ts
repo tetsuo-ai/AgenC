@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import type { Tool, ToolResult } from "../types.js";
 import { safeStringify } from "../types.js";
 import { silentLogger } from "../../utils/logger.js";
-import { safePath } from "./filesystem.js";
+import { resolveToolAllowedPaths, safePath } from "./filesystem.js";
 import type { SystemEmailMessageToolConfig } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -193,11 +193,12 @@ function normalizePositiveInteger(
 async function resolveEmailPath(
   rawPath: unknown,
   allowedPaths: readonly string[],
+  args: Record<string, unknown>,
 ): Promise<string | ToolResult> {
   if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
     return errorResult("Missing or invalid path");
   }
-  const safe = await safePath(rawPath, allowedPaths);
+  const safe = await safePath(rawPath, resolveToolAllowedPaths(allowedPaths, args));
   if (!safe.safe) {
     return errorResult(
       safe.reason ?? "Email message path is outside allowed directories",
@@ -244,7 +245,7 @@ function createEmailMessageInfoTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolveEmailPath(args.path, allowedPaths);
+      const resolved = await resolveEmailPath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }
@@ -297,7 +298,7 @@ function createEmailMessageExtractTextTool(
       required: ["path"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      const resolved = await resolveEmailPath(args.path, allowedPaths);
+      const resolved = await resolveEmailPath(args.path, allowedPaths, args);
       if (typeof resolved !== "string") {
         return resolved;
       }

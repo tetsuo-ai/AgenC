@@ -86,8 +86,8 @@ export class IssueResolver {
     // Phase doc link
     parts.push('## Phase Documentation');
     parts.push(`See: \`${issue.phaseDoc}\``);
-    const phaseDocKey = issue.phaseDoc.replace('docs/', '');
-    const phaseDoc = this.docs.get(phaseDocKey);
+    const phaseDoc = this.docs.get(issue.phaseDoc)
+      ?? this.docs.get(issue.phaseDoc.replace(/^docs\//, ''));
     if (phaseDoc) {
       // Extract the relevant section from the phase doc
       const sectionContent = this.extractPhaseSection(phaseDoc.content, issue.section, issueNumber);

@@ -49,7 +49,7 @@ describe("VoiceBridge delegation", () => {
     });
 
     (bridge as any).sessions.set("client-1", {
-      client: {} as any,
+      client: { cancelResponse: vi.fn(), clearAudio: vi.fn() } as any,
       send,
       toolHandler: vi.fn(async () => ""),
       sessionId: "session-1",
@@ -112,7 +112,7 @@ describe("VoiceBridge delegation", () => {
     });
 
     (bridge as any).sessions.set("client-1", {
-      client: {} as any,
+      client: { cancelResponse: vi.fn(), clearAudio: vi.fn() } as any,
       send,
       toolHandler: vi.fn(async () => ""),
       sessionId: "session-1",
@@ -214,7 +214,7 @@ describe("VoiceBridge delegation", () => {
     });
 
     (bridge as any).sessions.set("client-1", {
-      client: {} as any,
+      client: { cancelResponse: vi.fn(), clearAudio: vi.fn() } as any,
       send,
       toolHandler: vi.fn(async () => ""),
       sessionId: "session-1",
@@ -292,7 +292,7 @@ describe("VoiceBridge delegation", () => {
     });
 
     (bridge as any).sessions.set("client-1", {
-      client: {} as any,
+      client: { cancelResponse: vi.fn(), clearAudio: vi.fn() } as any,
       send,
       toolHandler: vi.fn(async () => ""),
       sessionId: "session-1",
