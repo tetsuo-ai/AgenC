@@ -45,9 +45,9 @@ const VERIFIER_ENTRY_ESTOPPED_OFFSET: usize = 44;
 
 const TRUSTED_RISC0_SELECTOR: [u8; RISC0_SELECTOR_LEN] = [0x52, 0x5a, 0x56, 0x4d];
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID: Pubkey =
-    Pubkey::from_str_const("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
+    Pubkey::from_str_const("E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ");
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID: Pubkey =
-    Pubkey::from_str_const("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
+    Pubkey::from_str_const("3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc");
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PrivateCompletionPayload {
@@ -176,16 +176,16 @@ pub struct CompleteTaskPrivate<'info> {
 
     // === Optional SPL Token accounts (only required for token-denominated tasks) ===
     #[account(mut)]
-    pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
+    pub token_escrow_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     /// CHECK: Validated in handler
     #[account(mut)]
     pub worker_token_account: Option<UncheckedAccount<'info>>,
 
     #[account(mut)]
-    pub treasury_token_account: Option<Account<'info, TokenAccount>>,
+    pub treasury_token_account: Option<Box<Account<'info, TokenAccount>>>,
 
-    pub reward_mint: Option<Account<'info, Mint>>,
+    pub reward_mint: Option<Box<Account<'info, Mint>>>,
 
     pub token_program: Option<Program<'info, Token>>,
 }

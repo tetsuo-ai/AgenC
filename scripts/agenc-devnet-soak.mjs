@@ -44,7 +44,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "..");
 const DEFAULT_IDL_PATH = path.join(REPO_ROOT, "runtime", "idl", "agenc_coordination.json");
-const DEFAULT_PROGRAM_ID = new PublicKey("5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7");
+const DEFAULT_PROGRAM_ID = new PublicKey("6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab");
 const DEFAULT_RPC_URL = "https://api.devnet.solana.com";
 const DEFAULT_KEYPAIR_PATH = path.join(os.homedir(), ".config", "solana", "id.json");
 const DEFAULT_STATE_DIR = path.join(os.homedir(), ".agenc", "devnet-soak", "default");
@@ -69,10 +69,10 @@ const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
   "BPFLoaderUpgradeab1e11111111111111111111111",
 );
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
-  "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
+  "E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ",
 );
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
-  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+  "3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc",
 );
 const TRUSTED_RISC0_SELECTOR = Buffer.from([0x52, 0x5a, 0x56, 0x4d]);
 const ROUTER_SEED = Buffer.from("router");

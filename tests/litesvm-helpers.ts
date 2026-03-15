@@ -398,10 +398,10 @@ export function advanceClock(svm: LiteSVM, seconds: number): void {
 // ============================================================================
 
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
-  "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
+  "E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ",
 );
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
-  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+  "3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc",
 );
 const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
 const VERIFIER_ENTRY_DISCRIMINATOR = Uint8Array.from([

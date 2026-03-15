@@ -12,8 +12,8 @@ import { createHash } from 'crypto';
 
 const RPC_URL = process.env.HELIUS_RPC || 'https://api.devnet.solana.com';
 const AGENC_PROGRAM_ID = new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7');
-const ROUTER_PROGRAM_ID = new PublicKey('6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7');
-const VERIFIER_PROGRAM_ID = new PublicKey('THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge');
+const ROUTER_PROGRAM_ID = new PublicKey('E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ');
+const VERIFIER_PROGRAM_ID = new PublicKey('3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc');
 const TRUSTED_SELECTOR = Buffer.from('525a5631', 'hex');
 const TRUSTED_IMAGE_ID = Buffer.from('11'.repeat(32), 'hex');
 

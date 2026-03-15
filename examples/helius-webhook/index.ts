@@ -31,8 +31,8 @@ if (!HELIUS_WEBHOOK_SECRET) {
   console.error(chalk.red('Error: HELIUS_WEBHOOK_SECRET environment variable is required'));
   process.exit(1);
 }
-const ROUTER_PROGRAM_ID = '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7';
-const VERIFIER_PROGRAM_ID = 'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge';
+const ROUTER_PROGRAM_ID = 'E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ';
+const VERIFIER_PROGRAM_ID = '3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc';
 const AGENC_PROGRAM_ID = '5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7';
 const WEBHOOK_PORT = process.env.PORT || 3000;
 

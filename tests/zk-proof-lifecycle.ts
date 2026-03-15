@@ -538,7 +538,7 @@ describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
 describe("Private Replay Seed Semantics", () => {
   it("derives distinct spend PDAs for distinct binding/nullifier seeds", () => {
     const programId = new PublicKey(
-      "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7",
+      "6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab",
     );
 
     const bindingA = Buffer.alloc(32, 0x21);

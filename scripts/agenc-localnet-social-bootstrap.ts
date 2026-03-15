@@ -22,7 +22,7 @@ import { createProgram } from "../runtime/src/idl.js";
 import { Capability, combineCapabilities } from "../runtime/src/agent/capabilities.js";
 
 const DEFAULT_RPC_URL = "http://127.0.0.1:8899";
-const DEFAULT_PROGRAM_ID = "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7";
+const DEFAULT_PROGRAM_ID = "6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab";
 const DEFAULT_OPERATOR_KEYPAIR = path.join(
   os.homedir(),
   ".config",

@@ -9,8 +9,8 @@ const PAYLOAD_STAGES = [
   { id: 4, label: 'Deriving router and spend PDAs', duration: 700 },
 ]
 
-const TRUSTED_ROUTER_PROGRAM = '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7'
-const TRUSTED_VERIFIER_PROGRAM = 'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge'
+const TRUSTED_ROUTER_PROGRAM = 'E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ'
+const TRUSTED_VERIFIER_PROGRAM = '3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc'
 const TRUSTED_ROUTER = '8v7xftANnyJTrmQfk9kYV8NsxgV2wNt2Y5soiceqd7qN'
 const TRUSTED_VERIFIER_ENTRY = 'DSjWTAx5N4oXfTy5m9BbqbMPUq5BkzFG6xzn2fJfVj8S'
 
