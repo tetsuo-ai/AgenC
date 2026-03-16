@@ -30,7 +30,9 @@ const {
   deriveAgentPda,
   deriveClaimPda,
   deriveEscrowPda,
+  PROGRAM_ID,
   deriveProtocolPda,
+  deriveZkConfigPda,
   deriveTaskPda,
   getZkConfig,
   initializeZkConfig,
@@ -591,6 +593,19 @@ function loadKeypairFromFile(filePath: string): Keypair {
   return Keypair.fromSecretKey(Uint8Array.from(secret));
 }
 
+function createCoordinationProgram(
+  provider: anchor.AnchorProvider,
+  programId: PublicKey = PROGRAM_ID,
+): Program<AgencCoordination> {
+  return new Program(
+    {
+      ...(idlJson as Idl),
+      address: programId.toBase58(),
+    },
+    provider,
+  ) as Program<AgencCoordination>;
+}
+
 async function ensureTrustedImageId(
   provider: anchor.AnchorProvider,
   program: Program<AgencCoordination>,
@@ -891,6 +906,7 @@ async function completePrivateTaskVersioned(params: {
     params.program.programId,
   );
   const escrowPda = deriveEscrowPda(params.taskPda, params.program.programId);
+  const zkConfigPda = deriveZkConfigPda(params.program.programId);
   const [bindingSpendPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("binding_spend"), Buffer.from(params.bindingSeed)],
     params.program.programId,
@@ -924,6 +940,7 @@ async function completePrivateTaskVersioned(params: {
       params.creator,
       params.workerAgentPda,
       params.protocolPda,
+      zkConfigPda,
       bindingSpendPda,
       nullifierSpendPda,
       protocolConfig.treasury,
@@ -967,6 +984,7 @@ async function completePrivateTaskVersioned(params: {
       creator: params.creator,
       worker: params.workerAgentPda,
       protocolConfig: params.protocolPda,
+      zkConfig: zkConfigPda,
       bindingSpend: bindingSpendPda,
       nullifierSpend: nullifierSpendPda,
       treasury: protocolConfig.treasury,
@@ -1001,10 +1019,29 @@ async function completePrivateTaskVersioned(params: {
     const versionedTx = new VersionedTransaction(messageV0);
     versionedTx.sign([params.worker]);
 
-    const signature = await params.connection.sendTransaction(versionedTx, {
-      maxRetries: 10,
-      preflightCommitment: "confirmed",
-    });
+    let signature: string;
+    try {
+      signature = await params.connection.sendTransaction(versionedTx, {
+        maxRetries: 10,
+        preflightCommitment: "confirmed",
+      });
+    } catch (error) {
+      const simulation = await params.connection.simulateTransaction(versionedTx, {
+        commitment: "confirmed",
+      });
+      const simulationLogs = simulation.value.logs ?? [];
+      const simulationErr =
+        simulation.value.err === null
+          ? "unknown"
+          : JSON.stringify(simulation.value.err);
+      throw new Error(
+        [
+          `completeTaskPrivate send failed on attempt ${attempt}: ${String(error)}`,
+          `simulation err: ${simulationErr}`,
+          `simulation logs: ${simulationLogs.join("\n")}`,
+        ].join("\n"),
+      );
+    }
 
     try {
       await params.connection.confirmTransaction(
@@ -1071,12 +1108,15 @@ async function runRound(params: {
       ? Promise.resolve({ strategy: "preloaded" as const, signature: "" })
       : fundKeypair(provider, creator.publicKey, options.fundingLamports),
   );
+  logger.info(`[round ${round}] creator funding ready`);
   const fundWorker = await measure(() =>
     options.workerKeypairPath
       ? Promise.resolve({ strategy: "preloaded" as const, signature: "" })
       : fundKeypair(provider, worker.publicKey, options.fundingLamports),
   );
+  logger.info(`[round ${round}] worker funding ready`);
 
+  logger.info(`[round ${round}] registering creator agent`);
   const registerCreator = await measure(() =>
     registerBenchAgent({
       program,
@@ -1087,6 +1127,7 @@ async function runRound(params: {
       stakeLamports,
     }),
   );
+  logger.info(`[round ${round}] registering worker agent`);
   const registerWorker = await measure(() =>
     registerBenchAgent({
       program,
@@ -1098,6 +1139,7 @@ async function runRound(params: {
     }),
   );
 
+  logger.info(`[round ${round}] creating private task`);
   const createTaskResult = await measure(() =>
     createPrivateTask({
       program,
@@ -1110,6 +1152,7 @@ async function runRound(params: {
       description: `Private benchmark round ${round}`,
     }),
   );
+  logger.info(`[round ${round}] claiming private task`);
   const claimTaskResult = await measure(() =>
     claimPrivateTask({
       program,
@@ -1146,16 +1189,17 @@ async function runRound(params: {
   };
 
   const generatedProof = await measure(() => proofEngine.generate(proofInputs));
+  logger.info(`[round ${round}] proof generated, submitting private completion`);
 
   const workerProvider = new anchor.AnchorProvider(
     provider.connection,
     keypairToWallet(worker) as WalletLike,
     provider.opts,
   );
-  const workerProgram = new Program(
-    idlJson as Idl,
+  const workerProgram = createCoordinationProgram(
     workerProvider,
-  ) as Program<AgencCoordination>;
+    program.programId,
+  );
 
   const taskOps = new TaskOperations({
     program: workerProgram,
@@ -1366,10 +1410,7 @@ async function main(): Promise<void> {
 
   await assertVerifierStackReady(provider.connection);
 
-  const program = new Program(
-    idlJson as Idl,
-    provider,
-  ) as Program<AgencCoordination>;
+  const program = createCoordinationProgram(provider);
   const protocolPda = deriveProtocolPda(program.programId);
   const bootstrap = await ensureProtocolInitialized(provider, program);
   const activeImageId = await ensureTrustedImageId(provider, program);

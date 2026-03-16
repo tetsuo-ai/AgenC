@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { Connection, PublicKey, Keypair, Transaction } from '@solana/web3.js';
 import { AnchorProvider, Wallet } from '@coral-xyz/anchor';
 import { PROGRAM_ID } from '@agenc/sdk';
+import rawIdlJson from '../idl/agenc_coordination.json';
 import {
   IDL,
   createProgram,
@@ -20,9 +21,11 @@ describe('IDL exports', () => {
   });
 
   it('has correct program address', () => {
-    // IDL address may differ from SDK PROGRAM_ID on devnet branches
-    expect(IDL.address).toBeTypeOf('string');
-    expect(IDL.address.length).toBeGreaterThan(30);
+    expect(IDL.address).toBe(PROGRAM_ID.toBase58());
+  });
+
+  it('keeps the checked-in runtime IDL aligned with PROGRAM_ID', () => {
+    expect(rawIdlJson.address).toBe(PROGRAM_ID.toBase58());
   });
 
   it('has expected metadata', () => {
@@ -84,7 +87,7 @@ describe('AgencCoordination type', () => {
     const program = createReadOnlyProgram(connection);
 
     // Program should be typed as Program<AgencCoordination>
-    expect(program.programId.toBase58()).toBe(IDL.address);
+    expect(program.programId.toBase58()).toBe(PROGRAM_ID.toBase58());
     expect(program.methods).toBeDefined();
   });
 });
@@ -100,9 +103,9 @@ describe('createProgram', () => {
     expect(program.programId).toBeDefined();
   });
 
-  it('uses IDL address as default programId', () => {
+  it('uses SDK PROGRAM_ID as default programId', () => {
     const program = createProgram(provider);
-    expect(program.programId.toBase58()).toBe(IDL.address);
+    expect(program.programId.toBase58()).toBe(PROGRAM_ID.toBase58());
   });
 
   it('accepts custom programId parameter', () => {
@@ -140,9 +143,9 @@ describe('createReadOnlyProgram', () => {
     expect(program.programId).toBeDefined();
   });
 
-  it('uses IDL address as default programId', () => {
+  it('uses SDK PROGRAM_ID as default programId', () => {
     const program = createReadOnlyProgram(connection);
-    expect(program.programId.toBase58()).toBe(IDL.address);
+    expect(program.programId.toBase58()).toBe(PROGRAM_ID.toBase58());
   });
 
   it('accepts custom programId parameter', () => {
@@ -204,8 +207,7 @@ describe('getIdlForProgram behavior (internal)', () => {
 
   it('returns original IDL when using default address', () => {
     const program = createReadOnlyProgram(connection);
-    // The IDL address should match the address baked into the IDL JSON
-    expect(program.idl.address).toBe(IDL.address);
+    expect(program.idl.address).toBe(PROGRAM_ID.toBase58());
   });
 
   it('returns modified IDL with custom address when using custom programId', () => {

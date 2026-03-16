@@ -11,6 +11,7 @@
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
+  deriveZkConfigPda,
   HASH_SIZE,
   RISC0_IMAGE_ID_LEN,
   RISC0_JOURNAL_LEN,
@@ -591,6 +592,7 @@ export class TaskOperations {
       [VERIFIER_SEED, Buffer.from(TRUSTED_RISC0_SELECTOR)],
       TRUSTED_RISC0_ROUTER_PROGRAM_ID,
     );
+    const zkConfigPda = deriveZkConfigPda(this.program.programId);
     const treasury = await this.getProtocolTreasury();
     const tokenAccounts = buildCompleteTaskTokenAccounts(
       task.rewardMint,
@@ -634,6 +636,7 @@ export class TaskOperations {
           creator: task.creator,
           worker: workerPda,
           protocolConfig: protocolPda,
+          zkConfig: zkConfigPda,
           bindingSpend,
           nullifierSpend,
           treasury,

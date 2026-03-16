@@ -277,9 +277,10 @@ async function createCliContext(options: CliOptions): Promise<CliContext> {
     new anchor.Wallet(authority),
     { commitment: "confirmed" },
   );
-  const programIdl = programId.equals(PROGRAM_ID)
-    ? (idlJson as anchor.Idl)
-    : ({ ...idlJson, address: programId.toBase58() } as anchor.Idl);
+  const programIdl = {
+    ...(idlJson as anchor.Idl),
+    address: programId.toBase58(),
+  } as anchor.Idl;
   const program = new anchor.Program<AgencCoordination>(
     programIdl as AgencCoordination,
     provider,

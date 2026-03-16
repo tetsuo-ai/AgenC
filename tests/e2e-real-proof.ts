@@ -101,6 +101,7 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
   let treasuryPubkey: PublicKey;
   let creatorAgentPda: PublicKey;
   let workerAgentPda: PublicKey;
+  let zkConfigPda: PublicKey;
   let taskPda: PublicKey;
   let escrowPda: PublicKey;
   let claimPda: PublicKey;
@@ -306,10 +307,10 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
       treasuryPubkey = config.treasury;
     }
 
-    const [zkConfigPda] = PublicKey.findProgramAddressSync(
+    zkConfigPda = PublicKey.findProgramAddressSync(
       [Buffer.from("zk_config")],
       program.programId,
-    );
+    )[0];
     try {
       const zkConfig = await (
         program.account.zkConfig as {
@@ -515,6 +516,7 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
       creator.publicKey,
       workerAgentPda,
       protocolPda,
+      zkConfigPda,
       bindingSpendPda,
       nullifierSpendPda,
       treasuryPubkey,
@@ -564,6 +566,7 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
         creator: creator.publicKey,
         worker: workerAgentPda,
         protocolConfig: protocolPda,
+        zkConfig: zkConfigPda,
         bindingSpend: bindingSpendPda,
         nullifierSpend: nullifierSpendPda,
         treasury: treasuryPubkey,

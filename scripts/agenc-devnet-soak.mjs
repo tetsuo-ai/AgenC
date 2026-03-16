@@ -11,6 +11,7 @@ import {
   deriveClaimPda,
   deriveEscrowPda,
   deriveProtocolPda,
+  deriveZkConfigPda,
   FIELD_MODULUS,
   generateProof,
   generateSalt,
@@ -562,6 +563,7 @@ async function completeTaskPrivateVersioned(
   const claimPda = deriveClaimPda(taskPda, workerAgentPda, context.program.programId);
   const escrowPda = deriveEscrowPda(taskPda, context.program.programId);
   const protocolPda = deriveProtocolPda(context.program.programId);
+  const zkConfigPda = deriveZkConfigPda(context.program.programId);
   const routerPda = deriveRouterPda();
   const verifierEntryPda = deriveVerifierEntryPda();
   const [bindingSpendPda] = PublicKey.findProgramAddressSync(
@@ -595,6 +597,7 @@ async function completeTaskPrivateVersioned(
       taskAccount.creator,
       workerAgentPda,
       protocolPda,
+      zkConfigPda,
       bindingSpendPda,
       nullifierSpendPda,
       protocol.treasury,
@@ -630,6 +633,7 @@ async function completeTaskPrivateVersioned(
       creator: taskAccount.creator,
       worker: workerAgentPda,
       protocolConfig: protocolPda,
+      zkConfig: zkConfigPda,
       bindingSpend: bindingSpendPda,
       nullifierSpend: nullifierSpendPda,
       treasury: protocol.treasury,

@@ -6,6 +6,7 @@
 
 import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import anchor, { Program, AnchorProvider } from "@coral-xyz/anchor";
+import { deriveZkConfigPda } from "@agenc/sdk";
 // SDK proof functions removed — proof generation requires ProofEngine
 import { AgentRuntime } from "../runtime.js";
 import { TaskScanner, TaskEventSubscription } from "./scanner.js";
@@ -1529,6 +1530,7 @@ export class AutonomousAgent extends AgentRuntime {
       };
     };
 
+    const zkConfigPda = deriveZkConfigPda(this.program.programId);
     const tx = await completeTaskPrivateMethod
       .completeTaskPrivate(taskIdU64, {
         sealBytes: Buffer.from(proofResult.sealBytes),
@@ -1544,6 +1546,7 @@ export class AutonomousAgent extends AgentRuntime {
         creator: task.creator,
         worker: agentPda,
         protocolConfig: protocolPda,
+        zkConfig: zkConfigPda,
         bindingSpend,
         nullifierSpend,
         treasury,
