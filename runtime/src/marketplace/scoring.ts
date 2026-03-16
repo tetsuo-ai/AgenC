@@ -8,12 +8,12 @@ import {
   BPS_BASE,
   DEFAULT_WEIGHTED_SCORE_WEIGHTS,
   isValidBps,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 import type {
   MatchingPolicyConfig,
   TaskBid,
   WeightedScoreWeights,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 import { MarketplaceValidationError } from "./errors.js";
 import type { RankedTaskBid } from "./types.js";
 

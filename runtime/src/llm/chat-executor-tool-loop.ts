@@ -22,14 +22,13 @@ import type {
   ExecutionContext,
   ToolLoopState,
   ToolCallAction,
-  FallbackResult,
   RecoveryHint,
 } from "./chat-executor-types.js";
 import type {
   RoundStuckState,
   ToolRoundProgressSummary,
-  ToolRoundBudgetExtensionResult,
 } from "./chat-executor-tool-utils.js";
+import type { ToolRoundBudgetExtensionResult } from "./chat-executor-budget-extension.js";
 import type { ToolFailureCircuitBreaker } from "./tool-failure-circuit-breaker.js";
 import {
   MAX_TOOL_IMAGE_CHARS_BUDGET,

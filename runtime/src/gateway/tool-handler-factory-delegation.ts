@@ -30,8 +30,6 @@ import {
 
 const DELEGATION_POLL_INTERVAL_MS = 75;
 const DELEGATION_PROGRESS_INTERVAL_MS = 1000;
-const DELEGATION_FAILURE_SIGNAL_RE =
-  /\b(command denied|tool denied|denied by user|timed out|tool not found|failed to spawn|permission denied)\b/i;
 const CHILD_MEMORY_RECALL_RE =
   /\b(?:recall|reveal|return|output|disclose|share)\b.*\b(?:memorized|stored|previous|prior|earlier|from test|child session|secret|token|value)\b|\b(?:previous|prior|earlier|from test)\b.*\b(?:memorized|stored|secret|token|value)\b/i;
 const CHILD_MEMORY_STORE_DIRECTIVE_RE =

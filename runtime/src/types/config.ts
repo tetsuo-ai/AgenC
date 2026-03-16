@@ -104,7 +104,7 @@ export interface AgentRuntimeConfig {
   /** Wallet for signing - Keypair or Wallet interface (required) */
   wallet: Keypair | Wallet;
 
-  /** Custom program ID (default: PROGRAM_ID from @agenc/sdk) */
+  /** Custom program ID (default: PROGRAM_ID from @tetsuo-ai/sdk) */
   programId?: PublicKey;
 
   /** Agent ID to load (default: generates new random 32-byte ID) */

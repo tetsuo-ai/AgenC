@@ -1,5 +1,5 @@
 /**
- * MCP client types for @agenc/runtime.
+ * MCP client types for @tetsuo-ai/runtime.
  *
  * Defines configuration and bridge interfaces for connecting to external
  * MCP servers (e.g. Peekaboo, macos-automator-mcp) via stdio transport.

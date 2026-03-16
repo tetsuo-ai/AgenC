@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PublicKey, Keypair } from "@solana/web3.js";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 import { ReputationEconomyOperations } from "./economy.js";
 import {
   parseOnChainReputationStake,

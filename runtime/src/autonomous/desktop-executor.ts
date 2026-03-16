@@ -1,5 +1,5 @@
 /**
- * Autonomous desktop executor for @agenc/runtime.
+ * Autonomous desktop executor for @tetsuo-ai/runtime.
  *
  * Closes the see-think-act-verify loop: takes a goal, plans steps,
  * executes desktop tools via ChatExecutor, verifies with screenshots,

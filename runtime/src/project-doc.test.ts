@@ -156,7 +156,7 @@ describe("project-doc", () => {
     );
     writeFileSync(
       join(workspace, "containers", "desktop", "server", "package.json"),
-      JSON.stringify({ name: "@agenc/desktop-server" }, null, 2),
+      JSON.stringify({ name: "@tetsuo-ai/desktop-server" }, null, 2),
       "utf-8",
     );
     writeFileSync(
@@ -211,7 +211,7 @@ The root \`package.json\` and \`src/\` still expose a legacy surface.
 
 ## Package Map
 
-- \`@agenc/runtime\` (\`runtime/\`): agent runtime and orchestration layers.
+- \`@tetsuo-ai/runtime\` (\`runtime/\`): agent runtime and orchestration layers.
 `,
       "utf-8",
     );

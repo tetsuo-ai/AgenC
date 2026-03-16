@@ -9,7 +9,7 @@
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import type { Program } from "@coral-xyz/anchor";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 import type { AgencCoordination } from "./types/agenc_coordination.js";
 import { AgentManager } from "./agent/manager.js";
 import {
@@ -51,7 +51,7 @@ import { ValidationError } from "./types/errors.js";
  * @example
  * ```typescript
  * import { Connection, Keypair } from '@solana/web3.js';
- * import { AgentRuntime, AgentCapabilities } from '@agenc/runtime';
+ * import { AgentRuntime, AgentCapabilities } from '@tetsuo-ai/runtime';
  *
  * const runtime = new AgentRuntime({
  *   connection: new Connection('https://api.devnet.solana.com'),

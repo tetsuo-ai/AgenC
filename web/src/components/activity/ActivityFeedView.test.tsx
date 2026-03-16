@@ -12,7 +12,7 @@ describe('ActivityFeedView', () => {
   it('shows the empty state when there are no events', () => {
     render(<ActivityFeedView events={[]} onClear={vi.fn()} />);
 
-    expect(screen.getByText('No events yet')).toBeDefined();
+    expect(screen.getByText('[no events captured]')).toBeDefined();
   });
 
   it('keeps following new events when the user is already near the bottom', () => {

@@ -1,5 +1,5 @@
 /**
- * Typed email-message inspection/extraction tools for @agenc/runtime.
+ * Typed email-message inspection/extraction tools for @tetsuo-ai/runtime.
  *
  * Provides:
  * - system.emailMessageInfo — inspect local EML metadata

@@ -4,7 +4,7 @@
  */
 
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
+import { PROGRAM_ID, SEEDS } from "@tetsuo-ai/sdk";
 import { derivePda, validateIdLength } from "../utils/pda.js";
 
 // Re-export PdaWithBump from utils — existing consumers import from here

@@ -10,14 +10,13 @@ import {
   getZkConfig,
   initializeZkConfig,
   updateZkImageId,
-} from "../sdk/src/index.js";
+} from "@tetsuo-ai/sdk";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import idlJson from "../runtime/idl/agenc_coordination.json";
-import type { AgencCoordination } from "../runtime/src/types/agenc_coordination";
+import { createProgram } from "@tetsuo-ai/runtime";
 
 const DEFAULT_RPC_URL =
   process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";

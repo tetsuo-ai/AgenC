@@ -1,5 +1,5 @@
 /**
- * LLM Adapters for @agenc/runtime
+ * LLM Adapters for @tetsuo-ai/runtime
  *
  * Provides LLM provider adapters that bridge language models
  * to the AgenC task execution system (Phase 4).

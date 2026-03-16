@@ -53,15 +53,15 @@ if (!IS_DEMO_MODE) {
   console.error(chalk.yellow('  - Non-cryptographic hash functions (trivially reversible)'));
   console.error(chalk.yellow('\nTo use AgenC in production, implement:'));
   console.error(chalk.yellow('  1. Secure keypair storage (hardware wallet, KMS, etc.)'));
-  console.error(chalk.yellow('  2. Real ZK proof generation via @agenc/sdk'));
+  console.error(chalk.yellow('  2. Real ZK proof generation via @tetsuo-ai/sdk'));
   console.error(chalk.yellow('  3. SHA-256 for cryptographic hashing'));
   console.error(chalk.red('============================================================================\n'));
   process.exit(1);
 }
 
-// AgenC SDK imports (from @agenc/sdk)
+// AgenC SDK imports (from @tetsuo-ai/sdk)
 // In production, uncomment and use:
-// import { PrivacyClient, generateProof, generateSalt } from '@agenc/sdk';
+// import { PrivacyClient, generateProof, generateSalt } from '@tetsuo-ai/sdk';
 
 // Simulated imports for demo
 const AGENC_PROGRAM_ID = new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7');
@@ -369,7 +369,7 @@ class TetsuoAgent {
     // });
 
     // SECURITY WARNING: Simulated payload for demo only.
-    // In production, you MUST use actual payload generation from @agenc/sdk.
+    // In production, you MUST use actual payload generation from @tetsuo-ai/sdk.
     if (process.env.NODE_ENV === 'production') {
       throw new Error('Demo payload generation cannot be used in production. Implement real RISC0 payload generation.');
     }

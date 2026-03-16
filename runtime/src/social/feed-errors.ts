@@ -1,5 +1,5 @@
 /**
- * Feed-specific error classes for @agenc/runtime
+ * Feed-specific error classes for @tetsuo-ai/runtime
  *
  * All feed errors extend RuntimeError and use codes from RuntimeErrorCodes.
  *

@@ -1,5 +1,5 @@
 /**
- * Jupiter skill module for @agenc/runtime
+ * Jupiter skill module for @tetsuo-ai/runtime
  *
  * @module
  */

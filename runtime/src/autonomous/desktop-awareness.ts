@@ -1,5 +1,5 @@
 /**
- * Desktop awareness heartbeat action for @agenc/runtime.
+ * Desktop awareness heartbeat action for @tetsuo-ai/runtime.
  *
  * Periodically captures the desktop screen via Peekaboo MCP tools,
  * uses LLM to understand the current context, and stores observations

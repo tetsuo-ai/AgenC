@@ -20,7 +20,7 @@ It maps common incidents to deterministic steps and expected payload shapes.
 Recommended config for forensic windows:
 
 ```ts
-import { AgentRuntime } from '@agenc/runtime';
+import { AgentRuntime } from '@tetsuo-ai/runtime';
 
 const runtime = new AgentRuntime({
   replay: {
@@ -144,7 +144,7 @@ Use this cursor to resume precisely from last processed event when rerunning bac
 ```ts
 import { REPLAY_QUALITY_FIXTURE_V1 } from '../tests/fixtures/replay-quality-fixture.v1.ts';
 import { projectOnChainEvents } from '../src/eval/projector.js';
-import { TrajectoryReplayEngine, ReplayComparisonService } from '@agenc/runtime';
+import { TrajectoryReplayEngine, ReplayComparisonService } from '@tetsuo-ai/runtime';
 
 const projected = projectOnChainEvents(REPLAY_QUALITY_FIXTURE_V1.onChainEvents, {
   traceId: REPLAY_QUALITY_FIXTURE_V1.traceId,

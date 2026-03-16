@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { PublicKey, Keypair } from "@solana/web3.js";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 import { DAGOrchestrator } from "./orchestrator.js";
 import { GoalCompiler, type GoalPlanner } from "./compiler.js";
 

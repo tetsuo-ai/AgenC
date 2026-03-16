@@ -1,5 +1,5 @@
 /**
- * MCP connection manager for @agenc/runtime.
+ * MCP connection manager for @tetsuo-ai/runtime.
  *
  * Manages multiple MCP server connections, creating tool bridges
  * for each and exposing a unified tool list for the ToolRegistry.

@@ -1,5 +1,5 @@
 /**
- * Bridge-specific error classes for @agenc/runtime
+ * Bridge-specific error classes for @tetsuo-ai/runtime
  *
  * All bridge errors extend RuntimeError and use codes from RuntimeErrorCodes.
  *

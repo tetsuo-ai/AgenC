@@ -26,7 +26,7 @@ import {
   createLogger,
   keypairToWallet,
   loadDefaultKeypair,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime';
 
 async function main(): Promise<void> {
   const logger = createLogger('info', '[Jupiter Example]');

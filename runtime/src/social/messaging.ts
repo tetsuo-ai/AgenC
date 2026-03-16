@@ -9,7 +9,8 @@
 
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import type { Keypair } from "@solana/web3.js";
-import { BN, utils, type Program } from "@coral-xyz/anchor";
+import BN from "bn.js";
+import { utils, type Program } from "@coral-xyz/anchor";
 import type { AgencCoordination } from "../idl.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";

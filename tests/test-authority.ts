@@ -23,13 +23,13 @@ import {
   VALID_EVIDENCE,
   getDefaultDeadline,
   buildCancelTaskRemainingAccounts,
-} from "./test-utils";
+} from "./test-utils.ts";
 import {
   fundAccount,
   advanceClock,
   getClockTimestamp,
-} from "./litesvm-helpers";
-import { createTestContext } from "./test-litesvm-setup";
+} from "./litesvm-helpers.ts";
+import { createTestContext } from "./test-litesvm-setup.ts";
 
 describe("Issue #20: Authority and PDA Validation Tests", () => {
   const ctx = createTestContext();

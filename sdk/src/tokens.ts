@@ -11,7 +11,7 @@ import {
   getMint,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+} from "./spl-token";
 import { SEEDS, PROGRAM_ID } from "./constants";
 
 export { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID };

@@ -1,5 +1,5 @@
 /**
- * Integration tests for @agenc/runtime
+ * Integration tests for @tetsuo-ai/runtime
  *
  * Validates AgentManager and AgentRuntime lifecycle against a LiteSVM instance.
  * No external validator required — runs in-process via LiteSVM.

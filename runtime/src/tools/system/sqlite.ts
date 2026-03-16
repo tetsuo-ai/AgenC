@@ -1,5 +1,5 @@
 /**
- * Typed SQLite inspection/query tools for @agenc/runtime.
+ * Typed SQLite inspection/query tools for @tetsuo-ai/runtime.
  *
  * Provides:
  * - system.sqliteSchema — inspect tables, views, indexes, and columns

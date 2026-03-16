@@ -1,5 +1,5 @@
 /**
- * Proof-specific error types for @agenc/runtime
+ * Proof-specific error types for @tetsuo-ai/runtime
  *
  * @module
  */

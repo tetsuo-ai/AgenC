@@ -24,7 +24,7 @@ import {
   GovernanceExecutionError,
 } from "./errors.js";
 import { AnchorErrorCodes } from "../types/errors.js";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 
 // ============================================================================
 // Test Helpers

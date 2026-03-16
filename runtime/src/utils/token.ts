@@ -12,7 +12,7 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+} from "@tetsuo-ai/sdk";
 
 export { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID };
 

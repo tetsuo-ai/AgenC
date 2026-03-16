@@ -1,5 +1,5 @@
 /**
- * Collaboration-specific error classes for @agenc/runtime
+ * Collaboration-specific error classes for @tetsuo-ai/runtime
  *
  * All collaboration errors extend RuntimeError and use codes from RuntimeErrorCodes.
  *

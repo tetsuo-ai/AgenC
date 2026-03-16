@@ -17,7 +17,7 @@ import {
   AgentCapabilities,
   loadDefaultKeypair,
   type Task,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime';
 import { EchoExecutor } from './executors.ts';
 
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';

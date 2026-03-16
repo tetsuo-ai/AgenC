@@ -14,7 +14,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   processIdentityMatches,
   readProcessIdentitySnapshot,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 import type { ToolResult } from "./types.js";
 import {
   DISPLAY,

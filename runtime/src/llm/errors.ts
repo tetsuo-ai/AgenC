@@ -1,5 +1,5 @@
 /**
- * LLM-specific error types for @agenc/runtime
+ * LLM-specific error types for @tetsuo-ai/runtime
  *
  * @module
  */

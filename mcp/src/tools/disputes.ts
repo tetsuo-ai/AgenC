@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { SEEDS } from "@agenc/sdk";
+import { SEEDS } from "@tetsuo-ai/sdk";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {

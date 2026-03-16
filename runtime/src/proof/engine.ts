@@ -14,7 +14,7 @@ import {
   generateSalt as sdkGenerateSalt,
   type HashResult,
   type ProverConfig as SdkProverConfig,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 import type { ProofGenerator } from "../task/proof-pipeline.js";
 import type {
   OnChainTask,

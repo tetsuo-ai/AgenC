@@ -12,7 +12,7 @@ const safePath = z.string().refine(
 
 /**
  * Alert schema version referenced by replay tools.
- * Must match REPLAY_ALERT_SCHEMA_VERSION in @agenc/runtime.
+ * Must match REPLAY_ALERT_SCHEMA_VERSION in @tetsuo-ai/runtime.
  */
 export const REPLAY_ALERT_SCHEMA_VERSION = "replay.alert.v1";
 

@@ -73,6 +73,46 @@ export const REPLAY_SCHEMA_CHANGELOG: SchemaChangeEntry[] = [
     description: "Added schema_hash field for drift detection",
     affectedFields: ["schema_hash"],
   },
+  {
+    schema: "replay.backfill.output.v1",
+    version: "0.1.2",
+    date: "2026-03-16",
+    changeType: "breaking",
+    description:
+      "Canonicalized schema_hash generation for current Zod internals and refreshed the drift baseline",
+    affectedFields: ["schema_hash"],
+    migration: "Refresh pinned replay schema hashes and regenerate golden fixtures.",
+  },
+  {
+    schema: "replay.compare.output.v1",
+    version: "0.1.2",
+    date: "2026-03-16",
+    changeType: "breaking",
+    description:
+      "Canonicalized schema_hash generation for current Zod internals and refreshed the drift baseline",
+    affectedFields: ["schema_hash"],
+    migration: "Refresh pinned replay schema hashes and regenerate golden fixtures.",
+  },
+  {
+    schema: "replay.incident.output.v1",
+    version: "0.1.2",
+    date: "2026-03-16",
+    changeType: "breaking",
+    description:
+      "Canonicalized schema_hash generation for current Zod internals and refreshed the drift baseline",
+    affectedFields: ["schema_hash"],
+    migration: "Refresh pinned replay schema hashes and regenerate golden fixtures.",
+  },
+  {
+    schema: "replay.status.output.v1",
+    version: "0.1.2",
+    date: "2026-03-16",
+    changeType: "breaking",
+    description:
+      "Canonicalized schema_hash generation for current Zod internals and refreshed the drift baseline",
+    affectedFields: ["schema_hash"],
+    migration: "Refresh pinned replay schema hashes and regenerate golden fixtures.",
+  },
 ];
 
 function parseSemver(version: string): [number, number, number] | null {

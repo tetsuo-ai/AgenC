@@ -3,10 +3,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PublicKey, Connection, Keypair } from "@solana/web3.js";
+import { PublicKey, Connection } from "@solana/web3.js";
 
-// Mock @solana/spl-token before importing tokens module
-vi.mock("@solana/spl-token", () => {
+// Mock the owned SPL helper before importing tokens module.
+vi.mock("../spl-token", () => {
   const mockGetAssociatedTokenAddressSync = vi.fn();
   const mockGetAccount = vi.fn();
   const mockGetMint = vi.fn();
@@ -37,7 +37,7 @@ import {
   getAssociatedTokenAddressSync,
   getAccount as getTokenAccount,
   getMint,
-} from "@solana/spl-token";
+} from "../spl-token";
 
 const makeTestPubkey = (seed: number): PublicKey => {
   const bytes = new Uint8Array(32);

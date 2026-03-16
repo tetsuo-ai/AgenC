@@ -1,5 +1,5 @@
 {
-  "package": "@agenc/runtime",
+  "package": "@tetsuo-ai/runtime",
   "version": "0.1.0",
   "generatedAt": "2026-03-16T02:41:38.699Z",
   "entryPoint": "runtime/src/index.ts",

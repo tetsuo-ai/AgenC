@@ -13,7 +13,6 @@ import {
   getMissingSuccessfulToolEvidenceMessage,
   specRequiresFileMutationEvidence,
   specRequiresMeaningfulBrowserEvidence,
-  validateDelegatedOutputContract,
 } from "../utils/delegation-validation.js";
 import { buildBrowserEvidenceRetryGuidance } from "../utils/browser-tool-taxonomy.js";
 import type { ExecutionContext, ToolCallRecord } from "./chat-executor-types.js";
@@ -76,21 +75,17 @@ export function validateRequiredToolEvidence(input: {
     return {};
   }
 
-  const responseContent =
-    typeof input.ctx.response?.content === "string"
-      ? input.ctx.response.content
-      : "";
   // Delegation output contract validation disabled — it scans tool result
   // content (file reads, command output) for words like "placeholder", "stub",
   // etc. and rejects successful completions when those words appear in existing
   // source code. The model's own response should be trusted.
-  const contractValidation = undefined;
-  const missingEvidenceMessage = contractValidation?.error ??
-    getMissingSuccessfulToolEvidenceMessage(
-      input.ctx.allToolCalls,
-      requiredToolEvidence.delegationSpec,
-      input.ctx.providerEvidence,
-    );
+  const contractValidation: DelegationOutputValidationResult | undefined =
+    undefined;
+  const missingEvidenceMessage = getMissingSuccessfulToolEvidenceMessage(
+    input.ctx.allToolCalls,
+    requiredToolEvidence.delegationSpec,
+    input.ctx.providerEvidence,
+  );
   return {
     contractValidation,
     missingEvidenceMessage: missingEvidenceMessage ?? undefined,

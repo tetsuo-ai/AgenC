@@ -1,5 +1,5 @@
 /**
- * MCP client module for @agenc/runtime.
+ * MCP client module for @tetsuo-ai/runtime.
  *
  * Provides infrastructure for connecting to external MCP servers
  * and bridging their tools into the runtime's tool system.

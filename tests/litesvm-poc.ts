@@ -24,14 +24,16 @@ import {
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 import {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@tetsuo-ai/sdk";
+import {
   createMint,
   createAssociatedTokenAccount,
   mintTo,
   getAccount,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddressSync,
-} from "@solana/spl-token";
+} from "@tetsuo-ai/sdk/internal/spl-token";
 import {
   createLiteSVMContext,
   fundAccount,

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
 
-// Mock @agenc/sdk before imports
-vi.mock("@agenc/sdk", () => {
+// Mock @tetsuo-ai/sdk before imports
+vi.mock("@tetsuo-ai/sdk", () => {
   const mockSeal = Buffer.alloc(260, 0xab);
   const mockJournal = Buffer.alloc(192, 0xcd);
   const mockImageId = Buffer.alloc(32, 0xef);
@@ -71,7 +71,7 @@ import {
   generateProof as mockGenerateProof,
   computeHashes as mockComputeHashes,
   generateSalt as mockGenerateSalt,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 import { ProofEngine, buildSdkProverConfig } from "./engine.js";
 import { ProofCache, deriveCacheKey } from "./cache.js";
 import {

@@ -12,14 +12,14 @@
       "status": "error",
       "command": "agenc_replay_compare",
       "schema": "replay.compare.output.v1",
-      "schema_hash": "73a7a33b91d3436f",
+      "schema_hash": "08cefa89ea8215ca",
       "code": "replay.compare_failed",
       "message": "ENOENT: no such file or directory, open '/tmp/trace-not-found.json'",
       "retriable": true
     }
   },
   "metadata": {
-    "generatedAt": "2026-02-28T06:38:16.783Z",
+    "generatedAt": "2026-03-16T11:12:18.639Z",
     "generatedBy": "contract-validator"
   }
 }

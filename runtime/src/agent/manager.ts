@@ -9,7 +9,7 @@
 
 import { Connection, PublicKey, TransactionSignature } from "@solana/web3.js";
 import anchor, { Program, AnchorProvider } from "@coral-xyz/anchor";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 import type { AgencCoordination } from "../types/agenc_coordination.js";
 import {
   AgentState,
@@ -148,7 +148,7 @@ const VOTE_COOLDOWN_SECONDS = 86400;
  * @example
  * ```typescript
  * import { Connection, Keypair } from '@solana/web3.js';
- * import { AgentManager, keypairToWallet, generateAgentId } from '@agenc/runtime';
+ * import { AgentManager, keypairToWallet, generateAgentId } from '@tetsuo-ai/runtime';
  *
  * const connection = new Connection('https://api.devnet.solana.com');
  * const wallet = keypairToWallet(Keypair.generate());

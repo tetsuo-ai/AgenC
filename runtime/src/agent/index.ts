@@ -1,5 +1,5 @@
 /**
- * Agent types and utilities for @agenc/runtime
+ * Agent types and utilities for @tetsuo-ai/runtime
  * @packageDocumentation
  */
 

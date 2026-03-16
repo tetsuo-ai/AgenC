@@ -4,7 +4,7 @@
  */
 
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 
 /**
  * PDA with its bump seed for account creation.

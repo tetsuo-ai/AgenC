@@ -1,5 +1,5 @@
 /**
- * Reputation economy error classes for @agenc/runtime
+ * Reputation economy error classes for @tetsuo-ai/runtime
  * @module
  */
 

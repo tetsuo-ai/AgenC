@@ -1,5 +1,5 @@
 /**
- * LiteSVM test helpers for @agenc/runtime integration tests.
+ * LiteSVM test helpers for @tetsuo-ai/runtime integration tests.
  *
  * Adapted from tests/litesvm-helpers.ts for use within the runtime/ directory.
  * Provides createRuntimeTestContext(), initializeProtocol(), advanceClock(), fundAccount().
@@ -13,43 +13,22 @@ import {
   Keypair,
   PublicKey,
   SystemProgram,
-  Transaction,
-  VersionedTransaction,
   LAMPORTS_PER_SOL,
   SendTransactionError,
 } from '@solana/web3.js';
 import * as bs58Module from 'bs58';
 import { fileURLToPath } from 'node:url';
 import type { AgencCoordination } from '../src/types/agenc_coordination.js';
+import { extendLiteSVMConnectionProxy } from '../../tests/litesvm-connection-proxy.ts';
+import { syncAgencProgramBinary } from '../../tests/litesvm-program-artifact.ts';
+import {
+  BPF_LOADER_UPGRADEABLE_ID,
+  resolveBs58Codec,
+  seedLiteSVMClock,
+  setupProgramDataAccount,
+} from '../../tests/litesvm-shared.ts';
 
-const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
-  'BPFLoaderUpgradeab1e11111111111111111111111'
-);
-
-const bs58 = (() => {
-  const candidate = bs58Module as unknown as {
-    encode?: (input: Uint8Array | Buffer) => string;
-    decode?: (input: string) => Uint8Array;
-    default?: {
-      encode?: (input: Uint8Array | Buffer) => string;
-      decode?: (input: string) => Uint8Array;
-    };
-  };
-  if (typeof candidate.encode === 'function' && typeof candidate.decode === 'function') {
-    return candidate as {
-      encode: (input: Uint8Array | Buffer) => string;
-      decode: (input: string) => Uint8Array;
-    };
-  }
-  const fallback = candidate.default;
-  if (fallback && typeof fallback.encode === 'function' && typeof fallback.decode === 'function') {
-    return fallback as {
-      encode: (input: Uint8Array | Buffer) => string;
-      decode: (input: string) => Uint8Array;
-    };
-  }
-  throw new Error('Unsupported bs58 module shape');
-})();
+const bs58 = resolveBs58Codec(bs58Module);
 
 /**
  * Patch LiteSVMProvider.sendAndConfirm to fix anchor-litesvm's sendWithErr
@@ -120,173 +99,6 @@ export interface RuntimeTestContext {
 }
 
 /**
- * Inject the BPF Loader Upgradeable ProgramData PDA.
- * Required because `initialize_protocol` validates the upgrade authority
- * via a remaining_accounts check on the ProgramData account.
- */
-function setupProgramDataAccount(
-  svm: LiteSVM,
-  programId: PublicKey,
-  authority: PublicKey
-): void {
-  const [programDataPda] = PublicKey.findProgramAddressSync(
-    [programId.toBuffer()],
-    BPF_LOADER_UPGRADEABLE_ID
-  );
-
-  // ProgramData layout:
-  //   4 bytes: AccountType (3 = ProgramData, little-endian u32)
-  //   8 bytes: slot (u64 LE)
-  //   1 byte:  Option<Pubkey> tag (1 = Some)
-  //   32 bytes: upgrade_authority pubkey
-  const data = new Uint8Array(45);
-  const view = new DataView(data.buffer);
-  view.setUint32(0, 3, true); // AccountType::ProgramData
-  view.setBigUint64(4, 0n, true); // slot = 0
-  data[12] = 1; // Option::Some
-  data.set(authority.toBytes(), 13); // upgrade_authority
-
-  svm.setAccount(programDataPda, {
-    lamports: 1_000_000_000,
-    data,
-    owner: BPF_LOADER_UPGRADEABLE_ID,
-    executable: false,
-  });
-}
-
-/**
- * Extend the LiteSVM connection proxy with methods needed by Anchor's
- * AnchorProvider (via AgentManager) and static query methods.
- */
-function extendConnectionProxy(
-  svm: LiteSVM,
-  connection: any,
-  walletRef: { publicKey: PublicKey }
-): void {
-  // Override getAccountInfo to return null instead of throwing for non-existent accounts
-  connection.getAccountInfo = async (
-    publicKey: PublicKey,
-    _commitmentOrConfig?: any
-  ) => {
-    const account = svm.getAccount(publicKey);
-    if (!account) return null;
-    return {
-      ...account,
-      data: Buffer.from(account.data),
-    };
-  };
-
-  connection.getAccountInfoAndContext = async (
-    publicKey: PublicKey,
-    _commitmentOrConfig?: any
-  ) => {
-    const account = svm.getAccount(publicKey);
-    if (!account) {
-      return {
-        context: { slot: Number(svm.getClock().slot) },
-        value: null,
-      };
-    }
-    return {
-      context: { slot: Number(svm.getClock().slot) },
-      value: {
-        ...account,
-        data: Buffer.from(account.data),
-      },
-    };
-  };
-
-  connection.getBalance = async (
-    address: PublicKey,
-    _commitment?: any
-  ): Promise<number> => {
-    const balance = svm.getBalance(address);
-    return balance !== null ? Number(balance) : 0;
-  };
-
-  connection.getLatestBlockhash = async (_commitment?: any) => ({
-    blockhash: svm.latestBlockhash(),
-    lastValidBlockHeight: 0,
-  });
-
-  connection.sendTransaction = async (
-    transaction: Transaction | VersionedTransaction,
-    signersOrOptions?: any,
-    _options?: any
-  ): Promise<string> => {
-    if ('version' in transaction) {
-      const signers = Array.isArray(signersOrOptions) ? signersOrOptions : [];
-      signers.forEach((s: any) => transaction.sign([s]));
-      const res = svm.sendTransaction(transaction);
-      if (res instanceof FailedTransactionMetadata) {
-        throw new SendTransactionError({
-          action: 'send',
-          signature: 'unknown',
-          transactionMessage: res.err().toString(),
-          logs: res.meta().logs(),
-        });
-      }
-      return bs58.encode(transaction.signatures[0]);
-    }
-
-    // Legacy Transaction
-    const signers = Array.isArray(signersOrOptions) ? signersOrOptions : [];
-    transaction.feePayer = transaction.feePayer || walletRef.publicKey;
-    transaction.recentBlockhash = svm.latestBlockhash();
-    if (signers.length > 0) {
-      transaction.sign(...signers);
-    }
-
-    const res = svm.sendTransaction(transaction);
-    if (res instanceof FailedTransactionMetadata) {
-      const sigRaw = transaction.signature;
-      const signature = sigRaw ? bs58.encode(sigRaw) : 'unknown';
-      throw new SendTransactionError({
-        action: 'send',
-        signature,
-        transactionMessage: res.err().toString(),
-        logs: res.meta().logs(),
-      });
-    }
-
-    return bs58.encode(transaction.signature!);
-  };
-
-  connection.confirmTransaction = async (
-    _strategyOrSignature?: any,
-    _commitment?: any
-  ): Promise<any> => ({
-    context: { slot: Number(svm.getClock().slot) },
-    value: { err: null },
-  });
-
-  connection.requestAirdrop = async (
-    address: PublicKey,
-    lamports: number
-  ): Promise<string> => {
-    svm.airdrop(address, BigInt(lamports));
-    return 'litesvm-airdrop-' + address.toBase58().slice(0, 8);
-  };
-
-  connection.getSlot = async (_commitment?: any): Promise<number> => {
-    return Number(svm.getClock().slot);
-  };
-
-  connection.getSignatureStatuses = async (
-    _signatures: string[],
-    _config?: any
-  ) => ({
-    context: { slot: Number(svm.getClock().slot) },
-    value: _signatures.map(() => ({
-      slot: Number(svm.getClock().slot),
-      confirmations: 1,
-      err: null,
-      confirmationStatus: 'confirmed' as const,
-    })),
-  });
-}
-
-/**
  * Create a fully configured LiteSVM test context for runtime integration tests.
  *
  * Loads the program from the Anchor workspace (one directory up from runtime/),
@@ -297,14 +109,15 @@ export function createRuntimeTestContext(): RuntimeTestContext {
   // Fix anchor-litesvm's sendWithErr bs58 crash that masks real errors
   patchSendAndConfirm();
 
+  syncAgencProgramBinary(
+    fileURLToPath(new URL('../..', import.meta.url))
+  );
+
   // CWD is runtime/, Anchor.toml is in parent directory
   const svm = fromWorkspace('..');
 
   // Set initial clock to a realistic timestamp
-  const clock = svm.getClock();
-  clock.unixTimestamp = BigInt(Math.floor(Date.now() / 1000));
-  clock.slot = 1000n;
-  svm.setClock(clock);
+  seedLiteSVMClock(svm);
 
   // Create and fund the payer
   const payer = Keypair.generate();
@@ -315,7 +128,7 @@ export function createRuntimeTestContext(): RuntimeTestContext {
   const provider = new LiteSVMProvider(svm, wallet) as unknown as anchor.AnchorProvider;
 
   // Extend the connection proxy with methods needed by Anchor + AgentManager
-  extendConnectionProxy(svm, (provider as any).connection, wallet);
+  extendLiteSVMConnectionProxy(svm, (provider as any).connection, wallet, bs58);
 
   // Use canonical workspace instruction shapes and ensure the corresponding
   // program binary is loaded at the IDL-declared address.

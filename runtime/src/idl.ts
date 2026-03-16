@@ -13,7 +13,7 @@
 
 import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 
 // Import IDL type from Anchor-generated TypeScript file (for Program<T> generic)
 import type { AgencCoordination } from "./types/agenc_coordination";

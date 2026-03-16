@@ -36,7 +36,7 @@ import {
   loadDefaultKeypair,
   type OnChainDispute,
   type DisputeVoteError,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime';
 
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 const MIN_STAKE = parseFloat(process.env.MIN_STAKE || '1.0');

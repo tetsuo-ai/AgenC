@@ -1,5 +1,5 @@
 /**
- * Tool system for @agenc/runtime
+ * Tool system for @tetsuo-ai/runtime
  *
  * MCP-compatible tool registry that bridges the Skills system and
  * LLM adapters. Provides built-in AgenC protocol query tools and

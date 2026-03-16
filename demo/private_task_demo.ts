@@ -13,7 +13,7 @@ import {
   TRUSTED_RISC0_IMAGE_ID,
   VERIFIER_PROGRAM_ID as TRUSTED_VERIFIER_PROGRAM_ID,
   computeHashes,
-} from '../sdk/src/index';
+} from '@agenc/sdk';
 
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY || 'YOUR_HELIUS_KEY';
 const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;

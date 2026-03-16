@@ -18,7 +18,7 @@ import {
   parseJsonMessage,
   serializeAuthMessage,
   serializePingMessage,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime';
 
 interface UseRemoteGatewayOptions {
   connection: GatewayConnection | null;

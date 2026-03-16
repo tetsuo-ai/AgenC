@@ -1,5 +1,5 @@
 /**
- * Typed PDF inspection/extraction tools for @agenc/runtime.
+ * Typed PDF inspection/extraction tools for @tetsuo-ai/runtime.
  *
  * Provides:
  * - system.pdfInfo — inspect PDF metadata using pdfinfo

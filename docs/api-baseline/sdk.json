@@ -1,5 +1,5 @@
 {
-  "package": "@agenc/sdk",
+  "package": "@tetsuo-ai/sdk",
   "version": "1.3.0",
   "generatedAt": "2026-03-15T13:40:48.117Z",
   "entryPoint": "sdk/src/index.ts",

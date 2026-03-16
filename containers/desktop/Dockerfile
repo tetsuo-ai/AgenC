@@ -10,7 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/agenc/.cache/ms-playwright
 
-ARG DOOM_MCP_REPO=https://github.com/tetsuo-ai/tetsuo-doom.git
+ARG DOOM_MCP_REPO=https://github.com/tetsuo/tetsuo-doom.git
 ARG DOOM_MCP_REF=9f8c1cc3a370084797d3d5034cf548af913b7da7
 
 # =============================================================================

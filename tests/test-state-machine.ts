@@ -23,13 +23,13 @@ import {
   VALID_EVIDENCE,
   getDefaultDeadline,
   buildCancelTaskRemainingAccounts,
-} from "./test-utils";
+} from "./test-utils.ts";
 import {
   fundAccount,
   advanceClock,
   getClockTimestamp,
-} from "./litesvm-helpers";
-import { createTestContext } from "./test-litesvm-setup";
+} from "./litesvm-helpers.ts";
+import { createTestContext } from "./test-litesvm-setup.ts";
 
 describe("Issue #19: Task Lifecycle State Machine Tests", () => {
   const ctx = createTestContext();

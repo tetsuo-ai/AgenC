@@ -8,28 +8,20 @@
  */
 
 import { ChatExecutor } from "../llm/chat-executor.js";
-import type { ChatExecutorConfig } from "../llm/chat-executor-types.js";
-import type { LLMProvider } from "../llm/types.js";
-import type { ToolHandler } from "../tools/registry.js";
-import type { SkillInjector, MemoryRetriever } from "../llm/chat-executor-types.js";
-import type { DeterministicPipelineExecutor } from "../llm/chat-executor-types.js";
+import type {
+  ChatExecutorConfig,
+  DeterministicPipelineExecutor,
+  MemoryRetriever,
+  SkillInjector,
+} from "../llm/chat-executor-types.js";
+import type { LLMProvider, ToolHandler } from "../llm/types.js";
+import type {
+  DelegationBanditPolicyTuner,
+  DelegationTrajectorySink,
+} from "../llm/delegation-learning.js";
+import type { HostToolingProfile } from "./host-tooling.js";
+import type { ResolvedSubAgentRuntimeConfig } from "./subagent-infrastructure.js";
 import type { GatewayLLMConfig } from "./types.js";
-
-// ---------------------------------------------------------------------------
-// Resolved subagent config shape (matches resolveSubAgentRuntimeConfig output)
-// ---------------------------------------------------------------------------
-
-export interface ResolvedSubAgentConfigForExecutor {
-  readonly enabled: boolean;
-  readonly unsafeBenchmarkMode: boolean;
-  readonly mode: string;
-  readonly baseSpawnDecisionThreshold: number;
-  readonly maxFanoutPerTurn: number;
-  readonly maxDepth: number;
-  readonly handoffMinPlannerConfidence: number;
-  readonly hardBlockedTaskClasses: readonly string[];
-  readonly forceVerifier: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // Factory input
@@ -61,17 +53,17 @@ export interface CreateChatExecutorParams {
   /** Gateway LLM config (for planner, timeout, retry, circuit breaker settings). */
   llmConfig?: GatewayLLMConfig;
   /** Resolved subagent runtime config. */
-  subagentConfig: ResolvedSubAgentConfigForExecutor;
+  subagentConfig: ResolvedSubAgentRuntimeConfig;
   /** Callback to resolve dynamic delegation score threshold. */
   resolveDelegationScoreThreshold: () => number;
   /** Delegation learning sinks. */
   delegationLearning?: {
-    trajectorySink?: unknown;
-    banditTuner?: unknown;
+    trajectorySink?: DelegationTrajectorySink;
+    banditTuner?: DelegationBanditPolicyTuner;
     defaultStrategyArmId?: string;
   };
   /** Callback to resolve host tooling profile. */
-  resolveHostToolingProfile: () => unknown;
+  resolveHostToolingProfile: () => HostToolingProfile | null;
   /** Optional deterministic pipeline executor. */
   pipelineExecutor?: DeterministicPipelineExecutor;
 }

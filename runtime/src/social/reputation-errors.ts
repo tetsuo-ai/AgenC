@@ -1,5 +1,5 @@
 /**
- * Reputation-specific error classes for @agenc/runtime.
+ * Reputation-specific error classes for @tetsuo-ai/runtime.
  *
  * All reputation errors extend RuntimeError and use codes from RuntimeErrorCodes.
  *

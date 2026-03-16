@@ -43,9 +43,6 @@ import {
 } from "./chat-executor-tool-utils.js";
 import { safeStringify } from "../tools/types.js";
 import {
-  hasUnsupportedNarrativeFileClaims,
-} from "../utils/delegation-validation.js";
-import {
   parseJsonObjectFromText,
   tryParseJsonObject as tryParseObject,
 } from "../utils/delegated-contract-normalization.js";
@@ -749,22 +746,6 @@ function buildToolFailureFallback(toolCalls: readonly ToolCallRecord[]): string 
   }
   if (failedCalls.length > 3) {
     lines.push(`- plus ${failedCalls.length - 3} additional tool failures`);
-  }
-  return lines.join("\n");
-}
-
-function buildUnsupportedFileClaimFallback(
-  toolCalls: readonly ToolCallRecord[],
-): string {
-  const executedTools = toolCalls
-    .map((toolCall) => toolCall.name)
-    .filter((name, index, values) => values.indexOf(name) === index)
-    .slice(0, 4);
-  const lines = [
-    "Execution did not complete as described: tool evidence did not confirm any file writes.",
-  ];
-  if (executedTools.length > 0) {
-    lines.push(`Executed tools: ${executedTools.join(", ")}`);
   }
   return lines.join("\n");
 }

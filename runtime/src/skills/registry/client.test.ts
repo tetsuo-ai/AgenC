@@ -20,7 +20,7 @@ vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn(),
 }));
 
-vi.mock("@agenc/sdk", () => ({
+vi.mock("@tetsuo-ai/sdk", () => ({
   silentLogger: {
     debug: () => {},
     info: () => {},
@@ -53,7 +53,7 @@ const silentLogger = {
 
 const SKILL_SEED = Buffer.from("skill");
 
-/** Derive a PDA — duplicated here to avoid importing utils/pda which pulls in @agenc/sdk. */
+/** Derive a PDA — duplicated here to avoid importing utils/pda which pulls in @tetsuo-ai/sdk. */
 function derivePda(seeds: Array<Buffer | Uint8Array>, programId: PublicKey) {
   const [address, bump] = PublicKey.findProgramAddressSync(seeds, programId);
   return { address, bump };

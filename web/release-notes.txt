@@ -326,7 +326,7 @@ then we rebuilt the entire web UI.
 │ learning-based policy tuning      │
 │ retro BBS terminal interface      │
 │                                   │
-│ github.com/tetsuo-ai/AgenC       │
+│ github.com/tetsuo/AgenC       │
 │ PR #1326                          │
 │                                   │
 └───────────────────────────────────┘

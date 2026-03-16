@@ -1,7 +1,7 @@
 /**
- * Logger utility for @agenc/runtime
+ * Logger utility for @tetsuo-ai/runtime
  *
- * Re-exports the shared logger implementation from @agenc/sdk with a
+ * Re-exports the shared logger implementation from @tetsuo-ai/sdk with a
  * runtime-specific default prefix.
  */
 
@@ -9,11 +9,11 @@ import {
   createLogger as sdkCreateLogger,
   type LogLevel,
   type Logger,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 
 // Re-export types and silentLogger directly — identical to SDK
-export { silentLogger } from "@agenc/sdk";
-export type { LogLevel, Logger } from "@agenc/sdk";
+export { silentLogger } from "@tetsuo-ai/sdk";
+export type { LogLevel, Logger } from "@tetsuo-ai/sdk";
 
 /**
  * Create a logger instance with the specified minimum level

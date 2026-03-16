@@ -1,5 +1,5 @@
 /**
- * Heartbeat scheduler for @agenc/runtime.
+ * Heartbeat scheduler for @tetsuo-ai/runtime.
  *
  * Runs registered actions on a configurable interval with error isolation,
  * timeout enforcement, and a "quiet heartbeat" contract — nothing is posted

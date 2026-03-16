@@ -1,5 +1,5 @@
 /**
- * Skill-specific error types for @agenc/runtime
+ * Skill-specific error types for @tetsuo-ai/runtime
  *
  * @module
  */

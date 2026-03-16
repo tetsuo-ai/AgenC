@@ -4,8 +4,8 @@
  * @module
  */
 
-import { BPS_BASE, isValidBps } from "@agenc/sdk";
-import type { TaskBid, TaskBidInput } from "@agenc/sdk";
+import { BPS_BASE, isValidBps } from "@tetsuo-ai/sdk";
+import type { TaskBid, TaskBidInput } from "@tetsuo-ai/sdk";
 import { MarketplaceValidationError } from "./errors.js";
 import { TaskBidMarketplace } from "./engine.js";
 

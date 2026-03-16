@@ -4,7 +4,7 @@ import { resolve } from 'path';
 export default defineConfig({
   resolve: {
     // npm workspaces hoist deps to the monorepo root and symlink workspace
-    // packages into node_modules/@agenc/*. No manual aliases needed.
+    // packages into node_modules/@tetsuo-ai/*. No manual aliases needed.
   },
   test: {
     globals: false,

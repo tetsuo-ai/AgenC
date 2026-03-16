@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { InMemoryBackend } from "../memory/in-memory/backend.js";
 import type { MemoryBackend } from "../memory/types.js";
+import type { Logger } from "../utils/logger.js";
 import type { GatewayConfig } from "./types.js";
 import type { UnifiedTelemetryCollector } from "../telemetry/collector.js";
 
@@ -21,7 +22,7 @@ import type { UnifiedTelemetryCollector } from "../telemetry/collector.js";
 export interface CreateMemoryBackendParams {
   config: GatewayConfig;
   metrics?: UnifiedTelemetryCollector;
-  logger: { info: (...args: any[]) => void };
+  logger: Logger;
 }
 
 /**

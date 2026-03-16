@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { PublicKey, Keypair } from "@solana/web3.js";
-import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
+import { PROGRAM_ID, SEEDS } from "@tetsuo-ai/sdk";
 import {
   deriveTaskPda,
   findTaskPda,

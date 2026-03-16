@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PublicKey, Keypair } from "@solana/web3.js";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 import { generateAgentId } from "../utils/encoding.js";
 import { RuntimeErrorCodes } from "../types/errors.js";
 import {

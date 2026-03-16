@@ -1,5 +1,5 @@
 /**
- * Memory backend types for @agenc/runtime
+ * Memory backend types for @tetsuo-ai/runtime
  *
  * Defines the core interface for pluggable memory storage backends
  * that manage conversation history, task context, and key-value state.

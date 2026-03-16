@@ -23,13 +23,13 @@ import {
   VALID_EVIDENCE,
   getDefaultDeadline,
   buildCancelTaskRemainingAccounts,
-} from "./test-utils";
+} from "./test-utils.ts";
 import {
   fundAccount,
   advanceClock,
   getClockTimestamp,
-} from "./litesvm-helpers";
-import { createTestContext } from "./test-litesvm-setup";
+} from "./litesvm-helpers.ts";
+import { createTestContext } from "./test-litesvm-setup.ts";
 
 describe("Audit Gap Filling (Issues 3 and 4)", () => {
   const ctx = createTestContext();

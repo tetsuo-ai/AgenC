@@ -11,7 +11,7 @@ import {
   findAgentPda,
   AgentManager,
   type CapabilityName,
-} from "@agenc/runtime";
+} from "@tetsuo-ai/runtime";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {

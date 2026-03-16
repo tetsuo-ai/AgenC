@@ -1,5 +1,5 @@
 {
-  "package": "@agenc/mcp",
+  "package": "@tetsuo-ai/mcp",
   "version": "0.1.0",
   "generatedAt": "2026-03-15T13:40:50.599Z",
   "entryPoint": "mcp/src/index.ts",

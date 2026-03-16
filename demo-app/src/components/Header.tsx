@@ -19,7 +19,7 @@ export default function Header() {
 
         <div className="flex items-center gap-4">
           <a
-            href="https://github.com/tetsuo-ai/AgenC"
+            href="https://github.com/tetsuo/AgenC"
             target="_blank"
             rel="noopener noreferrer"
             className="text-tetsuo-400 hover:text-tetsuo-200 transition-colors"

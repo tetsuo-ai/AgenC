@@ -11,6 +11,7 @@
 import { join } from "node:path";
 import type { MemoryRetriever } from "../llm/chat-executor-types.js";
 import type { MemoryBackend } from "../memory/types.js";
+import type { Logger } from "../utils/logger.js";
 import type { HookDispatcher } from "./hooks.js";
 import type { GatewayConfig } from "./types.js";
 import { createEmbeddingProvider } from "../memory/embeddings.js";
@@ -50,7 +51,7 @@ export interface CreateMemoryRetrieversParams {
   memoryBackend: MemoryBackend;
   /** Resolved host workspace path for semantic memory. */
   workspacePath: string;
-  logger: { info: (...args: any[]) => void; warn?: (...args: any[]) => void };
+  logger: Logger;
 }
 
 export interface MemoryRetrieversResult {
@@ -104,7 +105,7 @@ async function createSemanticRetriever(
   embeddingProvider: Awaited<ReturnType<typeof createEmbeddingProvider>>,
   hooks: HookDispatcher,
   workspacePath: string,
-  logger: { info: (...args: any[]) => void },
+  logger: Logger,
 ): Promise<MemoryRetriever> {
   const vectorStore = new InMemoryVectorStore({
     dimension: embeddingProvider.dimension,

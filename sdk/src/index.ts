@@ -1,5 +1,5 @@
 /**
- * @agenc/sdk - Privacy-preserving agent coordination on Solana
+ * @tetsuo-ai/sdk - Privacy-preserving agent coordination on Solana
  *
  * AgenC enables agents to complete tasks and receive payments with full privacy:
  * - RISC0 payloads verify task completion without revealing outputs
@@ -86,13 +86,33 @@ export {
 } from "./bids";
 
 export {
+  getAssociatedTokenAddress,
+  getAssociatedTokenAddressSync,
+  getAccount,
+  unpackAccount,
+  getMint,
+  unpackMint,
+  ACCOUNT_SIZE,
+  MINT_SIZE,
+  TokenError,
+  TokenAccountNotFoundError,
+  TokenInvalidAccountOwnerError,
+  TokenInvalidAccountSizeError,
+  TokenInvalidMintError,
+  TokenOwnerOffCurveError,
+  AccountState,
+  type TokenAccount,
+  type TokenMint,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "./spl-token";
+
+export {
   deriveTokenEscrowAddress,
   isTokenTask,
   getEscrowTokenBalance,
   formatTokenAmount,
   getMintDecimals,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "./tokens";
 
 export {

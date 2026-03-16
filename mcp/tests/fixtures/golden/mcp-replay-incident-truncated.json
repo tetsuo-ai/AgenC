@@ -13,7 +13,7 @@
       "status": "ok",
       "command": "agenc_replay_incident",
       "schema": "replay.incident.output.v1",
-      "schema_hash": "c237bc370cdd5241",
+      "schema_hash": "19a209f1cbb5601b",
       "command_params": {
         "task_pda": "Task_A",
         "strict_mode": false,
@@ -62,7 +62,7 @@
     }
   },
   "metadata": {
-    "generatedAt": "2026-02-28T06:38:16.785Z",
+    "generatedAt": "2026-03-16T11:12:18.642Z",
     "generatedBy": "contract-validator"
   }
 }

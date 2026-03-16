@@ -8,7 +8,7 @@ import {
 import { TaskOperations } from "./operations.js";
 import { type TaskFilterConfig } from "./types.js";
 import { silentLogger } from "../utils/logger.js";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 import type { Program } from "@coral-xyz/anchor";
 import type { AgencCoordination } from "../types/agenc_coordination.js";
 import { createTask, createMockOperations } from "./test-utils.js";

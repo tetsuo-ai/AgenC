@@ -2,6 +2,7 @@
   "name": "agenc-monorepo",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "npm@11.7.0",
   "workspaces": [
     "sdk",
     "runtime",
@@ -16,17 +17,18 @@
     "examples/helius-webhook"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@agenc/sdk && npm run build --workspace=@agenc/runtime && npm run build --workspace=@agenc/mcp && npm run build --workspace=@agenc/docs-mcp",
-    "build:sdk": "npm run build --workspace=@agenc/sdk",
-    "build:runtime": "npm run build --workspace=@agenc/runtime",
-    "build:mcp": "npm run build --workspace=@agenc/mcp",
-    "test": "npm run test --workspace=@agenc/sdk && npm run test --workspace=@agenc/runtime",
+    "build": "npm run build --workspace=@tetsuo-ai/sdk && npm run build --workspace=@tetsuo-ai/runtime && npm run build --workspace=@tetsuo-ai/mcp && npm run build --workspace=@tetsuo-ai/docs-mcp",
+    "build:sdk": "npm run build --workspace=@tetsuo-ai/sdk",
+    "build:runtime": "npm run build --workspace=@tetsuo-ai/runtime",
+    "build:mcp": "npm run build --workspace=@tetsuo-ai/mcp",
+    "pack:smoke": "npm run build && node scripts/pack-smoke.mjs",
+    "pack:smoke:skip-build": "node scripts/pack-smoke.mjs",
+    "test": "npm run test --workspace=@tetsuo-ai/sdk && npm run test --workspace=@tetsuo-ai/runtime",
     "test:fast": "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test-create-task.ts tests/test-claim-task.ts tests/test-lifecycle.ts tests/test-state-machine.ts tests/test-authority.ts tests/test-audit-gaps.ts tests/test-escrow.ts tests/test-disputes.ts tests/test-reputation-stake.ts tests/test-concurrency.ts tests/test-invariants.ts tests/test-reputation-gate.ts tests/agent-feed.ts",
-    "typecheck": "npm run typecheck --workspace=@agenc/sdk && npm run typecheck --workspace=@agenc/runtime && npm run typecheck --workspace=@agenc/mcp",
+    "typecheck": "npm run typecheck --workspace=@tetsuo-ai/sdk && npm run typecheck --workspace=@tetsuo-ai/runtime && npm run typecheck --workspace=@tetsuo-ai/mcp",
     "benchmark:private:e2e": "npx tsx scripts/benchmark-private-e2e.mts"
   },
   "overrides": {
-    "bigint-buffer": "file:patches/npm/bigint-buffer",
     "bn.js": "^5.2.3",
     "rollup": "^4.59.0"
   },
@@ -36,7 +38,6 @@
   },
   "devDependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
     "bn.js": "^5.2.3",
     "typescript": "^5.0.0",

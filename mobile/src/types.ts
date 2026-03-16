@@ -2,7 +2,7 @@
  * Mobile app types.
  *
  * Mirrors relevant types from the runtime for browser/RN isolation —
- * the mobile app does NOT import from @agenc/runtime.
+ * the mobile app does NOT import from @tetsuo-ai/runtime.
  */
 
 export interface ChatMessage {

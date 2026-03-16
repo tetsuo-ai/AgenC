@@ -14,7 +14,7 @@ import type {
   TaskBidSelection,
   TaskBidUpdateInput,
   WeightedScoringBreakdown,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 
 import type { TaskBidMarketplace } from "./engine.js";
 
@@ -31,7 +31,7 @@ export type {
   TaskBidBookState,
   WeightedScoringBreakdown,
   TaskBidSelection,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 
 export interface MarketplaceMutationInput {
   actorId: string;

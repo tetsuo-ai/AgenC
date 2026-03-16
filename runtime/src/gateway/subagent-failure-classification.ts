@@ -232,7 +232,11 @@ export function normalizeAnchoredDelegatedWorkingDirectory(
 export function resolvePlannerContextDelegatedWorkingDirectory(
   pipeline: Pipeline,
   hostWorkspaceRoot?: string | null,
-): { path: string; anchored: boolean; source?: string } | undefined {
+): {
+  readonly path: string;
+  readonly anchored: boolean;
+  readonly source?: DelegatedWorkingDirectoryResolution["source"];
+} | undefined {
   const cwdFromPipeline = (pipeline.plannerContext as Record<string, unknown> | undefined)?.delegatedWorkingDirectory;
   if (typeof cwdFromPipeline !== "string" || cwdFromPipeline.trim().length === 0) {
     return undefined;
@@ -250,7 +254,11 @@ export function resolveInheritedDelegatedWorkingDirectory(
   step: PipelinePlannerSubagentStep,
   pipeline: Pipeline,
   hostWorkspaceRoot?: string | null,
-): { path: string; anchored: boolean; source?: string } | undefined {
+): {
+  readonly path: string;
+  readonly anchored: boolean;
+  readonly source?: DelegatedWorkingDirectoryResolution["source"];
+} | undefined {
   // 1. Try planner-context CWD.
   const plannerContextCwd = resolvePlannerContextDelegatedWorkingDirectory(
     pipeline,
@@ -301,7 +309,11 @@ export function resolvePlannerStepWorkingDirectory(
   step: PipelinePlannerSubagentStep,
   pipeline: Pipeline,
   hostWorkspaceRoot?: string | null,
-): { path: string; anchored: boolean; source?: string } | undefined {
+): {
+  readonly path: string;
+  readonly anchored: boolean;
+  readonly source?: DelegatedWorkingDirectoryResolution["source"];
+} | undefined {
   const inherited = resolveInheritedDelegatedWorkingDirectory(
     step,
     pipeline,

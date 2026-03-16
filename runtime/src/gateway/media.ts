@@ -22,15 +22,15 @@ import type { ValidationResult } from "../utils/validation.js";
 import { withTimeout } from "../llm/timeout.js";
 
 // ============================================================================
-// Logger (inline to avoid transitive @agenc/sdk runtime dependency)
+// Logger (inline to avoid transitive @tetsuo-ai/sdk runtime dependency)
 // ============================================================================
 
 /**
  * Minimal logger interface matching the SDK Logger shape.
  *
  * Defined inline rather than importing from `../utils/logger.js` because that
- * module re-exports from `@agenc/sdk`, which is not resolvable in the test
- * environment (Vite cannot resolve the package entry). Once `@agenc/sdk` is
+ * module re-exports from `@tetsuo-ai/sdk`, which is not resolvable in the test
+ * environment (Vite cannot resolve the package entry). Once `@tetsuo-ai/sdk` is
  * available as a proper workspace dependency, replace with:
  *
  *   import type { Logger } from '../utils/logger.js';

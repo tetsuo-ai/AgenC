@@ -21,7 +21,7 @@ import type {
   ObservabilityTraceDetail,
   ObservabilityTraceStatus,
   ObservabilityTraceSummary,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime/browser';
 
 // ============================================================================
 // Connection State

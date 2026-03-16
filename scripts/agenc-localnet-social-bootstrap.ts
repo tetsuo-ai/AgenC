@@ -12,7 +12,7 @@ import {
   deriveAgentPda,
   deriveProtocolPda,
   getProtocolConfig,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
@@ -22,7 +22,7 @@ import {
   createProgram,
   Capability,
   combineCapabilities,
-} from "../runtime/src/index.js";
+} from "@tetsuo-ai/runtime";
 
 const DEFAULT_RPC_URL = "http://127.0.0.1:8899";
 const DEFAULT_PROGRAM_ID = "6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab";

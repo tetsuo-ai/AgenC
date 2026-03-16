@@ -1,5 +1,5 @@
 /**
- * Filesystem tools for @agenc/runtime
+ * Filesystem tools for @tetsuo-ai/runtime
  *
  * Provides 8 tools for reading, writing, listing, and managing files
  * on the host system. All operations are gated by configurable path

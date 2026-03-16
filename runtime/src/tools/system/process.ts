@@ -8,7 +8,7 @@ import {
   hasRecordedProcessIdentity,
   processIdentityMatches,
   readProcessIdentitySnapshot,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 
 import type { Logger } from "../../utils/logger.js";
 import { silentLogger } from "../../utils/logger.js";

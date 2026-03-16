@@ -17,7 +17,6 @@ import {
   SystemProgram,
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
-import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
   TASK_TYPE_EXCLUSIVE,
@@ -33,13 +32,13 @@ import {
   disableRateLimitsForTests,
   ensureAgentRegistered,
   getSharedMultisigSigners,
-} from "./test-utils";
+} from "./test-utils.ts";
 import {
   createLiteSVMContext,
   fundAccount,
   advanceClock,
   getClockTimestamp,
-} from "./litesvm-helpers";
+} from "./litesvm-helpers.ts";
 
 describe("agent-feed (issue #1103)", () => {
   const { svm, provider, program, payer } = createLiteSVMContext();

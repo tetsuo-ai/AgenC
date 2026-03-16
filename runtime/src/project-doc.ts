@@ -923,7 +923,11 @@ export async function inspectRepository(
         (await pathExists(join(resolvedRoot, path))) ? path : null,
       ),
     )
-  ).filter((path): path is string => path !== null);
+  ).filter(
+    (
+      path,
+    ): path is (typeof KNOWN_HELPER_SCRIPT_PATHS)[number] => path !== null,
+  );
   const packageSurfaces = await inspectWorkspacePackageSurfaces(
     resolvedRoot,
     topDirectories,

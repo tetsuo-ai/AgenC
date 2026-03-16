@@ -90,7 +90,7 @@ export interface TaskFilter {
    * Undefined (or omitted) means accept all mints.
    * @deprecated Since v0.1.0. Use {@link TaskFilter.rewardMint} instead.
    * Will be removed in v0.2.0.
-   * See: https://github.com/tetsuo-ai/AgenC/issues/983
+   * See: https://github.com/tetsuo/AgenC/issues/983
    */
   acceptedMints?: (PublicKey | null)[];
   /** Custom filter function */

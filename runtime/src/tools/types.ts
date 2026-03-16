@@ -1,5 +1,5 @@
 /**
- * Core tool system types for @agenc/runtime
+ * Core tool system types for @tetsuo-ai/runtime
  *
  * Defines the MCP-compatible Tool interface and supporting types
  * that bridge Skills and LLM adapters.

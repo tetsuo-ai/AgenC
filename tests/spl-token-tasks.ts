@@ -27,15 +27,17 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@tetsuo-ai/sdk";
+import {
   createMint,
   createAssociatedTokenAccount,
   createAssociatedTokenAccountInstruction,
   mintTo,
   getAccount,
-  getAssociatedTokenAddressSync,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+} from "@tetsuo-ai/sdk/internal/spl-token";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,

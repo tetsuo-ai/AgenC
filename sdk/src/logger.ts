@@ -1,5 +1,5 @@
 /**
- * Logger utility for @agenc/sdk
+ * Logger utility for @tetsuo-ai/sdk
  *
  * Provides a lightweight, dependency-free logging system with configurable
  * log levels and formatted output.
