@@ -278,4 +278,154 @@ Per Gate 1 requirement: inventory dominant blockers for decomposition planning.
 
 ---
 
-*Gate 1 exit criterion: "every major contract has an owner and at least one validation strategy" — SATISFIED. All 6 contract categories (runtime, protocol/SDK, proof, desktop, consumer, operational) inventoried with owners and validation.*
+## 8. App-Facing Read-Model and DTO Inventory
+
+### 8.1 Web App (`web/src/types.ts`) — 25 exported types
+
+| Type | Kind | Source |
+|------|------|--------|
+| `ConnectionState` | type union | Web-local |
+| `ChatMessage` | interface | Web-local |
+| `ChatMessageAttachment` | interface | Web-local |
+| `ContextUsageSection` | interface | Web-local |
+| `TokenUsage` | interface | Web-local |
+| `ToolCall` | interface | Web-local |
+| `SubagentTimelineStatus` | type union | Web-local |
+| `SubagentTimelineEvent` | interface | Uses `SubagentLifecycleType` from `@agenc/runtime` |
+| `SubagentTimelineItem` | interface | Web-local |
+| `GatewayStatus` | interface | Uses `GatewayBackgroundRunStatus` from `@agenc/runtime` |
+| `SkillInfo` | interface | Web-local |
+| `TaskInfo` | interface | Web-local |
+| `MemoryEntry` | interface | Web-local |
+| `SessionInfo` | interface | Web-local |
+| `ApprovalRequest` | interface | Web-local |
+| `AgentInfo` | interface | Web-local |
+| `ActivityEvent` | interface | Web-local |
+| `RunSummary`, `RunDetail`, `RunControlAction`, `RunOperatorAvailability`, `RunOperatorErrorPayload` | type aliases | From `@agenc/runtime` BackgroundRunOperator* |
+| `TraceSummary`, `TraceDetail`, `TraceEvent`, `TraceStatus`, `TraceSummaryMetrics`, `TraceArtifact`, `TraceLogTail` | type aliases | From `@agenc/runtime` Observability* |
+| `WSMessage` | interface | Uses `SubagentLifecyclePayload` from `@agenc/runtime` |
+| `VoiceState`, `VoiceMode` | type unions | Web-local |
+| `ViewId` | type union | Web-local |
+
+### 8.2 Mobile App (`mobile/src/types.ts`) — 6 exported types
+
+| Type | Kind | Source |
+|------|------|--------|
+| `ChatMessage` | interface | Mobile-local (divergent from web) |
+| `ConnectionStatus` | type union | Mobile-local |
+| `GatewayConnection` | interface | Mobile-local |
+| `ApprovalRequest` | interface | Mobile-local |
+| `GatewayStatusInfo` | interface | Mobile-local |
+
+**Note:** Mobile defines its own types independently — no `@agenc/runtime` type imports. Web and mobile `ChatMessage` interfaces are divergent and not shared.
+
+---
+
+## 9. Package-Local Doc and Changelog Inventory
+
+| Package | README.md | CHANGELOG.md |
+|---------|-----------|-------------|
+| `sdk/` | YES | YES |
+| `runtime/` | YES | YES |
+| `mcp/` | YES | YES |
+| `docs-mcp/` | YES | NO |
+| `web/` | NO | NO |
+| `mobile/` | NO | NO |
+| `demo-app/` | NO | NO |
+| `containers/desktop/` | NO | NO |
+| `examples/` | YES (root) | NO |
+| `examples/risc0-proof-demo/` | YES | NO |
+| `examples/simple-usage/` | YES | NO |
+| `examples/helius-webhook/` | YES | NO |
+| `examples/tetsuo-integration/` | YES | NO |
+| `migrations/` | YES | NO |
+
+**Gap:** web, mobile, demo-app, and containers/desktop have no README or CHANGELOG.
+
+---
+
+## 10. Docs-MCP Indexed-Corpus Inventory
+
+### 10.1 Indexed Paths
+
+| Path Pattern | Category |
+|-------------|----------|
+| `docs/**/*.md`, `docs/**/*.json` | Architecture docs |
+| `runtime/docs/**/*.md` | Runtime docs |
+| `runtime/idl/**/*.json` | IDL artifacts |
+| `runtime/benchmarks/**/*.json` | Benchmark manifests |
+| `scripts/idl/**/*.json` | Verifier IDL |
+| Package-local docs/changelogs (sdk, runtime, mcp, etc.) | Package docs |
+| `README.md`, `AGENTS.md`, `CODEX.md`, `REFACTOR-MASTER-PROGRAM.md` | Root policy docs |
+
+### 10.2 Coverage Gaps
+
+- `docs/refactor/` gate documents are not explicitly indexed (they live under `docs/` so they should be caught by `docs/**/*.md`)
+- `docs/api-baseline/*.json` — indexed via `docs/**/*.json`
+- No explicit coverage of `containers/desktop/` documentation (none exists)
+
+---
+
+## 11. Docs-MCP Resource/Prompt/Helper Inventory
+
+### 11.1 Tools (6)
+
+| Tool | Source | Scope |
+|------|--------|-------|
+| `docs_search` | `tools/search.ts` | Full-text search across all indexed docs |
+| `docs_get_issue_context` | `tools/issues.ts` | Legacy runtime-roadmap issue context (#1051-#1110) |
+| `docs_get_phase_graph` | `tools/phases.ts` | Legacy runtime-roadmap phase dependency graph |
+| `docs_get_module_template` | `tools/modules.ts` | Runtime module boilerplate |
+| `docs_get_module_info` | `tools/modules.ts` | Runtime module architecture details |
+| `docs_get_conventions` | `tools/modules.ts` | Type/testing/error conventions |
+
+**Validation gap:** `docs_get_issue_context` and `docs_get_phase_graph` are legacy runtime-roadmap-only — they don't cover the master refactor program.
+
+### 11.2 Prompts (2)
+
+| Prompt | Source | Scope |
+|--------|--------|-------|
+| `implement-issue` | `prompts/implementation.ts` | 10-step issue implementation workflow |
+| `explore-phase` | `prompts/implementation.ts` | Phase exploration workflow |
+
+**Validation gap:** Both prompts reference the legacy runtime roadmap, not the master refactor program.
+
+### 11.3 Resources (6+)
+
+| Resource | URI | Status |
+|----------|-----|--------|
+| Per-doc entries | `agenc-docs://architecture/...` etc. | Dynamic (one per indexed doc) |
+| Scope manifest | `agenc-docs://scope` | Active |
+| Issue map | `agenc-docs://issue-map` | Legacy (#1051-#1110) |
+| Roadmap | `agenc-docs://roadmap` | Legacy (10-phase runtime roadmap) |
+| Conventions | `agenc-docs://conventions` | Active |
+
+---
+
+## 12. Public API Baseline Inventory
+
+| Package | Baseline File | Exports | Generated |
+|---------|--------------|---------|-----------|
+| SDK v1.3.0 | `docs/api-baseline/sdk.json` | 254 | 2026-03-15 |
+| Runtime v0.1.0 | `docs/api-baseline/runtime.json` | 1,757 | 2026-03-15 |
+| MCP v0.1.0 | `docs/api-baseline/mcp.json` | 0 (MCP tool surface, not TS exports) | 2026-03-15 |
+
+**Guard:** `scripts/check-breaking-changes.ts --check <sdk|runtime|mcp>`
+
+---
+
+## 13. Generated Schema and IDL Baseline Inventory
+
+| Artifact | Path | Source | Guard |
+|----------|------|--------|-------|
+| Anchor IDL (JSON) | `target/idl/agenc_coordination.json` | `anchor build` | `runtime/scripts/check-idl-drift.ts` |
+| Anchor types (TS) | `target/types/agenc_coordination.ts` | `anchor build` | Manual sync |
+| Runtime IDL copy | `runtime/idl/agenc_coordination.json` | `runtime/scripts/copy-idl.js` | `check-idl-drift.ts` |
+| Runtime types copy | `runtime/src/types/agenc_coordination.ts` | Manual sync | Build-time type checking |
+| Verifier router IDL | `scripts/idl/verifier_router.json` | External (boundless-xyz v3.0.0) | Pinned tag |
+| Desktop tool defs (source) | `containers/desktop/server/src/toolDefinitions.ts` | Manual | Codegen script |
+| Desktop tool defs (mirror) | `runtime/src/desktop/tool-definitions.ts` | `runtime/scripts/generate-desktop-tool-definitions.ts` | Codegen script |
+
+---
+
+*Gate 1 exit criterion: "every major contract has an owner and at least one validation strategy" — SATISFIED. All 17 required inventories now covered.*
