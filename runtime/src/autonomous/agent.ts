@@ -1516,8 +1516,8 @@ export class AutonomousAgent extends AgentRuntime {
       completeTaskPrivate: (
         taskId: anchor.BN,
         proofArgs: {
-          sealBytes: number[];
-          journal: number[];
+          sealBytes: Uint8Array;
+          journal: Uint8Array;
           imageId: number[];
           bindingSeed: number[];
           nullifierSeed: number[];
@@ -1531,8 +1531,8 @@ export class AutonomousAgent extends AgentRuntime {
 
     const tx = await completeTaskPrivateMethod
       .completeTaskPrivate(taskIdU64, {
-        sealBytes: toAnchorBytes(proofResult.sealBytes),
-        journal: toAnchorBytes(proofResult.journal),
+        sealBytes: Buffer.from(proofResult.sealBytes),
+        journal: Buffer.from(proofResult.journal),
         imageId: toAnchorBytes(proofResult.imageId),
         bindingSeed: toAnchorBytes(proofResult.bindingSeed),
         nullifierSeed: toAnchorBytes(proofResult.nullifierSeed),

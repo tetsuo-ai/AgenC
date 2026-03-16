@@ -18,7 +18,7 @@ import {
   TRUSTED_RISC0_SELECTOR,
 } from "../../../sdk/src/constants.ts";
 import { toAnchorBytes } from "../utils/encoding.js";
-import anchor, { type Program } from "@coral-xyz/anchor";
+import { BN, type Program } from "@coral-xyz/anchor";
 import type { AgencCoordination } from "../types/agenc_coordination.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
@@ -604,11 +604,11 @@ export class TaskOperations {
     try {
       // task_id argument is a u64 on-chain, convert taskId bytes to number
       // The on-chain instruction uses task_id: u64 as a proof binding input
-      const taskIdBN = new anchor.BN(task.taskId.slice(0, 8), "le");
+      const taskIdBN = new BN(task.taskId.slice(0, 8), "le");
 
       const proof = {
-        sealBytes: toAnchorBytes(sealBytes),
-        journal: toAnchorBytes(journal),
+        sealBytes: Buffer.from(sealBytes),
+        journal: Buffer.from(journal),
         imageId: toAnchorBytes(imageId),
         bindingSeed: toAnchorBytes(bindingSeed),
         nullifierSeed: toAnchorBytes(nullifierSeed),
@@ -616,7 +616,7 @@ export class TaskOperations {
 
       const completeTaskPrivateMethod = this.program.methods as unknown as {
         completeTaskPrivate: (
-          taskId: anchor.BN,
+          taskId: BN,
           proofArgs: typeof proof,
         ) => {
           accountsPartial: (accounts: Record<string, unknown>) => {

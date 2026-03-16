@@ -4,19 +4,27 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program, type Idl } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import {
+  AddressLookupTableProgram,
+  ComputeBudgetProgram,
   Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
+  sendAndConfirmTransaction,
   SystemProgram,
   Transaction,
+  TransactionMessage,
+  VersionedTransaction,
 } from "@solana/web3.js";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import idlJson from "../runtime/idl/agenc_coordination.json";
 import type { AgencCoordination } from "../runtime/src/types/agenc_coordination";
-import {
+
+const require = createRequire(import.meta.url);
+const {
   bigintToBytes32,
   computeConstraintHash,
   deriveAgentPda,
@@ -25,12 +33,22 @@ import {
   deriveProtocolPda,
   deriveTaskPda,
   getZkConfig,
-} from "../sdk/src/index.ts";
-import { ProofEngine } from "../runtime/src/proof/engine.js";
-import { TaskOperations } from "../runtime/src/task/operations.js";
-import { taskStatusToString } from "../runtime/src/task/types.js";
-import { createLogger } from "../runtime/src/utils/logger.js";
-import {
+  initializeZkConfig,
+  RISC0_IMAGE_ID_LEN,
+  TRUSTED_RISC0_IMAGE_ID,
+  updateZkImageId,
+} = require("../sdk/src/index") as typeof import("../sdk/src/index");
+const { ProofEngine } =
+  require("../runtime/src/proof/engine") as typeof import("../runtime/src/proof/engine");
+const { TaskOperations } =
+  require("../runtime/src/task/operations") as typeof import("../runtime/src/task/operations");
+const { taskStatusToString } =
+  require("../runtime/src/task/types") as typeof import("../runtime/src/task/types");
+const { keypairToWallet } =
+  require("../runtime/src/types/wallet") as typeof import("../runtime/src/types/wallet");
+const { createLogger } =
+  require("../runtime/src/utils/logger") as typeof import("../runtime/src/utils/logger");
+const {
   deriveRouterPda,
   deriveVerifierEntryPda,
   deriveVerifierProgramDataPda,
@@ -39,7 +57,7 @@ import {
   VERIFIER_PROGRAM_ID,
   hasExpectedProgramDataAuthority,
   isExpectedVerifierEntryData,
-} from "./verifier-localnet.js";
+} = require("./verifier-localnet") as typeof import("./verifier-localnet");
 
 const CAPABILITY_COMPUTE = 1;
 const TASK_TYPE_EXCLUSIVE = 0;
@@ -68,6 +86,9 @@ const BENCHMARK_HELP_TEXT = [
   "  --markdown-output <path>       Markdown summary path",
   "  --prover-timeout-ms <int>      Remote prover timeout",
   "  --header name=value            Repeatable remote prover header",
+  "  --creator-keypair <path>       Reuse an existing creator wallet instead of funding a new one",
+  "  --worker-keypair <path>        Reuse an existing worker wallet instead of funding a new one",
+  "  --stake-lamports <int>         Optional agent stake override for low-budget smoke runs",
   "  --reward-lamports <int>        Reward escrowed into the task",
   "  --funding-lamports <int>       Funding per creator/worker account",
   "  --output-values a,b,c,d        Private task expected output values",
@@ -97,6 +118,9 @@ interface CliOptions {
   proverEndpoint: string;
   proverTimeoutMs?: number;
   proverHeaders: Record<string, string>;
+  creatorKeypairPath?: string;
+  workerKeypairPath?: string;
+  stakeLamports?: number;
   rewardLamports: number;
   fundingLamports: number;
   output: bigint[];
@@ -105,7 +129,7 @@ interface CliOptions {
 }
 
 interface FundingResult {
-  strategy: "airdrop" | "payer-transfer";
+  strategy: "airdrop" | "payer-transfer" | "preloaded";
   signature: string;
 }
 
@@ -186,6 +210,7 @@ interface BenchmarkArtifact {
   };
   config: {
     rounds: number;
+    stakeLamports: number;
     rewardLamports: number;
     fundingLamports: number;
     output: string[];
@@ -258,6 +283,12 @@ function parseLogLevel(raw: string): CliOptions["logLevel"] {
   return raw as CliOptions["logLevel"];
 }
 
+function fixedLengthBuffer(value: string, size: number): Buffer {
+  const buffer = Buffer.alloc(size);
+  Buffer.from(value, "utf8").copy(buffer, 0, 0, size);
+  return buffer;
+}
+
 function resolveDefaultOptions(): CliOptions {
   return {
     rounds: 1,
@@ -268,6 +299,18 @@ function resolveDefaultOptions(): CliOptions {
       ? parsePositiveInt(process.env.AGENC_PROVER_TIMEOUT_MS, "AGENC_PROVER_TIMEOUT_MS")
       : undefined,
     proverHeaders: resolveDefaultProverHeaders(),
+    creatorKeypairPath: process.env.AGENC_BENCH_CREATOR_KEYPAIR_PATH
+      ? path.resolve(process.cwd(), process.env.AGENC_BENCH_CREATOR_KEYPAIR_PATH)
+      : undefined,
+    workerKeypairPath: process.env.AGENC_BENCH_WORKER_KEYPAIR_PATH
+      ? path.resolve(process.cwd(), process.env.AGENC_BENCH_WORKER_KEYPAIR_PATH)
+      : undefined,
+    stakeLamports: process.env.AGENC_BENCH_STAKE_LAMPORTS
+      ? parsePositiveInt(
+          process.env.AGENC_BENCH_STAKE_LAMPORTS,
+          "AGENC_BENCH_STAKE_LAMPORTS",
+        )
+      : undefined,
     rewardLamports: parseNonNegativeInt(
       process.env.AGENC_BENCH_REWARD_LAMPORTS ?? String(DEFAULT_REWARD_LAMPORTS),
       "AGENC_BENCH_REWARD_LAMPORTS",
@@ -327,6 +370,15 @@ function applyCliOption(
       options.proverHeaders[key] = headerValue;
       break;
     }
+    case "--creator-keypair":
+      options.creatorKeypairPath = path.resolve(process.cwd(), value);
+      break;
+    case "--worker-keypair":
+      options.workerKeypairPath = path.resolve(process.cwd(), value);
+      break;
+    case "--stake-lamports":
+      options.stakeLamports = parsePositiveInt(value, flag);
+      break;
     case "--reward-lamports":
       options.rewardLamports = parseNonNegativeInt(value, flag);
       break;
@@ -377,6 +429,9 @@ function parseCliArgs(argv: string[]): CliOptions {
 }
 
 function isAirdropSupported(rpcUrl: string): boolean {
+  if (process.env.AGENC_BENCH_DISABLE_AIRDROP === "1") {
+    return false;
+  }
   return (
     rpcUrl.includes("127.0.0.1") ||
     rpcUrl.includes("localhost") ||
@@ -506,19 +561,64 @@ function median(values: number[]): number {
   return ordered[mid];
 }
 
-async function requireActiveImageId(
-  program: Program<AgencCoordination>,
-): Promise<Uint8Array> {
-  const zkConfig = await getZkConfig(program);
-  if (!zkConfig) {
+function imageIdsEqual(left: ArrayLike<number>, right: ArrayLike<number>): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function requireAuthorityKeypair(provider: anchor.AnchorProvider): Keypair {
+  const payer = (provider.wallet as WalletLike).payer;
+  if (!payer) {
     throw new Error(
-      "zk_config is not initialized. Run: npx tsx scripts/setup-verifier-localnet.ts",
+      "benchmark-private-e2e requires ANCHOR_WALLET to be a local keypair-backed wallet",
     );
   }
-  if (zkConfig.activeImageId.length !== METHOD_ID_LEN) {
-    throw new Error(
-      `zk_config active image ID must be ${METHOD_ID_LEN} bytes, got ${zkConfig.activeImageId.length}`,
+  return payer;
+}
+
+function loadKeypairFromFile(filePath: string): Keypair {
+  const secret = JSON.parse(readFileSync(filePath, "utf8")) as number[];
+  if (!Array.isArray(secret)) {
+    throw new Error(`invalid keypair file: ${filePath}`);
+  }
+  return Keypair.fromSecretKey(Uint8Array.from(secret));
+}
+
+async function ensureTrustedImageId(
+  provider: anchor.AnchorProvider,
+  program: Program<AgencCoordination>,
+): Promise<Uint8Array> {
+  const expectedImageId = Uint8Array.from(TRUSTED_RISC0_IMAGE_ID);
+  const zkConfig = await getZkConfig(program);
+  if (!zkConfig) {
+    await initializeZkConfig(
+      provider.connection,
+      program,
+      requireAuthorityKeypair(provider),
+      expectedImageId,
     );
+    return expectedImageId;
+  }
+  if (zkConfig.activeImageId.length !== RISC0_IMAGE_ID_LEN) {
+    throw new Error(
+      `zk_config active image ID must be ${RISC0_IMAGE_ID_LEN} bytes, got ${zkConfig.activeImageId.length}`,
+    );
+  }
+  if (!imageIdsEqual(zkConfig.activeImageId, expectedImageId)) {
+    await updateZkImageId(
+      provider.connection,
+      program,
+      requireAuthorityKeypair(provider),
+      expectedImageId,
+    );
+    return expectedImageId;
   }
   return zkConfig.activeImageId;
 }
@@ -707,12 +807,13 @@ async function createPrivateTask(params: {
   );
   const escrowPda = deriveEscrowPda(taskPda, params.program.programId);
   const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
+  const descriptionBytes = fixedLengthBuffer(params.description, 64);
 
   const signature = await params.program.methods
     .createTask(
       Array.from(params.taskId),
       new BN(CAPABILITY_COMPUTE),
-      params.description,
+      descriptionBytes,
       new BN(params.rewardLamports),
       1,
       deadline,
@@ -769,6 +870,164 @@ async function claimPrivateTask(params: {
   return { claimPda, signature };
 }
 
+async function completePrivateTaskVersioned(params: {
+  connection: anchor.web3.Connection;
+  program: Program<AgencCoordination>;
+  protocolPda: PublicKey;
+  worker: Keypair;
+  workerAgentPda: PublicKey;
+  taskPda: PublicKey;
+  creator: PublicKey;
+  taskId: Uint8Array;
+  sealBytes: Uint8Array;
+  journal: Uint8Array;
+  imageId: Uint8Array;
+  bindingSeed: Uint8Array;
+  nullifierSeed: Uint8Array;
+}): Promise<{ signature: string }> {
+  const claimPda = deriveClaimPda(
+    params.taskPda,
+    params.workerAgentPda,
+    params.program.programId,
+  );
+  const escrowPda = deriveEscrowPda(params.taskPda, params.program.programId);
+  const [bindingSpendPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("binding_spend"), Buffer.from(params.bindingSeed)],
+    params.program.programId,
+  );
+  const [nullifierSpendPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("nullifier_spend"), Buffer.from(params.nullifierSeed)],
+    params.program.programId,
+  );
+  const routerPda = deriveRouterPda();
+  const verifierEntryPda = deriveVerifierEntryPda();
+  const protocolConfig = await params.program.account.protocolConfig.fetch(
+    params.protocolPda,
+  );
+  const taskIdU64 = new BN(params.taskId.slice(0, 8), "le");
+
+  const recentSlot = await params.connection.getSlot("finalized");
+  const [createLookupTableIx, lookupTableAddress] =
+    AddressLookupTableProgram.createLookupTable({
+      authority: params.worker.publicKey,
+      payer: params.worker.publicKey,
+      recentSlot,
+    });
+  const extendLookupTableIx = AddressLookupTableProgram.extendLookupTable({
+    payer: params.worker.publicKey,
+    authority: params.worker.publicKey,
+    lookupTable: lookupTableAddress,
+    addresses: [
+      params.taskPda,
+      claimPda,
+      escrowPda,
+      params.creator,
+      params.workerAgentPda,
+      params.protocolPda,
+      bindingSpendPda,
+      nullifierSpendPda,
+      protocolConfig.treasury,
+      ROUTER_PROGRAM_ID,
+      routerPda,
+      verifierEntryPda,
+      VERIFIER_PROGRAM_ID,
+      SystemProgram.programId,
+      params.program.programId,
+    ],
+  });
+
+  await sendAndConfirmTransaction(
+    params.connection,
+    new Transaction().add(createLookupTableIx, extendLookupTableIx),
+    [params.worker],
+    { commitment: "confirmed" },
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+
+  const lookupTableResult = await params.connection.getAddressLookupTable(
+    lookupTableAddress,
+  );
+  if (!lookupTableResult.value) {
+    throw new Error("lookup table not found after creation");
+  }
+
+  const completeIx = await params.program.methods
+    .completeTaskPrivate(taskIdU64, {
+      sealBytes: Buffer.from(params.sealBytes),
+      journal: Buffer.from(params.journal),
+      imageId: Array.from(params.imageId),
+      bindingSeed: Array.from(params.bindingSeed),
+      nullifierSeed: Array.from(params.nullifierSeed),
+    })
+    .accountsPartial({
+      task: params.taskPda,
+      claim: claimPda,
+      escrow: escrowPda,
+      creator: params.creator,
+      worker: params.workerAgentPda,
+      protocolConfig: params.protocolPda,
+      bindingSpend: bindingSpendPda,
+      nullifierSpend: nullifierSpendPda,
+      treasury: protocolConfig.treasury,
+      authority: params.worker.publicKey,
+      routerProgram: ROUTER_PROGRAM_ID,
+      router: routerPda,
+      verifierEntry: verifierEntryPda,
+      verifierProgram: VERIFIER_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+      tokenEscrowAta: null,
+      workerTokenAccount: null,
+      treasuryTokenAccount: null,
+      rewardMint: null,
+      tokenProgram: null,
+    })
+    .instruction();
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const { blockhash, lastValidBlockHeight } =
+      await params.connection.getLatestBlockhash("confirmed");
+    const messageV0 = new TransactionMessage({
+      payerKey: params.worker.publicKey,
+      recentBlockhash: blockhash,
+      instructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 500_000 }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5_000 }),
+        completeIx,
+      ],
+    }).compileToV0Message([lookupTableResult.value]);
+
+    const versionedTx = new VersionedTransaction(messageV0);
+    versionedTx.sign([params.worker]);
+
+    const signature = await params.connection.sendTransaction(versionedTx, {
+      maxRetries: 10,
+      preflightCommitment: "confirmed",
+    });
+
+    try {
+      await params.connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed",
+      );
+      return { signature };
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        attempt === 3 ||
+        !message.toLowerCase().includes("block height exceeded")
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+    }
+  }
+
+  throw lastError ?? new Error("completeTaskPrivate transaction failed");
+}
+
 async function runRound(params: {
   round: number;
   options: CliOptions;
@@ -792,8 +1051,15 @@ async function runRound(params: {
   } = params;
   const roundLabel = `private-bench:${nowIso()}:round:${round}`;
 
-  const creator = Keypair.generate();
-  const worker = Keypair.generate();
+  const creator = options.creatorKeypairPath
+    ? loadKeypairFromFile(options.creatorKeypairPath)
+    : Keypair.generate();
+  const worker = options.workerKeypairPath
+    ? loadKeypairFromFile(options.workerKeypairPath)
+    : Keypair.generate();
+  if (creator.publicKey.equals(worker.publicKey)) {
+    throw new Error("creator and worker keypairs must be distinct");
+  }
   const creatorAgentId = makeId(`${roundLabel}:creator-agent`);
   const workerAgentId = makeId(`${roundLabel}:worker-agent`);
   const taskId = makeId(`${roundLabel}:task`);
@@ -801,10 +1067,14 @@ async function runRound(params: {
   const constraintHashBytes = bigintToBytes32(constraintHash);
 
   const fundCreator = await measure(() =>
-    fundKeypair(provider, creator.publicKey, options.fundingLamports),
+    options.creatorKeypairPath
+      ? Promise.resolve({ strategy: "preloaded" as const, signature: "" })
+      : fundKeypair(provider, creator.publicKey, options.fundingLamports),
   );
   const fundWorker = await measure(() =>
-    fundKeypair(provider, worker.publicKey, options.fundingLamports),
+    options.workerKeypairPath
+      ? Promise.resolve({ strategy: "preloaded" as const, signature: "" })
+      : fundKeypair(provider, worker.publicKey, options.fundingLamports),
   );
 
   const registerCreator = await measure(() =>
@@ -877,8 +1147,18 @@ async function runRound(params: {
 
   const generatedProof = await measure(() => proofEngine.generate(proofInputs));
 
+  const workerProvider = new anchor.AnchorProvider(
+    provider.connection,
+    keypairToWallet(worker) as WalletLike,
+    provider.opts,
+  );
+  const workerProgram = new Program(
+    idlJson as Idl,
+    workerProvider,
+  ) as Program<AgencCoordination>;
+
   const taskOps = new TaskOperations({
-    program,
+    program: workerProgram,
     agentId: workerAgentId,
     logger,
   });
@@ -890,15 +1170,21 @@ async function runRound(params: {
   }
 
   const submitCompletion = await measure(() =>
-    taskOps.completeTaskPrivate(
-      createTaskResult.result.taskPda,
-      task,
-      generatedProof.result.sealBytes,
-      generatedProof.result.journal,
-      generatedProof.result.imageId,
-      generatedProof.result.bindingSeed,
-      generatedProof.result.nullifierSeed,
-    ),
+    completePrivateTaskVersioned({
+      connection: provider.connection,
+      program: workerProgram,
+      protocolPda,
+      worker,
+      workerAgentPda: registerWorker.result.agentPda,
+      taskPda: createTaskResult.result.taskPda,
+      creator: task.creator,
+      taskId: task.taskId,
+      sealBytes: generatedProof.result.sealBytes,
+      journal: generatedProof.result.journal,
+      imageId: generatedProof.result.imageId,
+      bindingSeed: generatedProof.result.bindingSeed,
+      nullifierSeed: generatedProof.result.nullifierSeed,
+    }),
   );
 
   const completedTask = await taskOps.fetchTask(createTaskResult.result.taskPda);
@@ -926,7 +1212,7 @@ async function runRound(params: {
       registerWorker: registerWorker.result.signature,
       createTask: createTaskResult.result.signature,
       claimTask: claimTaskResult.result.signature,
-      completeTaskPrivate: submitCompletion.result.transactionSignature,
+      completeTaskPrivate: submitCompletion.result.signature,
     },
     proof: {
       proofSizeBytes: generatedProof.result.proofSize,
@@ -957,6 +1243,7 @@ function buildArtifact(params: {
   provider: anchor.AnchorProvider;
   bootstrap: ProtocolBootstrapResult;
   activeImageId: Uint8Array;
+  stakeLamports: number;
 }): BenchmarkArtifact {
   const proofDurations = params.rounds.map((round) => round.timingsMs.proofGeneration);
   const submitDurations = params.rounds.map(
@@ -987,6 +1274,7 @@ function buildArtifact(params: {
     },
     config: {
       rounds: params.options.rounds,
+      stakeLamports: params.stakeLamports,
       rewardLamports: params.options.rewardLamports,
       fundingLamports: params.options.fundingLamports,
       output: params.options.output.map((value) => value.toString()),
@@ -1029,6 +1317,9 @@ function renderMarkdown(artifact: BenchmarkArtifact): string {
     `RPC: \`${artifact.network.rpcUrl}\``,
     `Prover endpoint: \`${artifact.prover.endpoint}\``,
     `Rounds: ${artifact.aggregate.rounds}`,
+    `Stake lamports: ${artifact.config.stakeLamports}`,
+    `Reward lamports: ${artifact.config.rewardLamports}`,
+    `Funding lamports: ${artifact.config.fundingLamports}`,
     "",
     "## Aggregate",
     "",
@@ -1081,14 +1372,19 @@ async function main(): Promise<void> {
   ) as Program<AgencCoordination>;
   const protocolPda = deriveProtocolPda(program.programId);
   const bootstrap = await ensureProtocolInitialized(provider, program);
-  const activeImageId = await requireActiveImageId(program);
+  const activeImageId = await ensureTrustedImageId(provider, program);
 
   const rawProtocol = await program.account.protocolConfig.fetch(protocolPda);
   const configuredMinAgentStake = Number(rawProtocol.minAgentStake.toString());
-  const stakeLamports = Math.max(
-    configuredMinAgentStake,
-    DEFAULT_AGENT_STAKE_LAMPORTS,
-  );
+  const stakeLamports =
+    options.stakeLamports !== undefined
+      ? options.stakeLamports
+      : Math.max(configuredMinAgentStake, DEFAULT_AGENT_STAKE_LAMPORTS);
+  if (stakeLamports < configuredMinAgentStake) {
+    throw new Error(
+      `stake override ${stakeLamports} is below protocol minAgentStake ${configuredMinAgentStake}`,
+    );
+  }
 
   const rounds: BenchmarkRoundArtifact[] = [];
   for (let round = 1; round <= options.rounds; round++) {
@@ -1114,6 +1410,7 @@ async function main(): Promise<void> {
       provider,
       bootstrap,
       activeImageId,
+      stakeLamports,
     }),
     provider,
   );

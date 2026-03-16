@@ -454,8 +454,8 @@ class TetsuoAgent {
     // In production:
     // 1. Submit private completion payload
     // const verifyTx = await program.methods.completeTaskPrivate(taskId, {
-    //   sealBytes: Array.from(payload.sealBytes),
-    //   journal: Array.from(payload.journal),
+    //   sealBytes: Buffer.from(payload.sealBytes),
+    //   journal: Buffer.from(payload.journal),
     //   imageId: Array.from(payload.imageId),
     //   bindingSeed: Array.from(payload.bindingSeed),
     //   nullifierSeed: Array.from(payload.nullifierSeed),

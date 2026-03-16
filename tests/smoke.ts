@@ -11,10 +11,11 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
+import { readFileSync } from "node:fs";
 import { PublicKey, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { assert, expect } from "chai";
 import BN from "bn.js";
-import { AgencCoordination } from "../target/types/agenc_coordination";
+import type { AgencCoordination } from "../runtime/src/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
   CAPABILITY_STORAGE,
@@ -40,18 +41,20 @@ import {
   MAX_AIRDROP_ATTEMPTS,
   BASE_DELAY_MS,
   MAX_DELAY_MS,
-  DEFAULT_MIN_STAKE_LAMPORTS,
   DEFAULT_PROTOCOL_FEE_BPS,
   DEFAULT_DISPUTE_THRESHOLD,
-} from "./test-utils";
+} from "./test-utils.ts";
 
 // ============================================================================
 // CONSTANTS (imported from test-utils, local aliases for backwards compat)
 // ============================================================================
 
-const MIN_STAKE = DEFAULT_MIN_STAKE_LAMPORTS;
 const PROTOCOL_FEE_BPS = DEFAULT_PROTOCOL_FEE_BPS;
 const DISPUTE_THRESHOLD = DEFAULT_DISPUTE_THRESHOLD;
+const SMOKE_DEFAULT_MIN_STAKE_LAMPORTS = 1_000_000;
+const SMOKE_TASK_REWARD_LAMPORTS = Math.floor(0.02 * LAMPORTS_PER_SOL);
+const SMOKE_CANCEL_REWARD_LAMPORTS = Math.floor(0.01 * LAMPORTS_PER_SOL);
+const SMOKE_FEE_BUFFER_LAMPORTS = Math.floor(0.1 * LAMPORTS_PER_SOL);
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -60,6 +63,44 @@ const DISPUTE_THRESHOLD = DEFAULT_DISPUTE_THRESHOLD;
 const isRateLimitError = (message: string) =>
   message.includes("429") ||
   message.toLowerCase().includes("too many requests");
+
+const loadKeypairFromEnv = (envVar: string): Keypair | null => {
+  const keypairPath = process.env[envVar];
+  if (!keypairPath) {
+    return null;
+  }
+
+  const secretKey = JSON.parse(readFileSync(keypairPath, "utf8")) as number[];
+  return Keypair.fromSecretKey(Uint8Array.from(secretKey));
+};
+
+const asNumber = (value: unknown): number | null => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  if (value && typeof value === "object") {
+    const maybeBn = value as { toNumber?: () => number };
+    if (typeof maybeBn.toNumber === "function") {
+      return maybeBn.toNumber();
+    }
+  }
+  return null;
+};
+
+const readNumericField = (
+  account: Record<string, unknown>,
+  keys: string[],
+): number | null => {
+  for (const key of keys) {
+    if (key in account) {
+      return asNumber(account[key]);
+    }
+  }
+  return null;
+};
 
 const ensureBalance = async (
   connection: anchor.web3.Connection,
@@ -77,15 +118,37 @@ const ensureBalance = async (
     return;
   }
 
+  let currentBalance = existing;
+
   for (let attempt = 0; attempt < MAX_AIRDROP_ATTEMPTS; attempt += 1) {
     try {
+      const missingLamports = Math.max(0, minLamports - currentBalance);
+      const requestLamports = Math.min(
+        AIRDROP_SOL * LAMPORTS_PER_SOL,
+        missingLamports,
+      );
+      if (requestLamports <= 0) {
+        return;
+      }
       const sig = await connection.requestAirdrop(
         pubkey,
-        AIRDROP_SOL * LAMPORTS_PER_SOL,
+        requestLamports,
       );
       await connection.confirmTransaction(sig, "confirmed");
-      console.log(`  Funded ${pubkey.toBase58().slice(0, 8)}...`);
-      return;
+      currentBalance = await connection.getBalance(pubkey);
+      if (currentBalance >= minLamports) {
+        console.log(
+          `  Funded ${pubkey.toBase58().slice(0, 8)}... balance ${(
+            currentBalance / LAMPORTS_PER_SOL
+          ).toFixed(3)} SOL`,
+        );
+        return;
+      }
+      console.log(
+        `  Partial funding for ${pubkey.toBase58().slice(0, 8)}... balance ${(
+          currentBalance / LAMPORTS_PER_SOL
+        ).toFixed(3)} / ${(minLamports / LAMPORTS_PER_SOL).toFixed(3)} SOL`,
+      );
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       const delayMs = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
@@ -106,6 +169,12 @@ const ensureBalance = async (
       await sleep(delayMs);
     }
   }
+
+  throw new Error(
+    `Balance for ${pubkey.toBase58().slice(0, 8)} reached only ${(
+      currentBalance / LAMPORTS_PER_SOL
+    ).toFixed(3)} / ${(minLamports / LAMPORTS_PER_SOL).toFixed(3)} SOL after ${MAX_AIRDROP_ATTEMPTS} attempts`,
+  );
 };
 
 // PDA helpers delegate to test-utils (3-arg versions with programId)
@@ -160,6 +229,7 @@ describe("AgenC Devnet Smoke Tests", () => {
   // PDAs
   let protocolConfigPda: PublicKey;
   let treasuryPubkey: PublicKey;
+  let minStakeLamports = SMOKE_DEFAULT_MIN_STAKE_LAMPORTS;
 
   // Test identifiers - use unique IDs per test run
   const testRunId = Date.now().toString(36);
@@ -176,37 +246,66 @@ describe("AgenC Devnet Smoke Tests", () => {
     secondSigner = Keypair.generate();
     thirdSigner = Keypair.generate();
     treasury = Keypair.generate();
-    agent1Authority = Keypair.generate();
-    agent2Authority = Keypair.generate();
-    taskCreator = Keypair.generate();
+    taskCreator = protocolAuthority;
+    agent1Authority =
+      loadKeypairFromEnv("AGENC_SMOKE_WORKER_KEYPAIR") ?? Keypair.generate();
+    agent2Authority = agent1Authority;
 
     // Derive protocol PDA
     protocolConfigPda = deriveProtocolConfigPda(program.programId);
 
-    // Airdrop SOL to test accounts
-    console.log("Airdropping SOL to test accounts...");
+    try {
+      const existingProtocol =
+        await program.account.protocolConfig.fetch(protocolConfigPda);
+      treasuryPubkey = existingProtocol.treasury;
+      minStakeLamports = existingProtocol.minAgentStake.toNumber();
+      console.log(
+        `Existing protocol detected. Using min stake ${(
+          minStakeLamports / LAMPORTS_PER_SOL
+        ).toFixed(3)} SOL`,
+      );
+    } catch {
+      minStakeLamports = SMOKE_DEFAULT_MIN_STAKE_LAMPORTS;
+      console.log(
+        `Protocol not initialized yet. Smoke will initialize with ${(
+          minStakeLamports / LAMPORTS_PER_SOL
+        ).toFixed(3)} SOL min stake`,
+      );
+    }
+
+    const creatorFundingLamports = Math.ceil(
+      minStakeLamports * 2 +
+        SMOKE_TASK_REWARD_LAMPORTS +
+        SMOKE_CANCEL_REWARD_LAMPORTS +
+        SMOKE_FEE_BUFFER_LAMPORTS,
+    );
+    const workerFundingLamports = Math.ceil(
+      minStakeLamports * 2 + SMOKE_FEE_BUFFER_LAMPORTS,
+    );
+
+    // Fund only wallets that actually escrow or stake lamports. Multisig helper
+    // signers and treasury do not need devnet SOL for this suite.
+    console.log("Funding economic test accounts...");
 
     if (payer) {
       console.log(
-        `  Reusing provider wallet for protocol authority: ${payer.publicKey.toBase58()}`,
+        `  Reusing provider wallet for protocol authority and task creator: ${payer.publicKey.toBase58()}`,
       );
     }
+    console.log(
+      `  Reusing worker wallet for both worker agents: ${agent1Authority.publicKey.toBase58()}`,
+    );
 
-    const accounts = [
-      protocolAuthority,
-      secondSigner,
-      thirdSigner,
-      agent1Authority,
-      agent2Authority,
+    await ensureBalance(
+      provider.connection,
       taskCreator,
-    ];
-    for (const account of accounts) {
-      await ensureBalance(
-        provider.connection,
-        account,
-        MIN_BALANCE_SOL * LAMPORTS_PER_SOL,
-      );
-    }
+      creatorFundingLamports,
+    );
+    await ensureBalance(
+      provider.connection,
+      agent1Authority,
+      workerFundingLamports,
+    );
 
     console.log("\nTest accounts ready.");
     console.log(
@@ -232,7 +331,7 @@ describe("AgenC Devnet Smoke Tests", () => {
           .initializeProtocol(
             DISPUTE_THRESHOLD, // dispute_threshold: u8
             PROTOCOL_FEE_BPS, // protocol_fee_bps: u16
-            new BN(MIN_STAKE), // min_stake: u64
+            new BN(minStakeLamports), // min_stake: u64
             new BN(0), // min_stake_for_dispute: u64
             2, // multisig_threshold: u8 (must be >= 2 and < owners.length)
             [protocolAuthority.publicKey, secondSigner.publicKey, thirdSigner.publicKey], // multisig_owners: Vec<Pubkey>
@@ -307,7 +406,7 @@ describe("AgenC Devnet Smoke Tests", () => {
 
       const capabilities = CAPABILITY_COMPUTE;
       const endpoint = "https://agent1.smoke-test.example.com";
-      const stakeAmount = new BN(MIN_STAKE);
+      const stakeAmount = new BN(minStakeLamports);
 
       await program.methods
         .registerAgent(
@@ -359,7 +458,7 @@ describe("AgenC Devnet Smoke Tests", () => {
 
       const capabilities = CAPABILITY_INFERENCE;
       const endpoint = "https://agent2.smoke-test.example.com";
-      const stakeAmount = new BN(MIN_STAKE);
+      const stakeAmount = new BN(minStakeLamports);
 
       await program.methods
         .registerAgent(
@@ -437,7 +536,7 @@ describe("AgenC Devnet Smoke Tests", () => {
     let creatorAgentPda: PublicKey;
     let taskPda: PublicKey;
     let escrowPda: PublicKey;
-    const taskReward = new BN(0.1 * LAMPORTS_PER_SOL);
+    const taskReward = new BN(SMOKE_TASK_REWARD_LAMPORTS);
 
     before(async () => {
       creatorAgentId = createId(creatorAgentIdStr);
@@ -452,7 +551,7 @@ describe("AgenC Devnet Smoke Tests", () => {
           new BN(CAPABILITY_COORDINATOR),
           "https://creator.smoke-test.example.com",
           null,
-          new BN(MIN_STAKE),
+          new BN(minStakeLamports),
         )
         .accounts({
           authority: taskCreator.publicKey,
@@ -793,7 +892,8 @@ describe("AgenC Devnet Smoke Tests", () => {
     let cancelTaskId: Buffer;
     let cancelTaskPda: PublicKey;
     let cancelEscrowPda: PublicKey;
-    const cancelReward = new BN(0.05 * LAMPORTS_PER_SOL);
+    const cancelReward = new BN(SMOKE_CANCEL_REWARD_LAMPORTS);
+    let cancelTaskCooldownMs = 0;
 
     before(async () => {
       const creatorAgentId = createId(creatorAgentIdStr);
@@ -805,14 +905,42 @@ describe("AgenC Devnet Smoke Tests", () => {
         program.programId,
       );
       cancelEscrowPda = deriveEscrowPda(cancelTaskPda, program.programId);
+
+      const protocolConfig = (await program.account.protocolConfig.fetch(
+        protocolConfigPda,
+      )) as Record<string, unknown>;
+      const creatorAgent = (await program.account.agentRegistration.fetch(
+        creatorAgentPda,
+      )) as Record<string, unknown>;
+      const cooldownSeconds = readNumericField(protocolConfig, [
+        "taskCreationCooldown",
+        "task_creation_cooldown",
+      ]) ?? 0;
+      const lastTaskCreated = readNumericField(creatorAgent, [
+        "lastTaskCreated",
+        "last_task_created",
+      ]) ?? 0;
+      const currentSlot = await provider.connection.getSlot("confirmed");
+      const chainNow =
+        (await provider.connection.getBlockTime(currentSlot)) ??
+        Math.floor(Date.now() / 1000);
+      const remainingSeconds = Math.max(
+        0,
+        lastTaskCreated + cooldownSeconds - chainNow,
+      );
+      cancelTaskCooldownMs =
+        remainingSeconds > 0 ? (remainingSeconds + 2) * 1000 : 0;
     });
 
     it("should create a task for cancellation test", async () => {
       console.log("\n[TEST] Creating task for cancellation...");
 
-      // Task creation cooldown can still be active from prior task-creation
-      // flows in this suite. Sleep past the minimum cooldown to avoid flakes.
-      await sleep(2_200);
+      if (cancelTaskCooldownMs > 0) {
+        console.log(
+          `  Waiting ${(cancelTaskCooldownMs / 1000).toFixed(1)}s for task creation cooldown...`,
+        );
+        await sleep(cancelTaskCooldownMs);
+      }
 
       await program.methods
         .createTask(
@@ -906,14 +1034,7 @@ describe("AgenC Devnet Smoke Tests", () => {
     before(async () => {
       deregAgentId = createId(deregAgentIdStr);
       deregAgentPda = deriveAgentPda(deregAgentId, program.programId);
-      deregAuthority = Keypair.generate();
-
-      // Fund the deregistration test account
-      await ensureBalance(
-        provider.connection,
-        deregAuthority,
-        MIN_BALANCE_SOL * LAMPORTS_PER_SOL,
-      );
+      deregAuthority = taskCreator;
 
       // Register an agent specifically for deregistration test
       await program.methods
@@ -922,7 +1043,7 @@ describe("AgenC Devnet Smoke Tests", () => {
           new BN(CAPABILITY_STORAGE),
           "https://dereg-agent.smoke-test.example.com",
           null,
-          new BN(MIN_STAKE),
+          new BN(minStakeLamports),
         )
         .accounts({
           authority: deregAuthority.publicKey,

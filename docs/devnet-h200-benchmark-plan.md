@@ -75,7 +75,7 @@ Validated directly against Solana devnet on 2026-03-15.
 - `protocol_config.multisigOwners`: `E9ws...`, `Dri1...`, `5aaM...`
 - `zk_config` PDA exists: `iGP89zNzFpLYAyu12FR4nFj71PfRejVZ8k9NrVKqcvy`
 - `zk_config` bootstrap signature: `55D5y89RbUFXGzAw1r4RjbZSyi5E5Ft41gxL73vsBypwy2fEqHru8z3opwaGMch2XQ6LAPpSRZUedyu3seMJANNM`
-- `zk_config.activeImageIdHex`: `0xea693a9a8b2b774161852dfec9b2af4749e61211f30316c12fad6badd7d00152`
+- `zk_config.activeImageIdHex`: do not assume a pinned value here; query live state before benchmarking
 - Local TypeScript admin scripts now run from this checkout, but state-changing flows need an explicit remote devnet `wsEndpoint` when using the local HTTP proxy
 
 ## What is already done
@@ -232,7 +232,7 @@ Current state:
 - Two local devnet signer keypairs were created and prefunded for multisig/admin use
 - `zk_config` exists at `iGP89zNzFpLYAyu12FR4nFj71PfRejVZ8k9NrVKqcvy`
 - `zk_config.activeImageId` is present and 32 bytes long
-- Current `zk_config.activeImageIdHex` is `0xea693a9a8b2b774161852dfec9b2af4749e61211f30316c12fad6badd7d00152`
+- Current `zk_config.activeImageIdHex` must be read from live state before comparing it to a prover build
 - This matches the current in-repo reference image ID for the prover
 - We still need to compare it against the actual H200 prover build output before the benchmark
 
@@ -422,7 +422,7 @@ Completed:
 - recorded `protocol_config` bootstrap signature `Jvsp5GSMC3uiBT4RnsGpWExh46UUggxoDcCh8N9FYD6Ez29JWFwFsEtpY9iZFL6iUQCjVeS3EYza7qZrU33sQwg`
 - verified that `protocol_config.treasury` is the same active CLI wallet
 - verified that `protocol_config` multisig is `2-of-3`
-- verified that `zk_config` exists and its active image ID is `0xea693a9a8b2b774161852dfec9b2af4749e61211f30316c12fad6badd7d00152`
+- verified that `zk_config` exists and that its active image ID is present on-chain; re-read the exact value before running the benchmark
 - recorded `zk_config` bootstrap signature `55D5y89RbUFXGzAw1r4RjbZSyi5E5Ft41gxL73vsBypwy2fEqHru8z3opwaGMch2XQ6LAPpSRZUedyu3seMJANNM`
 - verified that admin state-changing calls need an explicit remote devnet websocket endpoint when using the local HTTP RPC proxy
 

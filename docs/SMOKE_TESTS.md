@@ -30,5 +30,7 @@ The suite is implemented in `tests/smoke.ts` and is intended to be run against D
 ## Running the Suite
 
 ```bash
-anchor test --provider.cluster devnet --skip-local-validator -- --grep "AgenC Devnet Smoke Tests"
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
+ANCHOR_WALLET="${ANCHOR_WALLET:-$HOME/.config/solana/id.json}" \
+npx ts-mocha -p ./tsconfig.json -t 300000 tests/smoke.ts --grep "AgenC Devnet Smoke Tests"
 ```

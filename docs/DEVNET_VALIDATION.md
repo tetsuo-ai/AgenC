@@ -20,7 +20,9 @@ solana config set --url https://api.devnet.solana.com
 3. Run the smoke tests (targets `tests/smoke.ts`):
 
 ```bash
-anchor test --provider.cluster devnet --skip-local-validator -- --grep "AgenC Devnet Smoke Tests"
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
+ANCHOR_WALLET="${ANCHOR_WALLET:-$HOME/.config/solana/id.json}" \
+npx ts-mocha -p ./tsconfig.json -t 300000 tests/smoke.ts --grep "AgenC Devnet Smoke Tests"
 ```
 
 Optional (full Anchor test suite on Devnet):
@@ -28,6 +30,10 @@ Optional (full Anchor test suite on Devnet):
 ```bash
 anchor test --provider.cluster devnet
 ```
+
+The direct `ts-mocha` command is the supported smoke entrypoint here because
+`Anchor.toml` pins a different default test script and `anchor test -- --grep`
+can leak flags into the build step under Anchor 0.32.x.
 
 ## Live Soak Harness
 

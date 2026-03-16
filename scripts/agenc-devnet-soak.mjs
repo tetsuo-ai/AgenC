@@ -617,8 +617,8 @@ async function completeTaskPrivateVersioned(
   const lookupTable = await waitForLookupTable(context.connection, lookupTableAddress);
   const completeIx = await context.program.methods
     .completeTaskPrivate(taskIdU64, {
-      sealBytes: Array.from(proof.sealBytes),
-      journal: Array.from(proof.journal),
+      sealBytes: Buffer.from(proof.sealBytes),
+      journal: Buffer.from(proof.journal),
       imageId: Array.from(proof.imageId),
       bindingSeed: Array.from(proof.bindingSeed),
       nullifierSeed: Array.from(proof.nullifierSeed),

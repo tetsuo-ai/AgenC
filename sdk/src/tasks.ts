@@ -803,8 +803,8 @@ export async function completeTaskPrivate(
 
   const tx = await program.methods
     .completeTaskPrivate(taskIdU64, {
-      sealBytes: Array.from(sealBytes),
-      journal: Array.from(journal),
+      sealBytes: Buffer.from(sealBytes),
+      journal: Buffer.from(journal),
       imageId: Array.from(imageId),
       bindingSeed: Array.from(bindingSeed),
       nullifierSeed: Array.from(nullifierSeed),

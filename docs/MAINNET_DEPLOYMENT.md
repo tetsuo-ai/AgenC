@@ -437,7 +437,7 @@ Initialize `zk_config` the first time:
 npm run zk:config:init -- \
   --rpc-url https://api.mainnet-beta.solana.com \
   --authority-keypair ~/.config/solana/mainnet-deploy.json \
-  --image-id "234, 105, 58, 154, 139, 43, 119, 65, 97, 133, 45, 254, 201, 178, 175, 71, 73, 230, 18, 17, 243, 3, 22, 193, 47, 173, 107, 173, 215, 208, 1, 82"
+  --image-id "163, 162, 235, 60, 222, 160, 40, 184, 182, 95, 135, 53, 39, 239, 42, 88, 52, 171, 21, 130, 15, 219, 143, 17, 216, 26, 185, 77, 94, 34, 68, 20"
 ```
 
 Rotate `zk_config.active_image_id` for later guest releases:
