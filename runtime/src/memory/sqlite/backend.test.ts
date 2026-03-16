@@ -16,12 +16,12 @@ const mockExec = vi.fn();
 const mockPragma = vi.fn();
 const mockClose = vi.fn();
 
-const MockDatabase = vi.fn().mockImplementation(() => ({
-  prepare: mockPrepare,
-  exec: mockExec,
-  pragma: mockPragma,
-  close: mockClose,
-}));
+const MockDatabase = vi.fn(function (this: any) {
+  this.prepare = mockPrepare;
+  this.exec = mockExec;
+  this.pragma = mockPragma;
+  this.close = mockClose;
+});
 
 vi.mock("better-sqlite3", () => {
   return { default: MockDatabase };

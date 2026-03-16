@@ -64,4 +64,4 @@ export {
   WS_OBSERVABILITY_LOGS,
   WS_APPROVAL_REQUEST,
   WS_AGENT_STATUS,
-} from '../../runtime/src/channels/webchat/protocol.ts';
+} from '@agenc/runtime';

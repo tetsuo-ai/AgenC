@@ -11,7 +11,7 @@ import {
   parseJsonMessage,
   serializeAuthMessage,
   serializePingMessage,
-} from '../../../runtime/src/channels/webchat/socket-client-core';
+} from '@agenc/runtime';
 
 function getDefaultWsUrl(): string {
   if (typeof window !== 'undefined') {

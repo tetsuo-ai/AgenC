@@ -14,7 +14,6 @@ import type {
   LLMProvider,
   LLMProviderEvidence,
   LLMMessage,
-  LLMProviderTraceEvent,
   LLMStatefulResumeAnchor,
   LLMToolChoice,
   LLMToolCall,
@@ -35,12 +34,9 @@ import {
   type PromptBudgetDiagnostics,
   type PromptBudgetSection,
 } from "./prompt-budget.js";
-import { toPipelineStopReason } from "./policy.js";
 import type {
-  LLMFailureClass,
   LLMPipelineStopReason,
   LLMRetryPolicyMatrix,
-  LLMRetryPolicyRule,
 } from "./policy.js";
 import type {
   Pipeline,
@@ -65,6 +61,14 @@ import {
 // ---------------------------------------------------------------------------
 
 import {
+  shouldRetryProviderImmediately,
+  shouldFallbackForFailureClass,
+  computeProviderCooldownMs,
+  annotateFailureError,
+  buildActiveCooldownSnapshot,
+  emitProviderTraceEvent,
+} from "./chat-executor-provider-retry.js";
+import {
   ChatBudgetExceededError,
   buildDefaultExecutionContext,
 } from "./chat-executor-types.js";
@@ -82,8 +86,6 @@ import type {
   ChatExecutorConfig,
   EvaluatorConfig,
   CooldownEntry,
-  SessionToolFailurePattern,
-  SessionToolFailureCircuitState,
   FallbackResult,
   PlannerDeterministicToolStepIntent,
   PlannerSubAgentTaskStepIntent,
@@ -149,6 +151,7 @@ import {
   buildActiveRoutedToolSet,
   resolveEffectiveRoutedToolNames,
 } from "./chat-executor-routing-state.js";
+import { ToolFailureCircuitBreaker } from "./tool-failure-circuit-breaker.js";
 
 function shouldBypassStreamingForForcedSingleToolTurn(
   options: LLMChatOptions | undefined,
@@ -471,18 +474,11 @@ export class ChatExecutor {
   private readonly toolCallTimeoutMs: number;
   private readonly requestTimeoutMs: number;
   private readonly retryPolicyMatrix: LLMRetryPolicyMatrix;
-  private readonly toolFailureBreakerEnabled: boolean;
-  private readonly toolFailureBreakerThreshold: number;
-  private readonly toolFailureBreakerWindowMs: number;
-  private readonly toolFailureBreakerCooldownMs: number;
+  private readonly toolFailureBreaker: ToolFailureCircuitBreaker;
   private readonly resolveHostToolingProfile?: () => HostToolingProfile | null;
 
   private readonly cooldowns = new Map<string, CooldownEntry>();
   private readonly sessionTokens = new Map<string, number>();
-  private readonly sessionToolFailureCircuits = new Map<
-    string,
-    SessionToolFailureCircuitState
-  >();
 
   private static normalizeRequestTimeoutMs(timeoutMs: number | undefined): number {
     if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) {
@@ -573,29 +569,31 @@ export class ChatExecutor {
       config.requestTimeoutMs,
     );
     this.retryPolicyMatrix = resolveRetryPolicyMatrix(config.retryPolicyMatrix);
-    this.toolFailureBreakerEnabled =
-      config.toolFailureCircuitBreaker?.enabled ?? true;
-    this.toolFailureBreakerThreshold = Math.max(
-      2,
-      Math.floor(
-        config.toolFailureCircuitBreaker?.threshold ??
-          DEFAULT_TOOL_FAILURE_BREAKER_THRESHOLD,
+    this.toolFailureBreaker = new ToolFailureCircuitBreaker({
+      enabled: config.toolFailureCircuitBreaker?.enabled ?? true,
+      windowMs: Math.max(
+        1_000,
+        Math.floor(
+          config.toolFailureCircuitBreaker?.windowMs ??
+            DEFAULT_TOOL_FAILURE_BREAKER_WINDOW_MS,
+        ),
       ),
-    );
-    this.toolFailureBreakerWindowMs = Math.max(
-      1_000,
-      Math.floor(
-        config.toolFailureCircuitBreaker?.windowMs ??
-          DEFAULT_TOOL_FAILURE_BREAKER_WINDOW_MS,
+      threshold: Math.max(
+        2,
+        Math.floor(
+          config.toolFailureCircuitBreaker?.threshold ??
+            DEFAULT_TOOL_FAILURE_BREAKER_THRESHOLD,
+        ),
       ),
-    );
-    this.toolFailureBreakerCooldownMs = Math.max(
-      1_000,
-      Math.floor(
-        config.toolFailureCircuitBreaker?.cooldownMs ??
-          DEFAULT_TOOL_FAILURE_BREAKER_COOLDOWN_MS,
+      cooldownMs: Math.max(
+        1_000,
+        Math.floor(
+          config.toolFailureCircuitBreaker?.cooldownMs ??
+            DEFAULT_TOOL_FAILURE_BREAKER_COOLDOWN_MS,
+        ),
       ),
-    );
+      maxTrackedSessions: this.maxTrackedSessions,
+    });
   }
 
   private static resolveSubagentVerifierConfig(
@@ -1806,7 +1804,7 @@ export class ChatExecutor {
         },
       );
     } catch (error) {
-      const annotated = this.annotateFailureError(
+      const annotated = annotateFailureError(
         error,
         `${input.phase} model call`,
       );
@@ -1892,7 +1890,7 @@ export class ChatExecutor {
         );
         return undefined;
       }
-      const annotated = this.annotateFailureError(
+      const annotated = annotateFailureError(
         error,
         "planner pipeline execution",
       );
@@ -2285,7 +2283,7 @@ export class ChatExecutor {
           },
         );
       } catch (error) {
-        const annotated = this.annotateFailureError(
+        const annotated = annotateFailureError(
           error,
           "evaluator retry",
         );
@@ -2435,7 +2433,7 @@ export class ChatExecutor {
         break;
       }
       if (this.checkRequestTimeout(ctx, "tool loop")) break;
-      const activeCircuit = this.getActiveToolFailureCircuit(ctx.sessionId);
+      const activeCircuit = this.toolFailureBreaker.getActiveCircuit(ctx.sessionId);
       if (activeCircuit) {
         this.setStopReason(ctx, "no_progress", activeCircuit.reason);
         break;
@@ -2917,9 +2915,9 @@ export class ChatExecutor {
       abortRound = true;
     }
 
-    if (this.toolFailureBreakerEnabled && exec.toolFailed) {
+    if (exec.toolFailed) {
       const failKey = buildSemanticToolCallKey(toolCall.name, args);
-      const circuitReason = this.recordToolFailurePattern(
+      const circuitReason = this.toolFailureBreaker.recordFailure(
         ctx.sessionId,
         failKey,
         toolCall.name,
@@ -2966,8 +2964,8 @@ export class ChatExecutor {
 
     // Track consecutive semantic failures to detect stuck loops.
     const semanticToolKey = buildSemanticToolCallKey(toolCall.name, args);
-    if (!exec.toolFailed && this.toolFailureBreakerEnabled) {
-      this.clearToolFailurePattern(ctx.sessionId, semanticToolKey);
+    if (!exec.toolFailed) {
+      this.toolFailureBreaker.clearPattern(ctx.sessionId, semanticToolKey);
     }
     trackToolCallFailureState(exec.toolFailed, semanticToolKey, loopState);
 
@@ -4221,7 +4219,7 @@ export class ChatExecutor {
   /** Reset token usage for a specific session. */
   resetSessionTokens(sessionId: string): void {
     this.sessionTokens.delete(sessionId);
-    this.sessionToolFailureCircuits.delete(sessionId);
+    this.toolFailureBreaker.clearSession(sessionId);
     for (const provider of this.providers) {
       provider.resetSessionState?.(sessionId);
     }
@@ -4230,7 +4228,7 @@ export class ChatExecutor {
   /** Clear all session token tracking. */
   clearAllSessionTokens(): void {
     this.sessionTokens.clear();
-    this.sessionToolFailureCircuits.clear();
+    this.toolFailureBreaker.clearAll();
     for (const provider of this.providers) {
       provider.clearSessionState?.();
     }
@@ -4320,7 +4318,7 @@ export class ChatExecutor {
                 ...(options?.trace?.onProviderTraceEvent
                   ? {
                     onProviderTraceEvent: (event) =>
-                      this.emitProviderTraceEvent(options, event),
+                      emitProviderTraceEvent(options, event),
                   }
                   : {}),
               },
@@ -4341,7 +4339,7 @@ export class ChatExecutor {
       const cooldown = this.cooldowns.get(provider.name);
 
       if (cooldown && cooldown.availableAt > now) {
-        this.emitProviderTraceEvent(options, {
+        emitProviderTraceEvent(options, {
           kind: "error",
           transport,
           provider: provider.name,
@@ -4397,7 +4395,7 @@ export class ChatExecutor {
           const priorCooldown = this.cooldowns.get(provider.name);
           this.cooldowns.delete(provider.name);
           if (priorCooldown) {
-            this.emitProviderTraceEvent(options, {
+            emitProviderTraceEvent(options, {
               kind: "response",
               transport,
               provider: provider.name,
@@ -4427,7 +4425,7 @@ export class ChatExecutor {
           const retryRule = this.retryPolicyMatrix[failureClass];
 
           if (
-            this.shouldRetryProviderImmediately(
+            shouldRetryProviderImmediately(
               failureClass,
               retryRule,
               lastError,
@@ -4438,24 +4436,26 @@ export class ChatExecutor {
             continue;
           }
 
-          if (!this.shouldFallbackForFailureClass(failureClass, lastError)) {
+          if (!shouldFallbackForFailureClass(failureClass, lastError)) {
             throw lastError;
           }
 
           // Apply cooldown for this provider before trying fallbacks.
           const failures =
             (this.cooldowns.get(provider.name)?.failures ?? 0) + 1;
-          const cooldownDuration = this.computeProviderCooldownMs(
+          const cooldownDuration = computeProviderCooldownMs(
             failures,
             retryRule,
             lastError,
+            this.cooldownMs,
+            this.maxCooldownMs,
           );
           const availableAt = Date.now() + cooldownDuration;
           this.cooldowns.set(provider.name, {
             availableAt,
             failures,
           });
-          this.emitProviderTraceEvent(options, {
+          emitProviderTraceEvent(options, {
             kind: "error",
             transport,
             provider: provider.name,
@@ -4491,13 +4491,13 @@ export class ChatExecutor {
       throw lastError;
     }
     const now = Date.now();
-    this.emitProviderTraceEvent(options, {
+    emitProviderTraceEvent(options, {
       kind: "error",
       transport,
       provider: "chat-executor",
       payload: {
         reason: "all_providers_in_cooldown",
-        providers: this.buildActiveCooldownSnapshot(now),
+        providers: buildActiveCooldownSnapshot(this.cooldowns, now),
       },
       context: {
         stage: "fallback_selection",
@@ -4510,220 +4510,6 @@ export class ChatExecutor {
     );
   }
 
-  private emitProviderTraceEvent(
-    options:
-      | {
-          trace?: ChatExecuteParams["trace"];
-          callIndex?: number;
-          callPhase?: ChatCallUsageRecord["phase"];
-        }
-      | undefined,
-    event: Omit<LLMProviderTraceEvent, "callIndex" | "callPhase">,
-  ): void {
-    options?.trace?.onProviderTraceEvent?.({
-      ...event,
-      ...(options.callIndex !== undefined
-        ? { callIndex: options.callIndex }
-        : {}),
-      ...(options.callPhase !== undefined
-        ? { callPhase: options.callPhase }
-        : {}),
-    });
-  }
-
-  private buildActiveCooldownSnapshot(
-    now: number,
-  ): Array<{
-    provider: string;
-    retryAfterMs: number;
-    availableAt: number;
-    failures: number;
-  }> {
-    return Array.from(this.cooldowns.entries())
-      .map(([provider, cooldown]) => ({
-        provider,
-        retryAfterMs: Math.max(0, cooldown.availableAt - now),
-        availableAt: cooldown.availableAt,
-        failures: cooldown.failures,
-      }))
-      .filter((entry) => entry.retryAfterMs > 0)
-      .sort((left, right) => left.provider.localeCompare(right.provider));
-  }
-
-  private shouldRetryProviderImmediately(
-    failureClass: LLMFailureClass,
-    retryRule: LLMRetryPolicyRule,
-    error: Error,
-    attempts: number,
-  ): boolean {
-    if (attempts >= retryRule.maxRetries) return false;
-    switch (failureClass) {
-      case "validation_error":
-      case "authentication_error":
-      case "budget_exceeded":
-      case "cancelled":
-      case "tool_error":
-      case "no_progress":
-        return false;
-      case "rate_limited":
-        // Respect provider retry-after via cooldown/fallback instead of tight-loop retries.
-        return !(error instanceof LLMRateLimitError && Boolean(error.retryAfterMs));
-      case "provider_error":
-        // 4xx-style provider validation/config failures are deterministic.
-        if (error instanceof LLMProviderError) return false;
-        return true;
-      default:
-        return true;
-    }
-  }
-
-  private shouldFallbackForFailureClass(
-    failureClass: LLMFailureClass,
-    error: Error,
-  ): boolean {
-    switch (failureClass) {
-      case "validation_error":
-      case "authentication_error":
-      case "budget_exceeded":
-      case "cancelled":
-        return false;
-      case "provider_error":
-        return !(error instanceof LLMProviderError);
-      default:
-        return true;
-    }
-  }
-
-  private computeProviderCooldownMs(
-    failures: number,
-    retryRule: LLMRetryPolicyRule,
-    error: Error,
-  ): number {
-    if (error instanceof LLMRateLimitError && error.retryAfterMs) {
-      return error.retryAfterMs;
-    }
-    const linearCooldown = Math.min(
-      this.cooldownMs * failures,
-      this.maxCooldownMs,
-    );
-    const policyCooldown = retryRule.baseDelayMs > 0
-      ? Math.min(retryRule.baseDelayMs * failures, retryRule.maxDelayMs)
-      : 0;
-    return Math.max(0, Math.max(linearCooldown, policyCooldown));
-  }
-
-  private annotateFailureError(
-    error: unknown,
-    stage: string,
-  ): {
-    error: Error;
-    failureClass: LLMFailureClass;
-    stopReason: LLMPipelineStopReason;
-    stopReasonDetail: string;
-  } {
-    const baseError = error instanceof Error ? error : new Error(String(error));
-    const failureClass = classifyLLMFailure(baseError);
-    const stopReason = toPipelineStopReason(failureClass);
-    const stopReasonDetail = `${stage} failed (${stopReason}): ${baseError.message}`;
-    const annotated = baseError as Error & {
-      failureClass?: LLMFailureClass;
-      stopReason?: LLMPipelineStopReason;
-      stopReasonDetail?: string;
-    };
-    annotated.failureClass = failureClass;
-    annotated.stopReason = stopReason;
-    annotated.stopReasonDetail = stopReasonDetail;
-    return {
-      error: annotated,
-      failureClass,
-      stopReason,
-      stopReasonDetail,
-    };
-  }
-
-  private getOrCreateToolFailureCircuitState(
-    sessionId: string,
-  ): SessionToolFailureCircuitState {
-    const existing = this.sessionToolFailureCircuits.get(sessionId);
-    if (existing) return existing;
-    const created: SessionToolFailureCircuitState = {
-      openUntil: 0,
-      reason: undefined,
-      patterns: new Map(),
-    };
-    this.sessionToolFailureCircuits.set(sessionId, created);
-    if (this.sessionToolFailureCircuits.size > this.maxTrackedSessions) {
-      const oldest = this.sessionToolFailureCircuits.keys().next().value;
-      if (oldest !== undefined) {
-        this.sessionToolFailureCircuits.delete(oldest);
-      }
-    }
-    return created;
-  }
-
-  private getActiveToolFailureCircuit(
-    sessionId: string,
-  ): { reason: string; retryAfterMs: number } | null {
-    if (!this.toolFailureBreakerEnabled) return null;
-    const state = this.sessionToolFailureCircuits.get(sessionId);
-    if (!state) return null;
-    const now = Date.now();
-    if (state.openUntil <= now) {
-      state.openUntil = 0;
-      state.reason = undefined;
-      return null;
-    }
-    return {
-      reason:
-        state.reason ??
-        "Session tool-failure circuit breaker is open after repeated failing tool patterns",
-      retryAfterMs: Math.max(0, state.openUntil - now),
-    };
-  }
-
-  private recordToolFailurePattern(
-    sessionId: string,
-    semanticKey: string,
-    toolName: string,
-  ): string | undefined {
-    if (!this.toolFailureBreakerEnabled || semanticKey.length === 0) {
-      return undefined;
-    }
-
-    const state = this.getOrCreateToolFailureCircuitState(sessionId);
-    const now = Date.now();
-    for (const [key, pattern] of state.patterns) {
-      if (now - pattern.lastAt > this.toolFailureBreakerWindowMs) {
-        state.patterns.delete(key);
-      }
-    }
-
-    const existing = state.patterns.get(semanticKey);
-    const next: SessionToolFailurePattern = existing
-      ? { count: existing.count + 1, lastAt: now }
-      : { count: 1, lastAt: now };
-    state.patterns.set(semanticKey, next);
-
-    if (next.count < this.toolFailureBreakerThreshold) {
-      return undefined;
-    }
-
-    state.openUntil = now + this.toolFailureBreakerCooldownMs;
-    state.reason =
-      `Session breaker opened after ${next.count} repeated failures for tool "${toolName}" ` +
-      `within ${this.toolFailureBreakerWindowMs}ms`;
-    return state.reason;
-  }
-
-  private clearToolFailurePattern(sessionId: string, semanticKey: string): void {
-    if (!this.toolFailureBreakerEnabled || semanticKey.length === 0) return;
-    const state = this.sessionToolFailureCircuits.get(sessionId);
-    if (!state) return;
-    state.patterns.delete(semanticKey);
-    if (state.patterns.size === 0 && state.openUntil <= Date.now()) {
-      this.sessionToolFailureCircuits.delete(sessionId);
-    }
-  }
 
 
 
@@ -4852,7 +4638,7 @@ export class ChatExecutor {
       const oldest = this.sessionTokens.keys().next().value;
       if (oldest !== undefined) {
         this.sessionTokens.delete(oldest);
-        this.sessionToolFailureCircuits.delete(oldest);
+        this.toolFailureBreaker.clearSession(oldest);
       }
     }
   }
@@ -4921,7 +4707,7 @@ export class ChatExecutor {
           : {}),
       });
     } catch (error) {
-      throw this.annotateFailureError(error, "response evaluation").error;
+      throw annotateFailureError(error, "response evaluation").error;
     }
     const {
       response,
@@ -5022,7 +4808,7 @@ export class ChatExecutor {
           : {}),
       });
     } catch (error) {
-      throw this.annotateFailureError(error, "history compaction").error;
+      throw annotateFailureError(error, "history compaction").error;
     }
 
     const { response } = compactResponse;

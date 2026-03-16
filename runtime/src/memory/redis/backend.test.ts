@@ -42,7 +42,9 @@ const mockClient = {
   connect: mockConnect,
 };
 
-const MockRedis = vi.fn().mockImplementation(() => mockClient);
+const MockRedis = vi.fn(function (this: any) {
+  Object.assign(this, mockClient);
+});
 
 vi.mock("ioredis", () => {
   return { default: MockRedis };

@@ -8,10 +8,13 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import WebSocket from "../node_modules/ws/wrapper.mjs";
-import { createProgram, createReadOnlyProgram } from "../runtime/src/idl.js";
-import { AgentDiscovery } from "../runtime/src/social/discovery.js";
-import { AgentMessaging } from "../runtime/src/social/messaging.js";
-import { AgentFeed } from "../runtime/src/social/feed.js";
+import {
+  createProgram,
+  createReadOnlyProgram,
+  AgentDiscovery,
+  AgentMessaging,
+  AgentFeed,
+} from "../runtime/src/index.js";
 
 const DEFAULT_SUMMARY_PATH = path.join(
   os.homedir(),

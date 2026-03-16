@@ -1,7 +1,7 @@
 {
   "package": "@agenc/sdk",
   "version": "1.3.0",
-  "generatedAt": "2026-02-14T05:31:52.137Z",
+  "generatedAt": "2026-03-15T13:40:48.117Z",
   "entryPoint": "sdk/src/index.ts",
   "exports": [
     {
@@ -59,8 +59,18 @@
       "kind": "type"
     },
     {
+      "name": "bigintToBytes32",
+      "kind": "function",
+      "signature": "(value: bigint): Buffer"
+    },
+    {
       "name": "BPS_BASE",
       "kind": "const"
+    },
+    {
+      "name": "buildJournalBytes",
+      "kind": "function",
+      "signature": "(fields: { taskPda: Uint8Array | Buffer; agentAuthority: Uint8Array | Buffer; constraintHash: Uint8Array | Buffer; outputCommitment: Uint8Array | Buffer; bindingSeed: Uint8Array | Buffer; nullifierSeed: Uint8Array | Buffer; }): Buffer"
     },
     {
       "name": "calculateEscrowFee",
@@ -73,6 +83,11 @@
       "signature": "(connection: Connection, program: Program, authority: Keypair, disputePda: PublicKey, taskPda: PublicKey, defendantAgentPda?: PublicKey): Promise<{ txSignature: string; }>"
     },
     {
+      "name": "cancelProposal",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, proposalPda: PublicKey): Promise<{ txSignature: string; }>"
+    },
+    {
       "name": "cancelTask",
       "kind": "function",
       "signature": "(connection: Connection, program: Program, creator: Keypair, taskPda: PublicKey, workerPairs?: Array<{ claimPda: PublicKey; workerAgentPda: PublicKey; }>): Promise<{ txSignature: string; }>"
@@ -81,11 +96,6 @@
       "name": "canonicalizeMarketplaceId",
       "kind": "function",
       "signature": "(value: string): string"
-    },
-    {
-      "name": "checkToolsAvailable",
-      "kind": "function",
-      "signature": "(): ToolsStatus"
     },
     {
       "name": "checkVersionCompatibility",
@@ -134,12 +144,12 @@
     {
       "name": "computeHashes",
       "kind": "function",
-      "signature": "(taskPda: PublicKey, agentPubkey: PublicKey, output: bigint[], salt: bigint): HashResult"
+      "signature": "(taskPda: PublicKey, agentPubkey: PublicKey, output: bigint[], salt: bigint, agentSecret: bigint): HashResult"
     },
     {
       "name": "computeNullifierFromAgentSecret",
       "kind": "function",
-      "signature": "(agentPubkey: PublicKey, agentSecret?: Uint8Array): bigint"
+      "signature": "(constraintHash: bigint, outputCommitment: bigint, agentSecret: bigint): bigint"
     },
     {
       "name": "COORDINATION_ERROR_MAP",
@@ -162,6 +172,15 @@
       "name": "createLogger",
       "kind": "function",
       "signature": "(minLevel?: LogLevel, prefix?: string): Logger"
+    },
+    {
+      "name": "createProposal",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, params: CreateProposalParams): Promise<{ txSignature: string; proposalPda: PublicKey; }>"
+    },
+    {
+      "name": "CreateProposalParams",
+      "kind": "interface"
     },
     {
       "name": "createTask",
@@ -228,9 +247,39 @@
       "signature": "(taskPda: PublicKey, programId?: PublicKey): PublicKey"
     },
     {
+      "name": "deriveGovernanceConfigPda",
+      "kind": "function",
+      "signature": "(programId?: PublicKey): [PublicKey, number]"
+    },
+    {
+      "name": "deriveGovernanceVotePda",
+      "kind": "function",
+      "signature": "(proposalPda: PublicKey, voterAuthorityPubkey: PublicKey, programId?: PublicKey): [PublicKey, number]"
+    },
+    {
+      "name": "deriveProposalPda",
+      "kind": "function",
+      "signature": "(proposerAgentPda: PublicKey, nonce: bigint | number, programId?: PublicKey): [PublicKey, number]"
+    },
+    {
       "name": "deriveProtocolPda",
       "kind": "function",
       "signature": "(programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveSkillPda",
+      "kind": "function",
+      "signature": "(authorAgentPda: PublicKey, skillId: Uint8Array | Buffer, programId?: PublicKey): [PublicKey, number]"
+    },
+    {
+      "name": "deriveSkillPurchasePda",
+      "kind": "function",
+      "signature": "(skillPda: PublicKey, buyerAgentPda: PublicKey, programId?: PublicKey): [PublicKey, number]"
+    },
+    {
+      "name": "deriveSkillRatingPda",
+      "kind": "function",
+      "signature": "(skillPda: PublicKey, raterAgentPda: PublicKey, programId?: PublicKey): [PublicKey, number]"
     },
     {
       "name": "deriveStatePda",
@@ -251,6 +300,11 @@
       "name": "deriveVotePda",
       "kind": "function",
       "signature": "(disputePda: PublicKey, voterAgentPda: PublicKey, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveZkConfigPda",
+      "kind": "function",
+      "signature": "(programId?: PublicKey): PublicKey"
     },
     {
       "name": "DEVNET_RPC",
@@ -275,6 +329,11 @@
     {
       "name": "ErrorCategory",
       "kind": "type"
+    },
+    {
+      "name": "executeProposal",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, executor: Keypair, proposalPda: PublicKey, treasury?: PublicKey, recipient?: PublicKey): Promise<{ txSignature: string; }>"
     },
     {
       "name": "expireClaim",
@@ -358,6 +417,11 @@
       "signature": "(connection: Connection, mint: PublicKey): Promise<number>"
     },
     {
+      "name": "getProposal",
+      "kind": "function",
+      "signature": "(program: Program, proposalPda: PublicKey): Promise<ProposalState | null>"
+    },
+    {
       "name": "getProtocolConfig",
       "kind": "function",
       "signature": "(program: Program): Promise<ProtocolConfigState | null>"
@@ -408,6 +472,11 @@
       "signature": "(program: Program, parentTaskPda: PublicKey): Promise<Array<{ publicKey: PublicKey; account: unknown; }>>"
     },
     {
+      "name": "getZkConfig",
+      "kind": "function",
+      "signature": "(program: Program): Promise<ZkConfigState | null>"
+    },
+    {
       "name": "hasDependents",
       "kind": "function",
       "signature": "(connection: Connection, programId: PublicKey, taskPda: PublicKey): Promise<boolean>"
@@ -421,6 +490,20 @@
       "kind": "interface"
     },
     {
+      "name": "hasRecordedProcessIdentity",
+      "kind": "function",
+      "signature": "(record: Pick<RecordedProcessIdentity, \"processStartToken\">): boolean"
+    },
+    {
+      "name": "initializeGovernance",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, params: InitializeGovernanceParams): Promise<{ txSignature: string; governanceConfigPda: PublicKey; }>"
+    },
+    {
+      "name": "InitializeGovernanceParams",
+      "kind": "interface"
+    },
+    {
       "name": "initializeProtocol",
       "kind": "function",
       "signature": "(connection: Connection, program: Program, authority: Keypair, secondSigner: Keypair, treasury: PublicKey, params: InitializeProtocolParams): Promise<{ protocolPda: PublicKey; txSignature: string; }>"
@@ -428,6 +511,11 @@
     {
       "name": "InitializeProtocolParams",
       "kind": "interface"
+    },
+    {
+      "name": "initializeZkConfig",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, imageId: Uint8Array | Buffer): Promise<{ zkConfigPda: PublicKey; txSignature: string; }>"
     },
     {
       "name": "initiateDispute",
@@ -510,6 +598,19 @@
       "kind": "interface"
     },
     {
+      "name": "processIdentityMatches",
+      "kind": "function",
+      "signature": "(record: RecordedProcessIdentity, snapshot: ProcessIdentitySnapshot): boolean"
+    },
+    {
+      "name": "ProcessIdentitySnapshot",
+      "kind": "interface"
+    },
+    {
+      "name": "ProcessIdentityState",
+      "kind": "type"
+    },
+    {
       "name": "PROGRAM_ID",
       "kind": "const"
     },
@@ -527,18 +628,54 @@
     },
     {
       "name": "ProofPreconditionFailure",
-      "kind": "interface"
+      "kind": "type"
     },
     {
       "name": "ProofPreconditionResult",
-      "kind": "interface"
+      "kind": "type"
     },
     {
       "name": "ProofPreconditionWarning",
-      "kind": "interface"
+      "kind": "type"
     },
     {
       "name": "ProofResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofSubmissionPreflightFailure",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofSubmissionPreflightParams",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofSubmissionPreflightResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofSubmissionPreflightWarning",
+      "kind": "interface"
+    },
+    {
+      "name": "ProposalState",
+      "kind": "interface"
+    },
+    {
+      "name": "ProposalStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "ProposalType",
+      "kind": "enum"
+    },
+    {
+      "name": "ProtocolConfigState",
+      "kind": "interface"
+    },
+    {
+      "name": "ProtocolVersionInfo",
       "kind": "interface"
     },
     {
@@ -554,20 +691,29 @@
       "kind": "interface"
     },
     {
-      "name": "ProtocolConfigState",
-      "kind": "interface"
-    },
-    {
-      "name": "ProtocolVersionInfo",
-      "kind": "interface"
-    },
-    {
       "name": "pubkeyToField",
       "kind": "function",
       "signature": "(pubkey: PublicKey): bigint"
     },
     {
-      "name": "PUBLIC_INPUTS_COUNT",
+      "name": "PurchaseRecordState",
+      "kind": "interface"
+    },
+    {
+      "name": "RateSkillParams",
+      "kind": "interface"
+    },
+    {
+      "name": "ReadProcessIdentityOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "readProcessIdentitySnapshot",
+      "kind": "function",
+      "signature": "(pid: number, options?: ReadProcessIdentityOptions): Promise<ProcessIdentitySnapshot | null>"
+    },
+    {
+      "name": "RECOMMENDED_CU_CANCEL_PROPOSAL",
       "kind": "const"
     },
     {
@@ -603,6 +749,10 @@
       "kind": "const"
     },
     {
+      "name": "RECOMMENDED_CU_CREATE_PROPOSAL",
+      "kind": "const"
+    },
+    {
       "name": "RECOMMENDED_CU_CREATE_TASK",
       "kind": "const"
     },
@@ -611,11 +761,35 @@
       "kind": "const"
     },
     {
+      "name": "RECOMMENDED_CU_EXECUTE_PROPOSAL",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_INITIALIZE_GOVERNANCE",
+      "kind": "const"
+    },
+    {
       "name": "RECOMMENDED_CU_INITIATE_DISPUTE",
       "kind": "const"
     },
     {
+      "name": "RECOMMENDED_CU_PURCHASE_SKILL",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_PURCHASE_SKILL_TOKEN",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_RATE_SKILL",
+      "kind": "const"
+    },
+    {
       "name": "RECOMMENDED_CU_REGISTER_AGENT",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_REGISTER_SKILL",
       "kind": "const"
     },
     {
@@ -627,8 +801,20 @@
       "kind": "const"
     },
     {
+      "name": "RECOMMENDED_CU_UPDATE_SKILL",
+      "kind": "const"
+    },
+    {
       "name": "RECOMMENDED_CU_VOTE_DISPUTE",
       "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_VOTE_PROPOSAL",
+      "kind": "const"
+    },
+    {
+      "name": "RecordedProcessIdentity",
+      "kind": "interface"
     },
     {
       "name": "registerAgent",
@@ -637,6 +823,14 @@
     },
     {
       "name": "RegisterAgentParams",
+      "kind": "interface"
+    },
+    {
+      "name": "RegisterSkillParams",
+      "kind": "interface"
+    },
+    {
+      "name": "RemoteProverConfig",
       "kind": "interface"
     },
     {
@@ -654,11 +848,6 @@
     {
       "name": "ReplayTimelineStoreLike",
       "kind": "interface"
-    },
-    {
-      "name": "requireTools",
-      "kind": "function",
-      "signature": "(): void"
     },
     {
       "name": "requireVersionCompatibility",
@@ -681,6 +870,39 @@
     {
       "name": "RESULT_DATA_SIZE",
       "kind": "const"
+    },
+    {
+      "name": "RISC0_GROTH16_SEAL_LEN",
+      "kind": "const"
+    },
+    {
+      "name": "RISC0_IMAGE_ID_LEN",
+      "kind": "const"
+    },
+    {
+      "name": "RISC0_JOURNAL_LEN",
+      "kind": "const"
+    },
+    {
+      "name": "RISC0_SEAL_BORSH_LEN",
+      "kind": "const"
+    },
+    {
+      "name": "RISC0_SEAL_BYTES_LEN",
+      "kind": "const"
+    },
+    {
+      "name": "RISC0_SELECTOR_LEN",
+      "kind": "const"
+    },
+    {
+      "name": "Risc0PayloadLike",
+      "kind": "interface"
+    },
+    {
+      "name": "runProofSubmissionPreflight",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, params: ProofSubmissionPreflightParams): Promise<ProofSubmissionPreflightResult>"
     },
     {
       "name": "SDK_MIN_PROTOCOL_VERSION",
@@ -706,6 +928,14 @@
     {
       "name": "silentLogger",
       "kind": "const"
+    },
+    {
+      "name": "SkillRatingState",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillState",
+      "kind": "interface"
     },
     {
       "name": "suspendAgent",
@@ -761,8 +991,12 @@
       "kind": "const"
     },
     {
-      "name": "ToolsStatus",
-      "kind": "interface"
+      "name": "TRUSTED_RISC0_IMAGE_ID",
+      "kind": "const"
+    },
+    {
+      "name": "TRUSTED_RISC0_SELECTOR",
+      "kind": "const"
     },
     {
       "name": "U64_SIZE",
@@ -802,6 +1036,10 @@
       "kind": "interface"
     },
     {
+      "name": "UpdateSkillParams",
+      "kind": "interface"
+    },
+    {
       "name": "updateState",
       "kind": "function",
       "signature": "(connection: Connection, program: Program, authority: Keypair, params: UpdateStateParams): Promise<{ statePda: PublicKey; txSignature: string; }>"
@@ -811,13 +1049,18 @@
       "kind": "interface"
     },
     {
+      "name": "updateZkImageId",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, imageId: Uint8Array | Buffer): Promise<{ txSignature: string; }>"
+    },
+    {
       "name": "validateMarketplaceId",
       "kind": "function",
       "signature": "(value: string, maxLength?: number): string | null"
     },
     {
       "name": "ValidateProofParams",
-      "kind": "interface"
+      "kind": "type"
     },
     {
       "name": "validateProofPreconditions",
@@ -825,22 +1068,18 @@
       "signature": "(connection: Connection, program: Program, params: ValidateProofParams): Promise<ProofPreconditionResult>"
     },
     {
-      "name": "VERIFICATION_COMPUTE_UNITS",
-      "kind": "const"
+      "name": "validateProverEndpoint",
+      "kind": "function",
+      "signature": "(proverEndpoint: string): void"
+    },
+    {
+      "name": "validateRisc0PayloadShape",
+      "kind": "function",
+      "signature": "(payload: Risc0PayloadLike): void"
     },
     {
       "name": "VERIFIER_PROGRAM_ID",
       "kind": "const"
-    },
-    {
-      "name": "bigintToBytes32",
-      "kind": "function",
-      "signature": "(value: bigint): Buffer"
-    },
-    {
-      "name": "buildJournalBytes",
-      "kind": "function",
-      "signature": "(fields: { taskPda: Buffer; agentAuthority: Buffer; constraintHash: Buffer; outputCommitment: Buffer; binding: Buffer; nullifier: Buffer; }): Buffer"
     },
     {
       "name": "VERSION",
@@ -864,11 +1103,20 @@
       "kind": "interface"
     },
     {
+      "name": "voteProposal",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, proposalPda: PublicKey, voterAgentPda: PublicKey, approve: boolean): Promise<{ txSignature: string; votePda: PublicKey; }>"
+    },
+    {
       "name": "WeightedScoreWeights",
       "kind": "interface"
     },
     {
       "name": "WeightedScoringBreakdown",
+      "kind": "interface"
+    },
+    {
+      "name": "ZkConfigState",
       "kind": "interface"
     }
   ]
