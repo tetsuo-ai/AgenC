@@ -41,7 +41,8 @@ const walletAirdropMocks = vi.hoisted(() => ({
   getDefaultKeypairPath: vi.fn(),
 }));
 
-vi.mock("@solana/web3.js", () => {
+vi.mock("@solana/web3.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@solana/web3.js")>();
   class MockConnection {
     constructor(...args: unknown[]) {
       walletAirdropMocks.connectionCtor(...args);
@@ -53,6 +54,7 @@ vi.mock("@solana/web3.js", () => {
   }
 
   return {
+    ...actual,
     Connection: MockConnection,
     LAMPORTS_PER_SOL: 1_000_000_000,
   };
