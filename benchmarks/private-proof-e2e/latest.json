@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "benchmark": "private-task-e2e",
-  "generatedAt": "2026-03-16T11:49:58.821Z",
-  "gitCommit": "3a0e7201d6b0026678bf37d7b1c7dcd48cd4532b",
+  "generatedAt": "2026-03-16T12:24:52.890Z",
+  "gitCommit": null,
   "network": {
     "rpcUrl": "https://api.devnet.solana.com",
-    "slot": 448869234,
+    "slot": 448874743,
     "routerProgramId": "E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ",
     "verifierProgramId": "3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc",
     "routerPda": "78KWT482JZuETiufP7YHcPwhAwmVpi8q3W2ydRKuAR5m",
@@ -35,28 +35,28 @@
     "protocolPda": "5AhrM23Cto9r4obGVxo8BkYERZWaQ867Kw8Czw2y9GQK",
     "treasury": "E9ws2V2vuv53HXRh8ydX5PRGAiCsg2QTmsTZAu145Frg",
     "initializedThisRun": false,
-    "durationMs": 98
+    "durationMs": 26
   },
   "aggregate": {
     "rounds": 1,
-    "meanProofGenerationMs": 4764,
-    "medianProofGenerationMs": 4764,
-    "meanSubmitCompletionMs": 14762,
-    "medianSubmitCompletionMs": 14762,
-    "meanTotalMs": 22976,
-    "medianTotalMs": 22976,
-    "minTotalMs": 22976,
-    "maxTotalMs": 22976
+    "meanProofGenerationMs": 4687,
+    "medianProofGenerationMs": 4687,
+    "meanSubmitCompletionMs": 13544,
+    "medianSubmitCompletionMs": 13544,
+    "meanTotalMs": 19995,
+    "medianTotalMs": 19995,
+    "minTotalMs": 19995,
+    "maxTotalMs": 19995
   },
   "rounds": [
     {
       "round": 1,
       "creator": "E9ws2V2vuv53HXRh8ydX5PRGAiCsg2QTmsTZAu145Frg",
       "worker": "Dri1MQhxzgRyHeY3LoDkRsdeWeLJMWBPvdbLJBrEbRua",
-      "creatorAgent": "8FPTy75yMizRU8GVdfRKdgnkjJpMrCcrGbMfQwF8VriY",
-      "workerAgent": "DPPT1zf4kFYTiwHLBuJs8EpVCoKWYWixsoVQcGXqJXY1",
-      "taskPda": "31SVpkoxTkueT4P6BPy756iosmWuRoF1iBMRwB2TfKbM",
-      "claimPda": "FQcLSS4en4v3796UXrEKyECQQVuhYGt25t2B2LbQu4bK",
+      "creatorAgent": "62fB8CYdjx1Gx8efkCahk3cSrUNBupUPfJQgLT1xLvjA",
+      "workerAgent": "F5g9PFzXZrN7RMKbMExZsYXU99JvcjwEVdkb5j8aZoYD",
+      "taskPda": "8qZqjibK79Jf2xWsEtqCZY2q5PNezkfNKM2VwzXYbpQu",
+      "claimPda": "GZPVTTCgYjSpGPbtaN9eG2PhRAbPsHZDN9v5E8zfZq7N",
       "finalTaskStatus": "Completed",
       "funding": {
         "creator": {
@@ -69,31 +69,31 @@
         }
       },
       "signatures": {
-        "registerCreator": "2dp6BhZc49nXEcMrF6GCFDETM6aUWf4EWcaKKyz1yo5EHHGvgdp3ZAwzxiBTRQDk9NbKyDrFvqCaUCMEWTkBb3c5",
-        "registerWorker": "4MsWnk3zqj4N7ZVpxuFf78nCtj2SLizQedYGfv6ZShieHJCQ89WqQKT747ePhpz5Q9bBzNCmnhD3kTwxwo4sg7t4",
-        "createTask": "2xKsZuMskv5ydWSQuW3YmPs9J6psrsNf8ZPPGj4uT9pRcGqjbJH8DQJ3hoy6djnJRiBThJJWFjgJ3Nimx9SCx41t",
-        "claimTask": "66ogzzqTFLrL9UvFFNgk8bqqif8wv456WiXwg95VjXWYA9UXeSqhnB6PpHPXkb8FbDibt9MJxBhKnTQd299ZFsnZ",
-        "completeTaskPrivate": "2KCDd7w8sDHNdhWwJd2RPVss8oWkF3c8kaZtugeZkQvCmujGaseadyoSgKDobkDGotjZCZP4JJXvpx5QLyhkLfC9"
+        "registerCreator": "22cawpqtBXcANuxQqqKy5M7U76WdpTZqG3UQ21iMfU5rSMCQPmbcZJ5DKffsWtez7HhcebTAM1jcSKazMbBvkEe3",
+        "registerWorker": "3iHGYFJXqZ4cjiM2CLpFGBQ45A3nEkuq21ih25K4yw5s7VdNT412E2Z53zhweMR6oGh7oM8z9fyNNzQiXtKqsJuG",
+        "createTask": "4EK4NJHrjauSNVMPECRJWdqrzTGbLgQEy9Mfq5Dyh7151Ksxahz3Fh435pexMGAnEJD5EGSs4kV4ZNCM98KfcBk3",
+        "claimTask": "4WvyyvdZ2PaDutLVFqveWumDSjdi4Jod695eXchAStKRBMiByjZAPzvZhMa6HmCfrVkoC9NjFS1a2VgyaxBPDcno",
+        "completeTaskPrivate": "5PUtEGw6VnK9DQJmqQyz4hqm65B7hfPopymCRLndckL4mdcdp1FQdmHfm8YChYo1u8efM5mHTpf44et9eWhuxE82"
       },
       "proof": {
         "proofSizeBytes": 260,
         "journalBytes": 192,
         "imageIdHex": "a3a2eb3cdea028b8b65f873527ef2a5834ab15820fdb8f11d81ab94d5e224414",
-        "bindingSeedHex": "2daffa495ef073cc2f6af9f32c53c53b1cce9024d6e9f344997fdaced6ad0d3f",
-        "nullifierSeedHex": "56997cd988527ff92e65b951fd8422ba83231542b9143331a3ff24ef8a15e78b",
+        "bindingSeedHex": "18f36429baf9c9611f951ea43a8182654e22ee9cefec7e0e8b0595e183f4ddcc",
+        "nullifierSeedHex": "b0ede2374574c392082431920665352145f4313564aa82572b679d9b2e4364f7",
         "selectorHex": "525a564d"
       },
       "timingsMs": {
         "fundCreator": 0,
         "fundWorker": 0,
-        "registerCreator": 738,
-        "registerWorker": 755,
-        "createTask": 776,
-        "claimTask": 692,
-        "proofGeneration": 4764,
-        "proofGenerationReported": 4764,
-        "submitCompletion": 14762,
-        "total": 22976
+        "registerCreator": 477,
+        "registerWorker": 292,
+        "createTask": 462,
+        "claimTask": 433,
+        "proofGeneration": 4687,
+        "proofGenerationReported": 4686,
+        "submitCompletion": 13544,
+        "total": 19995
       }
     }
   ]
