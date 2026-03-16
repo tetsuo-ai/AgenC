@@ -109,10 +109,6 @@ const BENCHMARK_HELP_TEXT = [
   "  npx tsx scripts/setup-verifier-localnet.ts",
 ].join("\n");
 
-type WalletLike = anchor.Wallet & {
-  payer?: Keypair;
-};
-
 interface CliOptions {
   rounds: number;
   outputPath: string;
@@ -575,10 +571,15 @@ function imageIdsEqual(left: ArrayLike<number>, right: ArrayLike<number>): boole
   return true;
 }
 
+function getWalletPayer(wallet: anchor.Wallet): Keypair | undefined {
+  const payer = Reflect.get(wallet, "payer");
+  return payer instanceof Keypair ? payer : undefined;
+}
+
 function requireAuthorityKeypair(provider: anchor.AnchorProvider): Keypair {
-  const payer = (provider.wallet as WalletLike).payer;
+  const payer = getWalletPayer(provider.wallet);
   if (!payer) {
-    throw new Error(
+    throw new TypeError(
       "benchmark-private-e2e requires ANCHOR_WALLET to be a local keypair-backed wallet",
     );
   }
@@ -588,7 +589,7 @@ function requireAuthorityKeypair(provider: anchor.AnchorProvider): Keypair {
 function loadKeypairFromFile(filePath: string): Keypair {
   const secret = JSON.parse(readFileSync(filePath, "utf8")) as number[];
   if (!Array.isArray(secret)) {
-    throw new Error(`invalid keypair file: ${filePath}`);
+    throw new TypeError(`invalid keypair file: ${filePath}`);
   }
   return Keypair.fromSecretKey(Uint8Array.from(secret));
 }
@@ -1193,7 +1194,7 @@ async function runRound(params: {
 
   const workerProvider = new anchor.AnchorProvider(
     provider.connection,
-    keypairToWallet(worker) as WalletLike,
+    keypairToWallet(worker),
     provider.opts,
   );
   const workerProgram = createCoordinationProgram(
@@ -1418,9 +1419,8 @@ async function main(): Promise<void> {
   const rawProtocol = await program.account.protocolConfig.fetch(protocolPda);
   const configuredMinAgentStake = Number(rawProtocol.minAgentStake.toString());
   const stakeLamports =
-    options.stakeLamports !== undefined
-      ? options.stakeLamports
-      : Math.max(configuredMinAgentStake, DEFAULT_AGENT_STAKE_LAMPORTS);
+    options.stakeLamports ??
+    Math.max(configuredMinAgentStake, DEFAULT_AGENT_STAKE_LAMPORTS);
   if (stakeLamports < configuredMinAgentStake) {
     throw new Error(
       `stake override ${stakeLamports} is below protocol minAgentStake ${configuredMinAgentStake}`,

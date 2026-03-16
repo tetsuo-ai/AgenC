@@ -37,7 +37,6 @@ import {
   deriveEscrowPda as _deriveEscrowPda,
   deriveClaimPda as _deriveClaimPda,
   AIRDROP_SOL,
-  MIN_BALANCE_SOL,
   MAX_AIRDROP_ATTEMPTS,
   BASE_DELAY_MS,
   MAX_DELAY_MS,
@@ -63,6 +62,11 @@ const SMOKE_FEE_BUFFER_LAMPORTS = Math.floor(0.1 * LAMPORTS_PER_SOL);
 const isRateLimitError = (message: string) =>
   message.includes("429") ||
   message.toLowerCase().includes("too many requests");
+
+const shortPubkey = (pubkey: PublicKey) => `${pubkey.toBase58().slice(0, 8)}...`;
+
+const formatSol = (lamports: number, digits = 3) =>
+  (lamports / LAMPORTS_PER_SOL).toFixed(digits);
 
 const loadKeypairFromEnv = (envVar: string): Keypair | null => {
   const keypairPath = process.env[envVar];
@@ -102,6 +106,63 @@ const readNumericField = (
   return null;
 };
 
+async function requestAirdropTopUp(
+  connection: anchor.web3.Connection,
+  pubkey: PublicKey,
+  minLamports: number,
+  currentBalance: number,
+): Promise<number | null> {
+  const missingLamports = Math.max(0, minLamports - currentBalance);
+  const requestLamports = Math.min(
+    AIRDROP_SOL * LAMPORTS_PER_SOL,
+    missingLamports,
+  );
+
+  if (requestLamports <= 0) {
+    return null;
+  }
+
+  const signature = await connection.requestAirdrop(pubkey, requestLamports);
+  await connection.confirmTransaction(signature, "confirmed");
+  return connection.getBalance(pubkey);
+}
+
+function logAirdropProgress(
+  pubkey: PublicKey,
+  currentBalance: number,
+  minLamports: number,
+): boolean {
+  if (currentBalance >= minLamports) {
+    console.log(
+      `  Funded ${shortPubkey(pubkey)} balance ${formatSol(currentBalance)} SOL`,
+    );
+    return true;
+  }
+
+  console.log(
+    `  Partial funding for ${shortPubkey(pubkey)} balance ${formatSol(currentBalance)} / ${formatSol(minLamports)} SOL`,
+  );
+  return false;
+}
+
+function logAirdropFailure(
+  pubkey: PublicKey,
+  attempt: number,
+  message: string,
+  delayMs: number,
+): void {
+  if (isRateLimitError(message)) {
+    console.log(
+      `  Faucet rate limited (HTTP 429) for ${shortPubkey(pubkey)}, retrying in ${delayMs}ms`,
+    );
+    return;
+  }
+
+  console.log(
+    `  Airdrop attempt ${attempt + 1} failed for ${shortPubkey(pubkey)}: ${message}`,
+  );
+}
+
 const ensureBalance = async (
   connection: anchor.web3.Connection,
   keypair: Keypair,
@@ -111,9 +172,7 @@ const ensureBalance = async (
   const existing = await connection.getBalance(pubkey);
   if (existing >= minLamports) {
     console.log(
-      `  Skipping airdrop for ${pubkey.toBase58().slice(0, 8)}... balance ${(
-        existing / LAMPORTS_PER_SOL
-      ).toFixed(2)} SOL`,
+      `  Skipping airdrop for ${shortPubkey(pubkey)} balance ${formatSol(existing, 2)} SOL`,
     );
     return;
   }
@@ -122,48 +181,26 @@ const ensureBalance = async (
 
   for (let attempt = 0; attempt < MAX_AIRDROP_ATTEMPTS; attempt += 1) {
     try {
-      const missingLamports = Math.max(0, minLamports - currentBalance);
-      const requestLamports = Math.min(
-        AIRDROP_SOL * LAMPORTS_PER_SOL,
-        missingLamports,
-      );
-      if (requestLamports <= 0) {
-        return;
-      }
-      const sig = await connection.requestAirdrop(
+      const updatedBalance = await requestAirdropTopUp(
+        connection,
         pubkey,
-        requestLamports,
+        minLamports,
+        currentBalance,
       );
-      await connection.confirmTransaction(sig, "confirmed");
-      currentBalance = await connection.getBalance(pubkey);
-      if (currentBalance >= minLamports) {
-        console.log(
-          `  Funded ${pubkey.toBase58().slice(0, 8)}... balance ${(
-            currentBalance / LAMPORTS_PER_SOL
-          ).toFixed(3)} SOL`,
-        );
+      if (updatedBalance === null) {
         return;
       }
-      console.log(
-        `  Partial funding for ${pubkey.toBase58().slice(0, 8)}... balance ${(
-          currentBalance / LAMPORTS_PER_SOL
-        ).toFixed(3)} / ${(minLamports / LAMPORTS_PER_SOL).toFixed(3)} SOL`,
-      );
+      currentBalance = updatedBalance;
+      if (logAirdropProgress(pubkey, currentBalance, minLamports)) {
+        return;
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       const delayMs = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
-      if (isRateLimitError(message)) {
-        console.log(
-          `  Faucet rate limited (HTTP 429) for ${pubkey.toBase58().slice(0, 8)}..., retrying in ${delayMs}ms`,
-        );
-      } else {
-        console.log(
-          `  Airdrop attempt ${attempt + 1} failed for ${pubkey.toBase58().slice(0, 8)}...: ${message}`,
-        );
-      }
+      logAirdropFailure(pubkey, attempt, message, delayMs);
       if (attempt === MAX_AIRDROP_ATTEMPTS - 1) {
         throw new Error(
-          `Airdrop failed for ${pubkey.toBase58().slice(0, 8)} after ${MAX_AIRDROP_ATTEMPTS} attempts`,
+          `Airdrop failed for ${shortPubkey(pubkey)} after ${MAX_AIRDROP_ATTEMPTS} attempts`,
         );
       }
       await sleep(delayMs);
@@ -171,9 +208,7 @@ const ensureBalance = async (
   }
 
   throw new Error(
-    `Balance for ${pubkey.toBase58().slice(0, 8)} reached only ${(
-      currentBalance / LAMPORTS_PER_SOL
-    ).toFixed(3)} / ${(minLamports / LAMPORTS_PER_SOL).toFixed(3)} SOL after ${MAX_AIRDROP_ATTEMPTS} attempts`,
+    `Balance for ${shortPubkey(pubkey)} reached only ${formatSol(currentBalance)} / ${formatSol(minLamports)} SOL after ${MAX_AIRDROP_ATTEMPTS} attempts`,
   );
 };
 

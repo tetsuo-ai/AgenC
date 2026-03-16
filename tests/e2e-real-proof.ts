@@ -33,7 +33,7 @@ import {
 } from "@solana/web3.js";
 import * as fs from "fs";
 import * as path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath } from "node:url";
 import {
   GROTH16_SELECTOR as TRUSTED_SELECTOR,
   ROUTER_PROGRAM_ID as TRUSTED_ROUTER_PROGRAM_ID,
@@ -59,7 +59,7 @@ interface ProofFixture {
   salt: string;
 }
 
-const CAPABILITY_COMPUTE = 1 << 0;
+const CAPABILITY_COMPUTE = 1;
 const TASK_TYPE_EXCLUSIVE = 0;
 const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
   "BPFLoaderUpgradeab1e11111111111111111111111",
