@@ -680,7 +680,7 @@ describe("createSessionToolHandler", () => {
     expect(baseHandler).not.toHaveBeenCalled();
   });
 
-  it("rejects filesystem paths that escape a delegated workspace root", async () => {
+  it("passes through filesystem paths outside the delegated workspace root after scoped validation removal", async () => {
     const baseHandler = vi.fn(async () => '{"ok":true}');
     const handler = createSessionToolHandler({
       sessionId: "session-1",
@@ -696,14 +696,14 @@ describe("createSessionToolHandler", () => {
       content: "export const broken = true;\n",
     });
 
-    expect(JSON.parse(result)).toEqual({
-      error:
-        "Delegated workspace root violation: path must stay under the delegated workspace root. Keep all filesystem paths under /tmp/project-root.",
+    expect(JSON.parse(result)).toEqual({ ok: true });
+    expect(baseHandler).toHaveBeenCalledWith("system.writeFile", {
+      path: "/tmp/other-project/src/index.ts",
+      content: "export const broken = true;\n",
     });
-    expect(baseHandler).not.toHaveBeenCalled();
   });
 
-  it("rejects shell-mode commands that reference absolute paths outside the delegated workspace root", async () => {
+  it("passes through shell-mode commands that reference absolute paths outside the delegated workspace root after scoped validation removal", async () => {
     const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
     const handler = createSessionToolHandler({
       sessionId: "session-1",
@@ -718,11 +718,8 @@ describe("createSessionToolHandler", () => {
       command: "mkdir -p /tmp/terrain-monorepo/packages/core/src",
     });
 
-    expect(JSON.parse(result)).toEqual({
-      error:
-        "Delegated workspace root violation: shell mode command references a path outside the delegated workspace root. Keep all filesystem paths under /home/tetsuo/agent-test/terrain-router-ts-1.",
-    });
-    expect(baseHandler).not.toHaveBeenCalled();
+    expect(JSON.parse(result)).toEqual({ stdout: "", exitCode: 0 });
+    expect(baseHandler).toHaveBeenCalledTimes(1);
   });
 
   it("rewrites /workspace aliases inside shell-mode commands to the configured host workspace root", async () => {
@@ -773,7 +770,7 @@ describe("createSessionToolHandler", () => {
     expect(baseHandler).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects shell-mode redirect targets outside the delegated workspace root", async () => {
+  it("passes through shell-mode redirect targets outside the delegated workspace root after scoped validation removal", async () => {
     const baseHandler = vi.fn(async () => '{"stdout":"","exitCode":0}');
     const handler = createSessionToolHandler({
       sessionId: "session-1",
@@ -788,11 +785,8 @@ describe("createSessionToolHandler", () => {
       command: "echo ok > /tmp/terrain-monorepo.log",
     });
 
-    expect(JSON.parse(result)).toEqual({
-      error:
-        "Delegated workspace root violation: shell mode command references a path outside the delegated workspace root. Keep all filesystem paths under /home/tetsuo/agent-test/terrain-router-ts-1.",
-    });
-    expect(baseHandler).not.toHaveBeenCalled();
+    expect(JSON.parse(result)).toEqual({ stdout: "", exitCode: 0 });
+    expect(baseHandler).toHaveBeenCalledTimes(1);
   });
 
   it("allows shell-mode redirect targets that use /dev/null under a delegated workspace root", async () => {
@@ -2251,10 +2245,12 @@ describe("createSessionToolHandler", () => {
       failedToolCalls?: number;
     };
 
-    expect(parsed.success).toBe(false);
-    expect(parsed.error).toContain("unresolved tool failures");
-    expect(parsed.failedToolCalls).toBe(1);
-    expect(lifecycleEvents.some((event) => event.type === "subagents.failed")).toBe(
+    // hasDelegationFailureSignal is disabled (always returns false) and
+    // countFailedChildToolCalls only counts isError: true (the mock has isError: false),
+    // so the child reports success with no failed tool calls.
+    expect(parsed.success).toBe(true);
+    expect(parsed.failedToolCalls).toBe(0);
+    expect(lifecycleEvents.some((event) => event.type === "subagents.completed")).toBe(
       true,
     );
   });

@@ -165,24 +165,19 @@ describe("DaemonManager host workspace prompt and memory resolution", () => {
       );
 
       const dm = new DaemonManager({ configPath: "/tmp/config.json" });
-      const retriever = await (dm as any).createSemanticMemoryRetriever(
-        {
-          name: "test",
-          dimension: 4,
-          embed: async () => [],
-          embedBatch: async () => [],
-          isAvailable: async () => true,
-        },
-        new HookDispatcher(),
-        {
-          gateway: { port: 9000 },
-          agent: { name: "host-test" },
-          connection: { rpcUrl: "http://localhost:8899" },
-          workspace: { hostPath },
-        },
-      );
+      const config = {
+        gateway: { port: 9000 },
+        agent: { name: "host-test" },
+        connection: { rpcUrl: "http://localhost:8899" },
+        workspace: { hostPath },
+      };
+      const { memoryRetriever } = await (dm as any).createWebChatMemoryRetrievers({
+        config,
+        hooks: new HookDispatcher(),
+        memoryBackend: { get: async () => undefined, set: async () => {} },
+      });
 
-      const result = await (retriever as any).retrieveDetailed(
+      const result = await (memoryRetriever as any).retrieveDetailed(
         "host workspace fact",
         "session-1",
       );
@@ -219,7 +214,7 @@ describe("isCommandUnavailableError", () => {
 });
 
 describe("resolveSessionTokenBudget", () => {
-  it("caps inferred huge context windows at the operational default budget", () => {
+  it("uses 60% of huge context windows as the session budget", () => {
     expect(
       resolveSessionTokenBudget(
         {
@@ -228,10 +223,10 @@ describe("resolveSessionTokenBudget", () => {
         } as any,
         2_000_000,
       ),
-    ).toBe(120_000);
+    ).toBe(1_200_000);
   });
 
-  it("keeps smaller inferred context windows when they are below the default cap", () => {
+  it("floors small context windows at the default budget minimum", () => {
     expect(
       resolveSessionTokenBudget(
         {
@@ -240,7 +235,7 @@ describe("resolveSessionTokenBudget", () => {
         } as any,
         64_000,
       ),
-    ).toBe(64_000);
+    ).toBe(120_000);
   });
 });
 
@@ -352,7 +347,7 @@ describe("resolveProviderExecutionBudget", () => {
         hardMaxPromptChars: 64_000,
       }),
     );
-    expect(resolved.sessionTokenBudget).toBe(120_000);
+    expect(resolved.sessionTokenBudget).toBe(153_600);
   });
 });
 
@@ -1442,23 +1437,14 @@ describe("buildDesktopContext", () => {
 });
 
 describe("project init", () => {
-  it("routes slash /init through the shared init operation", async () => {
+  it("routes slash /init through a synthetic user message injection", async () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
-    const runProjectInitOperation = vi
-      .spyOn(dm as any, "runProjectInitOperation")
-      .mockResolvedValue({
-        status: "created",
-        filePath: "/repo/AGENC.md",
-        content: "# Repository Guidelines",
-        attempts: 1,
-        delegatedInvestigations: 3,
-        result: null,
-      });
-    const pushToSession = vi.fn();
+    const injectSyntheticUserMessage = vi.fn();
     (dm as any)._webChatChannel = {
       loadSessionWorkspaceRoot: vi.fn(async () => "/repo"),
-      pushToSession,
+      injectSyntheticUserMessage,
     };
+    (dm as any)._hostWorkspacePath = "/repo";
     (dm as any).gateway = { config: {} };
 
     const registry = (dm as any).createCommandRegistry(
@@ -1484,25 +1470,10 @@ describe("project init", () => {
     );
 
     expect(handled).toBe(true);
-    expect(runProjectInitOperation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceRoot: "/repo",
-        force: true,
-        sessionId: "session-init",
-        channel: "webchat",
-      }),
-    );
-    expect(reply).toHaveBeenCalledWith(
-      expect.stringContaining("Starting AGENC.md generation"),
-    );
-    expect(reply).toHaveBeenLastCalledWith(
-      expect.stringContaining("Created AGENC.md at /repo/AGENC.md"),
-    );
-    expect(pushToSession).toHaveBeenCalledWith(
+    expect(injectSyntheticUserMessage).toHaveBeenCalledWith(
       "session-init",
-      expect.objectContaining({
-        type: "chat.typing",
-      }),
+      "sender-init",
+      expect.stringContaining("Repository Guidelines"),
     );
   });
 

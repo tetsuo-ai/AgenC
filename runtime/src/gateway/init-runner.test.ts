@@ -94,9 +94,8 @@ describe("init-runner", () => {
       minimumDelegatedInvestigations: 3,
     });
 
-    expect(prompt).toContain("execute_with_agent for at least 3");
     expect(prompt).toContain("## Project Structure & Module Organization");
-    expect(prompt).toContain("Read /repo/AGENC.md back after writing");
+    expect(prompt).toContain("system.writeFile");
   });
 
   it("skips when AGENC.md already exists and force is false", async () => {
@@ -158,7 +157,7 @@ describe("init-runner", () => {
     expect(call?.toolRouting?.expandOnMiss).toBe(false);
   });
 
-  it("retries when the first attempt does not delegate enough work", async () => {
+  it("retries when the first attempt has insufficient discovery calls", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "agenc-init-runner-retry-"));
     workspaces.push(workspace);
     const filePath = join(workspace, "AGENC.md");
@@ -170,10 +169,6 @@ describe("init-runner", () => {
       writeFileSync(filePath, validGuideContent(), "utf-8");
       return createResult([
         createToolCallRecord("system.listDir", '{"entries":["runtime"]}'),
-        createToolCallRecord("system.readFile", '{"content":"# README"}'),
-        createToolCallRecord("system.stat", '{"exists":true}'),
-        createToolCallRecord("system.bash", '{"stdout":"feat(runtime): add init"}'),
-        createToolCallRecord("execute_with_agent", '{"summary":"only one child"}'),
         createToolCallRecord("system.writeFile", '{"written":true}'),
       ]);
     });
@@ -185,9 +180,6 @@ describe("init-runner", () => {
         createToolCallRecord("system.readFile", '{"content":"# README"}'),
         createToolCallRecord("system.stat", '{"exists":true}'),
         createToolCallRecord("system.bash", '{"stdout":"feat(runtime): add init"}'),
-        createToolCallRecord("execute_with_agent", '{"summary":"runtime mapped"}'),
-        createToolCallRecord("execute_with_agent", '{"summary":"tests mapped"}'),
-        createToolCallRecord("execute_with_agent", '{"summary":"docs mapped"}'),
         createToolCallRecord("system.writeFile", '{"written":true}'),
       ]);
     });

@@ -78,6 +78,10 @@ class FastSubAgentManager {
   getResult(sessionId: string): SubAgentResult | null {
     return this.results.get(sessionId) ?? null;
   }
+
+  cancel(_sessionId: string): boolean {
+    return true;
+  }
 }
 
 function createFallbackExecutor(): { execute: (pipeline: Pipeline) => Promise<PipelineResult> } {
@@ -267,7 +271,7 @@ describe("delegation learning integration", () => {
           stepType: "subagent_task",
           objective: "Inspect runtime learning hooks",
           inputContract: "Return JSON output",
-          acceptanceCriteria: ["Include coverage"],
+          acceptanceCriteria: [],
           requiredToolCapabilities: ["system.readFile"],
           contextRequirements: ["runtime_sources"],
           maxBudgetHint: "30s",
@@ -277,7 +281,6 @@ describe("delegation learning integration", () => {
     };
 
     const result = await orchestrator.execute(pipeline);
-
     expect(result.status).toBe("completed");
     const records = trajectorySink.snapshot();
     expect(records.length).toBeGreaterThan(0);

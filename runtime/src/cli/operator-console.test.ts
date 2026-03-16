@@ -59,6 +59,7 @@ describe("operator console launcher", () => {
     const readPidFile = vi
       .fn()
       .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         pid: 43210,
         port: 3200,
@@ -78,18 +79,8 @@ describe("operator console launcher", () => {
     const code = await runOperatorConsole({}, deps);
 
     expect(code).toBe(0);
-    expect(runStartCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        outputFormat: "json",
-      }),
-      {
-        configPath: "/tmp/agenc.json",
-        pidPath: "/tmp/agenc.pid",
-        foreground: false,
-        logLevel: undefined,
-        yolo: undefined,
-      },
-    );
+    // The TUI launches immediately with the config port (3100) while the
+    // daemon starts in the background — the TUI handles reconnection.
     expect(spawnProcess).toHaveBeenCalledWith(
       process.execPath,
       ["/repo/scripts/agenc-watch.mjs"],
@@ -97,7 +88,7 @@ describe("operator console launcher", () => {
         stdio: "inherit",
         cwd: "/repo",
         env: expect.objectContaining({
-          AGENC_WATCH_WS_URL: "ws://127.0.0.1:3200",
+          AGENC_WATCH_WS_URL: "ws://127.0.0.1:3100",
           AGENC_WATCH_OPERATOR_EVENTS_MODULE:
             "/repo/runtime/dist/operator-events.mjs",
           AGENC_WATCH_PROJECT_ROOT: "/repo",
@@ -237,7 +228,12 @@ describe("operator console launcher", () => {
     );
   });
 
-  it("fails fast when a different-config daemon is already running", async () => {
+  it("connects to an existing daemon even when its config path differs from the requested one", async () => {
+    const child = new FakeChildProcess();
+    const spawnProcess = vi.fn().mockImplementation(() => {
+      queueMicrotask(() => child.exit(0));
+      return child;
+    });
     const deps = createDeps({
       readPidFile: vi.fn().mockResolvedValue({
         pid: 1234,
@@ -245,21 +241,34 @@ describe("operator console launcher", () => {
         configPath: "/tmp/other.json",
       }),
       isProcessAlive: vi.fn().mockReturnValue(true),
+      spawnProcess,
     });
 
-    await expect(
-      runOperatorConsole(
-        {
-          configPath: "/tmp/agenc.json",
-        },
-        deps,
-      ),
-    ).rejects.toThrow(
-      "daemon already running with config /tmp/other.json; stop it or use the matching --config",
+    const code = await runOperatorConsole(
+      {
+        configPath: "/tmp/agenc.json",
+      },
+      deps,
+    );
+
+    expect(code).toBe(0);
+    expect(spawnProcess).toHaveBeenCalledWith(
+      process.execPath,
+      ["/repo/scripts/agenc-watch.mjs"],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          AGENC_WATCH_WS_URL: "ws://127.0.0.1:3100",
+        }),
+      }),
     );
   });
 
-  it("fails fast when a process-scan finds a different-config daemon on the same pid path", async () => {
+  it("launches TUI first and starts daemon in background when pid file is missing and process-scan finds a different-config daemon", async () => {
+    const child = new FakeChildProcess();
+    const spawnProcess = vi.fn().mockImplementation(() => {
+      queueMicrotask(() => child.exit(0));
+      return child;
+    });
     const deps = createDeps({
       readPidFile: vi.fn().mockResolvedValue(null),
       findDaemonProcessesByIdentity: vi.fn().mockResolvedValue([
@@ -280,11 +289,14 @@ describe("operator console launcher", () => {
           matchedPidPath: true,
         } satisfies DaemonIdentityMatch,
       ]),
+      spawnProcess,
     });
 
-    await expect(runOperatorConsole({}, deps)).rejects.toThrow(
-      "daemon already running with config /tmp/other.json; stop it or use the matching --config",
-    );
+    // TUI launches immediately with config port; background ensureDaemon
+    // failure is swallowed and the TUI shows a connection error instead.
+    const code = await runOperatorConsole({}, deps);
+    expect(code).toBe(0);
+    expect(spawnProcess).toHaveBeenCalled();
   });
   it("fails when the operator console entrypoint cannot be located", async () => {
     const readPidFile = vi.fn().mockResolvedValue({

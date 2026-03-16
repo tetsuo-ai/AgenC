@@ -7,104 +7,98 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 
 // Mock all external modules BEFORE imports
 vi.mock("./llm/grok/adapter.js", () => ({
-  GrokProvider: vi
-    .fn()
-    .mockImplementation((config: Record<string, unknown>) => ({
-      name: "grok",
-      config,
-      chat: vi.fn(),
-      chatStream: vi.fn(),
-      healthCheck: vi.fn(),
-    })),
+  GrokProvider: vi.fn(function (this: any, config: Record<string, unknown>) {
+    this.name = "grok";
+    this.config = config;
+    this.chat = vi.fn();
+    this.chatStream = vi.fn();
+    this.healthCheck = vi.fn();
+  }),
 }));
 
 vi.mock("./llm/ollama/adapter.js", () => ({
-  OllamaProvider: vi
-    .fn()
-    .mockImplementation((config: Record<string, unknown>) => ({
-      name: "ollama",
-      config,
-      chat: vi.fn(),
-      chatStream: vi.fn(),
-      healthCheck: vi.fn(),
-    })),
+  OllamaProvider: vi.fn(function (this: any, config: Record<string, unknown>) {
+    this.name = "ollama";
+    this.config = config;
+    this.chat = vi.fn();
+    this.chatStream = vi.fn();
+    this.healthCheck = vi.fn();
+  }),
 }));
 
 vi.mock("./llm/executor.js", () => ({
-  LLMTaskExecutor: vi.fn().mockImplementation(() => ({
-    execute: vi.fn().mockResolvedValue([1n, 2n, 3n, 4n]),
-    canExecute: vi.fn().mockReturnValue(true),
-  })),
+  LLMTaskExecutor: vi.fn(function (this: any) {
+    this.execute = vi.fn().mockResolvedValue([1n, 2n, 3n, 4n]);
+    this.canExecute = vi.fn().mockReturnValue(true);
+  }),
 }));
 
 vi.mock("./memory/in-memory/backend.js", () => ({
-  InMemoryBackend: vi.fn().mockImplementation(() => ({
-    addEntry: vi.fn(),
-    getThread: vi.fn(),
-    query: vi.fn(),
-    deleteThread: vi.fn(),
-    listSessions: vi.fn(),
-    set: vi.fn(),
-    get: vi.fn(),
-    delete: vi.fn(),
-    has: vi.fn(),
-    listKeys: vi.fn(),
-    clear: vi.fn(),
-    close: vi.fn(),
-    healthCheck: vi.fn(),
-  })),
+  InMemoryBackend: vi.fn(function (this: any) {
+    this.addEntry = vi.fn();
+    this.getThread = vi.fn();
+    this.query = vi.fn();
+    this.deleteThread = vi.fn();
+    this.listSessions = vi.fn();
+    this.set = vi.fn();
+    this.get = vi.fn();
+    this.delete = vi.fn();
+    this.has = vi.fn();
+    this.listKeys = vi.fn();
+    this.clear = vi.fn();
+    this.close = vi.fn();
+    this.healthCheck = vi.fn();
+  }),
 }));
 
 vi.mock("./memory/sqlite/backend.js", () => ({
-  SqliteBackend: vi.fn().mockImplementation(() => ({
-    close: vi.fn(),
-    healthCheck: vi.fn(),
-  })),
+  SqliteBackend: vi.fn(function (this: any) {
+    this.close = vi.fn();
+    this.healthCheck = vi.fn();
+  }),
 }));
 
 vi.mock("./memory/redis/backend.js", () => ({
-  RedisBackend: vi.fn().mockImplementation(() => ({
-    close: vi.fn(),
-    healthCheck: vi.fn(),
-  })),
+  RedisBackend: vi.fn(function (this: any) {
+    this.close = vi.fn();
+    this.healthCheck = vi.fn();
+  }),
 }));
 
 vi.mock("./proof/engine.js", () => ({
-  ProofEngine: vi.fn().mockImplementation(() => ({
-    generate: vi.fn(),
-    verify: vi.fn(),
-    computeHashes: vi.fn(),
-    generateSalt: vi.fn().mockReturnValue(42n),
-    getStats: vi.fn(),
-    checkTools: vi.fn(),
-    clearCache: vi.fn(),
-  })),
+  ProofEngine: vi.fn(function (this: any) {
+    this.generate = vi.fn();
+    this.verify = vi.fn();
+    this.computeHashes = vi.fn();
+    this.generateSalt = vi.fn().mockReturnValue(42n);
+    this.getStats = vi.fn();
+    this.checkTools = vi.fn();
+    this.clearCache = vi.fn();
+  }),
 }));
 
 vi.mock("./autonomous/agent.js", () => ({
-  AutonomousAgent: vi
-    .fn()
-    .mockImplementation((config: Record<string, unknown>) => ({
-      _config: config,
-      start: vi
-        .fn()
-        .mockResolvedValue({ agentId: new Uint8Array(32), status: 1 }),
-      stop: vi.fn().mockResolvedValue(undefined),
-      getStats: vi.fn().mockReturnValue({
-        tasksDiscovered: 0,
-        tasksClaimed: 0,
-        tasksCompleted: 0,
-        tasksFailed: 0,
-        totalEarnings: 0n,
-        activeTasks: 0,
-        avgCompletionTimeMs: 0,
-        uptimeMs: 0,
-      }),
-      getProgram: vi.fn().mockReturnValue(null),
-      getAgentPda: vi.fn().mockReturnValue(null),
-      getAgentId: vi.fn().mockReturnValue(null),
-      getAgentManager: vi.fn().mockReturnValue(null),
-    })),
+  AutonomousAgent: vi.fn(function (this: any, config: Record<string, unknown>) {
+    this._config = config;
+    this.start = vi
+      .fn()
+      .mockResolvedValue({ agentId: new Uint8Array(32), status: 1 });
+    this.stop = vi.fn().mockResolvedValue(undefined);
+    this.getStats = vi.fn().mockReturnValue({
+      tasksDiscovered: 0,
+      tasksClaimed: 0,
+      tasksCompleted: 0,
+      tasksFailed: 0,
+      totalEarnings: 0n,
+      activeTasks: 0,
+      avgCompletionTimeMs: 0,
+      uptimeMs: 0,
+    });
+    this.getProgram = vi.fn().mockReturnValue(null);
+    this.getAgentPda = vi.fn().mockReturnValue(null);
+    this.getAgentId = vi.fn().mockReturnValue(null);
+    this.getAgentManager = vi.fn().mockReturnValue(null);
+  }),
 }));
 
 vi.mock("./tools/agenc/index.js", () => ({
@@ -154,10 +148,10 @@ vi.mock("./tools/skill-adapter.js", () => ({
 }));
 
 vi.mock("./dispute/operations.js", () => ({
-  DisputeOperations: vi.fn().mockImplementation(() => ({
-    fetchDispute: vi.fn(),
-    fetchActiveDisputes: vi.fn(),
-  })),
+  DisputeOperations: vi.fn(function (this: any) {
+    this.fetchDispute = vi.fn();
+    this.fetchActiveDisputes = vi.fn();
+  }),
 }));
 
 import { AgentBuilder, BuiltAgent } from "./builder.js";

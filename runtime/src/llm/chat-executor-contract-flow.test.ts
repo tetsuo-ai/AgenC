@@ -163,6 +163,8 @@ describe("chat-executor-contract-flow", () => {
       },
     ] as const;
 
+    // blocked_phase_output + file-mutation-requiring spec now returns false
+    // because specRequiresFileMutationEvidence detects write intent in the criteria.
     expect(
       canRetryDelegatedOutputWithoutAdditionalToolCalls({
         validationCode: "blocked_phase_output",
@@ -176,7 +178,7 @@ describe("chat-executor-contract-flow", () => {
           ],
         },
       }),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       canRetryDelegatedOutputWithoutAdditionalToolCalls({

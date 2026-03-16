@@ -143,7 +143,7 @@ async function canonicalize(targetPath: string): Promise<string> {
  */
 export async function safePath(
   targetPath: string,
-  _allowedPaths: readonly string[],
+  allowedPaths: readonly string[],
 ): Promise<{ safe: boolean; resolved: string; reason?: string }> {
   try {
     if (typeof targetPath !== "string" || targetPath.trim().length === 0) {
@@ -177,6 +177,32 @@ export async function safePath(
 
     // Canonicalize target (follows symlinks, normalize Unicode for macOS HFS+/APFS)
     const canonical = (await canonicalize(normalizedTarget)).normalize("NFC");
+
+    // Verify canonical path is within an allowed prefix
+    if (allowedPaths.length === 0) {
+      return {
+        safe: false,
+        resolved: "",
+        reason: "No allowed paths configured",
+      };
+    }
+    const normalizedAllowed = allowedPaths.map((p) =>
+      resolve(expandHomeDirectory(p)).normalize("NFC"),
+    );
+    const inside = normalizedAllowed.some(
+      (prefix) =>
+        canonical === prefix ||
+        canonical.startsWith(prefix + "/") ||
+        canonical.startsWith(prefix + "\\"),
+    );
+    if (!inside) {
+      return {
+        safe: false,
+        resolved: "",
+        reason: "Path is outside allowed directories",
+      };
+    }
+
     return { safe: true, resolved: canonical };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
