@@ -1,7 +1,7 @@
 {
   "package": "@agenc/runtime",
   "version": "0.1.0",
-  "generatedAt": "2026-03-15T13:40:49.688Z",
+  "generatedAt": "2026-03-16T02:41:38.699Z",
   "entryPoint": "runtime/src/index.ts",
   "exports": [
     {
@@ -5063,7 +5063,7 @@
     {
       "name": "safePath",
       "kind": "function",
-      "signature": "(targetPath: string, _allowedPaths: readonly string[]): Promise<{ safe: boolean; resolved: string; reason?: string; }>"
+      "signature": "(targetPath: string, allowedPaths: readonly string[]): Promise<{ safe: boolean; resolved: string; reason?: string; }>"
     },
     {
       "name": "safeStringify",
