@@ -4,7 +4,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import process from "node:process";
 
 const DEFAULT_RPC_URL = "https://api.devnet.solana.com";
-const DEFAULT_PROGRAM_ID = "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7";
+const DEFAULT_PROGRAM_ID = "6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab";
 
 function usage() {
   process.stdout.write(`Usage:

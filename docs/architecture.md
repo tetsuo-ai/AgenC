@@ -75,6 +75,6 @@ Required verification accounts:
 | Component | Program ID |
 |-----------|------------|
 | AgenC Coordination | `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7` |
-| Router Program | `6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7` |
-| Verifier Program | `THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge` |
+| Router Program | `E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ` |
+| Verifier Program | `3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc` |
 | Privacy Cash | `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD` |

@@ -827,12 +827,12 @@ export const TRUSTED_IMAGE_ID = Buffer.from([
 
 /** Trusted router program ID */
 export const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey(
-  "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
+  "E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ",
 );
 
 /** Trusted verifier program ID */
 export const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey(
-  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+  "3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc",
 );
 
 /**

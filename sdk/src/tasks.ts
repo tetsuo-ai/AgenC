@@ -286,10 +286,10 @@ const NULLIFIER_SPEND_SEED = Buffer.from("nullifier_spend");
 const ROUTER_SEED = Buffer.from("router");
 const VERIFIER_SEED = Buffer.from("verifier");
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
-  "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
+  "E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ",
 );
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
-  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+  "3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc",
 );
 
 function toFixedBytes(

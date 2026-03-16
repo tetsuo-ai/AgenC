@@ -2,10 +2,10 @@ import { useState } from 'react'
 import type { StepProps } from '../../App'
 import StepCard from '../StepCard'
 
-const FALLBACK_ROUTER_PROGRAM = '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7'
+const FALLBACK_ROUTER_PROGRAM = 'E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ'
 const FALLBACK_ROUTER = '8v7xftANnyJTrmQfk9kYV8NsxgV2wNt2Y5soiceqd7qN'
 const FALLBACK_VERIFIER_ENTRY = 'DSjWTAx5N4oXfTy5m9BbqbMPUq5BkzFG6xzn2fJfVj8S'
-const FALLBACK_VERIFIER_PROGRAM = 'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge'
+const FALLBACK_VERIFIER_PROGRAM = '3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc'
 
 function formatHexLength(hexValue: string): number {
   if (!hexValue || !hexValue.startsWith('0x')) {

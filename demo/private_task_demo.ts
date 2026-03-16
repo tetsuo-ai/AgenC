@@ -17,7 +17,7 @@ import {
 
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY || 'YOUR_HELIUS_KEY';
 const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey('6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7');
+const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey('E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ');
 const TRUSTED_SELECTOR = Buffer.from(TRUSTED_RISC0_SELECTOR);
 const TRUSTED_IMAGE_ID = Buffer.from(TRUSTED_RISC0_IMAGE_ID);
 

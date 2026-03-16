@@ -10,7 +10,7 @@ import { PublicKey } from "@solana/web3.js";
 
 /** AgenC Coordination Program ID */
 export const PROGRAM_ID = new PublicKey(
-  "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7",
+  "6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab",
 );
 
 /** Privacy Cash Program ID */
@@ -20,7 +20,7 @@ export const PRIVACY_CASH_PROGRAM_ID = new PublicKey(
 
 /** AgenC verifier program ID — must match TRUSTED_RISC0_VERIFIER_PROGRAM_ID on-chain */
 export const VERIFIER_PROGRAM_ID = new PublicKey(
-  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+  "3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc",
 );
 
 // ============================================================================

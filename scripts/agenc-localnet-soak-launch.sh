@@ -14,7 +14,7 @@ REWARD_SOL="${AGENC_LOCALNET_SOAK_REWARD_SOL:-0.05}"
 INTERVAL_MS="${AGENC_LOCALNET_SOAK_INTERVAL_MS:-3000}"
 TASK_COUNT="${AGENC_LOCALNET_SOAK_TASK_COUNT:-4}"
 RUN_TOKEN="${AGENC_LOCALNET_SOAK_RUN_TOKEN:-localnet-soak-$(date -u +%Y%m%d-%H%M%S)}"
-PROGRAM_ID="${AGENC_LOCALNET_PROGRAM_ID:-5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7}"
+PROGRAM_ID="${AGENC_LOCALNET_PROGRAM_ID:-6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab}"
 RISC0_REPO_ROOT="${AGENC_LOCALNET_RISC0_REPO_ROOT:-/tmp/agenc-risc0-solana}"
 RISC0_SOLANA_REF="${AGENC_LOCALNET_RISC0_SOLANA_REF:-v3.0.0}"
 RISC0_SOLANA_DIR="${AGENC_RISC0_SOLANA_DIR:-$RISC0_REPO_ROOT/solana-verifier}"
@@ -185,8 +185,8 @@ nohup bash "$VERIFIER_BOOTSTRAP_SCRIPT" --mode real >"$VALIDATOR_LOG" 2>&1 &
 VALIDATOR_PID=$!
 wait_for_validator 120 "$VALIDATOR_PID"
 wait_for_program "$PROGRAM_ID" "AgenC" 30
-wait_for_program "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7" "Verifier router" 30
-wait_for_program "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge" "Groth16 verifier" 30
+wait_for_program "E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ" "Verifier router" 30
+wait_for_program "3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc" "Groth16 verifier" 30
 sleep 5
 
 echo "Initializing verifier router state..."
