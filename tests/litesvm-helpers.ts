@@ -310,8 +310,23 @@ function extendConnectionProxy(
 export function createLiteSVMContext(opts?: {
   splTokens?: boolean;
 }): LiteSVMContext {
-  // Load the program from Anchor.toml + target/deploy/
+  // Load the program using fromWorkspace as base, but fix address mismatch
+  // between Anchor.toml and the deploy keypair when they diverge.
   const svm = fromWorkspace(".");
+
+  // Ensure the program is loaded at the deploy keypair address (which matches
+  // the declare_id! in the compiled .so). When Anchor.toml has a different
+  // address, fromWorkspace loads the program there but the on-chain
+  // DeclaredProgramIdMismatch check fails. Reload at the correct address.
+  const keypairPath = path.resolve(process.cwd(), "target", "deploy", "agenc_coordination-keypair.json");
+  if (fs.existsSync(keypairPath)) {
+    const keypairData = JSON.parse(fs.readFileSync(keypairPath, "utf-8"));
+    const programKeypair = Keypair.fromSecretKey(Uint8Array.from(keypairData));
+    const soPath = path.resolve(process.cwd(), "target", "deploy", "agenc_coordination.so");
+    if (!svm.getAccount(programKeypair.publicKey) && fs.existsSync(soPath)) {
+      svm.addProgramFromFile(programKeypair.publicKey, soPath);
+    }
+  }
 
   // Add SPL token programs if requested
   if (opts?.splTokens) {
@@ -343,7 +358,9 @@ export function createLiteSVMContext(opts?: {
   extendConnectionProxy(svm, (provider as any).connection, wallet);
 
   // Load IDL and create typed Program instance
-  const idl = require("../target/idl/agenc_coordination.json");
+  // Use fs.readFileSync for ESM/CJS compatibility (Node 25+ defaults to ESM)
+  const idlPath = path.resolve(process.cwd(), "target", "idl", "agenc_coordination.json");
+  const idl = JSON.parse(fs.readFileSync(idlPath, "utf-8"));
   const program = new Program<AgencCoordination>(idl as any, provider);
 
   // Inject BPF Loader Upgradeable ProgramData PDA
