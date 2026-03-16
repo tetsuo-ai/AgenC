@@ -173,9 +173,7 @@ import {
 } from "../policy/index.js";
 import type { MemoryBackend } from "../memory/types.js";
 import { entryToMessage } from "../memory/types.js";
-import { createEmbeddingProvider } from "../memory/embeddings.js";
-import { InMemoryVectorStore } from "../memory/vector-store.js";
-import { SemanticMemoryRetriever } from "../memory/retriever.js";
+import { createMemoryRetrievers } from "./memory-retriever-factory.js";
 import {
   clearWebSessionRuntimeState,
   hydrateWebSessionRuntimeState,
@@ -184,11 +182,6 @@ import { executeTextChannelTurn } from "./daemon-text-channel-turn.js";
 import {
   executeWebChatConversationTurn as runWebChatConversationTurn,
 } from "./daemon-webchat-turn.js";
-import {
-  MemoryIngestionEngine,
-  createIngestionHooks,
-} from "../memory/ingestion.js";
-import { DailyLogManager, CuratedMemoryManager } from "../memory/structured.js";
 import { UnifiedTelemetryCollector } from "../telemetry/collector.js";
 import type { TelemetrySnapshot } from "../telemetry/types.js";
 import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
@@ -457,7 +450,6 @@ function buildDoomAutoplaySupervisionObjective(params: {
 }
 
 /** Minimum confidence score for injecting learned patterns into conversations. */
-const MIN_LEARNING_CONFIDENCE = 0.7;
 
 /** Default session manager config for external channel plugins. */
 const DEFAULT_CHANNEL_SESSION_CONFIG = {
@@ -489,16 +481,6 @@ const HOOK_PRIORITIES = {
 const CRON_SCHEDULES = {
   CURIOSITY: "0 */2 * * *",
   SELF_LEARNING: "0 */6 * * *",
-} as const;
-
-/** Semantic memory retriever defaults. */
-const SEMANTIC_MEMORY_DEFAULTS = {
-  MAX_TOKEN_BUDGET: 2000,
-  MAX_RESULTS: 5,
-  RECENCY_WEIGHT: 0.3,
-  RECENCY_HALF_LIFE_MS: 86_400_000,
-  HYBRID_VECTOR_WEIGHT: 0.7,
-  HYBRID_KEYWORD_WEIGHT: 0.3,
 } as const;
 
 /** Fallback session token budget when provider/model window is unknown. */
@@ -3558,130 +3540,13 @@ export class DaemonManager {
   }> {
     const { config, hooks, memoryBackend } = params;
 
-    const embeddingProvider = await createEmbeddingProvider({
-      preferred: config.memory?.embeddingProvider,
-      apiKey: config.memory?.embeddingApiKey ?? config.llm?.apiKey,
-      baseUrl: config.memory?.embeddingBaseUrl,
-      model: config.memory?.embeddingModel,
-    });
-    const isSemanticAvailable = embeddingProvider.name !== "noop";
-
-    const memoryRetriever = isSemanticAvailable
-      ? await this.createSemanticMemoryRetriever(embeddingProvider, hooks, config)
-      : this.createMemoryRetriever(memoryBackend);
-
-    if (!isSemanticAvailable) {
-      this.logger.info(
-        "Semantic memory unavailable — using basic history retriever",
-      );
-    }
-
-    return {
-      memoryRetriever,
-      learningProvider: this.createLearningProvider(memoryBackend),
-    };
-  }
-
-  private async createSemanticMemoryRetriever(
-    embeddingProvider: Awaited<ReturnType<typeof createEmbeddingProvider>>,
-    hooks: HookDispatcher,
-    config: GatewayConfig,
-  ): Promise<MemoryRetriever> {
-    const workspacePath = this.resolveActiveHostWorkspacePath(config);
-    const vectorStore = new InMemoryVectorStore({
-      dimension: embeddingProvider.dimension,
-    });
-
-    const curatedMemoryPath = join(workspacePath, "MEMORY.md");
-    const dailyLogPath = join(workspacePath, "logs");
-    const curatedMemory = new CuratedMemoryManager(curatedMemoryPath);
-    const logManager = new DailyLogManager(dailyLogPath);
-
-    const ingestionEngine = new MemoryIngestionEngine({
-      embeddingProvider,
-      vectorStore,
-      logManager,
-      curatedMemory,
-      generateSummaries: false,
-      enableDailyLogs: true,
-      enableEntityExtraction: false,
+    return createMemoryRetrievers({
+      config,
+      hooks,
+      memoryBackend,
+      workspacePath: this.resolveActiveHostWorkspacePath(config),
       logger: this.logger,
     });
-
-    const ingestionHooks = createIngestionHooks(ingestionEngine, this.logger);
-    for (const hook of ingestionHooks) {
-      hooks.on(hook);
-    }
-
-    this.logger.info(
-      `Semantic memory enabled (embedding: ${embeddingProvider.name}, dim: ${embeddingProvider.dimension}, workspace: ${workspacePath}, curatedMemoryPath: ${curatedMemoryPath}, dailyLogPath: ${dailyLogPath})`,
-    );
-
-    return new SemanticMemoryRetriever({
-      vectorBackend: vectorStore,
-      embeddingProvider,
-      curatedMemory,
-      maxTokenBudget: SEMANTIC_MEMORY_DEFAULTS.MAX_TOKEN_BUDGET,
-      maxResults: SEMANTIC_MEMORY_DEFAULTS.MAX_RESULTS,
-      recencyWeight: SEMANTIC_MEMORY_DEFAULTS.RECENCY_WEIGHT,
-      recencyHalfLifeMs: SEMANTIC_MEMORY_DEFAULTS.RECENCY_HALF_LIFE_MS,
-      hybridVectorWeight: SEMANTIC_MEMORY_DEFAULTS.HYBRID_VECTOR_WEIGHT,
-      hybridKeywordWeight: SEMANTIC_MEMORY_DEFAULTS.HYBRID_KEYWORD_WEIGHT,
-      logger: this.logger,
-    });
-  }
-
-  private createLearningProvider(
-    memoryBackend: MemoryBackend,
-  ): MemoryRetriever {
-    return {
-      async retrieve(): Promise<string | undefined> {
-        if (!memoryBackend) return undefined;
-        try {
-          const learning = await memoryBackend.get<{
-            patterns: Array<{
-              type: string;
-              description: string;
-              lesson: string;
-              confidence: number;
-            }>;
-            strategies: Array<{
-              name: string;
-              description: string;
-              steps: string[];
-            }>;
-            preferences: Record<string, string>;
-          }>("learning:latest");
-          if (!learning) return undefined;
-
-          const parts: string[] = [];
-          const lessons = (learning.patterns ?? [])
-            .filter((pattern) => pattern.confidence >= MIN_LEARNING_CONFIDENCE)
-            .slice(0, 10)
-            .map((pattern) => `- ${pattern.lesson}`);
-          if (lessons.length > 0) parts.push("Lessons:\n" + lessons.join("\n"));
-
-          const strategies = (learning.strategies ?? [])
-            .slice(0, 5)
-            .map((strategy) => `- ${strategy.name}: ${strategy.description}`);
-          if (strategies.length > 0) {
-            parts.push("Strategies:\n" + strategies.join("\n"));
-          }
-
-          const preferences = Object.entries(learning.preferences ?? {})
-            .slice(0, 5)
-            .map(([key, value]) => `- ${key}: ${value}`);
-          if (preferences.length > 0) {
-            parts.push("Preferences:\n" + preferences.join("\n"));
-          }
-
-          if (parts.length === 0) return undefined;
-          return "## Learned Patterns\n\n" + parts.join("\n\n");
-        } catch {
-          return undefined;
-        }
-      },
-    };
   }
 
   private async attachWebChatPolicyHook(params: {
@@ -6019,43 +5884,6 @@ export class DaemonManager {
       recipient,
       threadId: message.threadId ?? null,
     });
-  }
-
-  private createMemoryRetriever(memoryBackend: MemoryBackend): MemoryRetriever {
-    const MAX_ENTRIES = 10;
-    const MAX_ENTRY_CHARS = 1_000;
-    const MAX_TOTAL_CHARS = 6_000;
-    return {
-      async retrieve(
-        _message: string,
-        sessionId: string,
-      ): Promise<string | undefined> {
-        try {
-          const entries = await memoryBackend.getThread(sessionId, MAX_ENTRIES);
-          if (entries.length === 0) {
-            return undefined;
-          }
-          const lines: string[] = [];
-          let used = 0;
-          for (const entry of entries) {
-            const normalized = entry.content.trim();
-            const clipped =
-              normalized.length > MAX_ENTRY_CHARS
-                ? normalized.slice(0, MAX_ENTRY_CHARS - 3) + "..."
-                : normalized;
-            const line = `[${entry.role}] ${clipped}`;
-            // Keep within a bounded context budget.
-            if (used + line.length > MAX_TOTAL_CHARS) break;
-            lines.push(line);
-            used += line.length;
-          }
-          if (lines.length === 0) return undefined;
-          return "# Recent Memory\n\n" + lines.join("\n");
-        } catch {
-          return undefined;
-        }
-      },
-    };
   }
 
   private createSessionManager(hooks: HookDispatcher): SessionManager {
