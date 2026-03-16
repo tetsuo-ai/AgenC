@@ -14,7 +14,6 @@ import type {
   LLMProvider,
   LLMProviderEvidence,
   LLMMessage,
-  LLMProviderTraceEvent,
   LLMStatefulResumeAnchor,
   LLMToolChoice,
   LLMToolCall,
@@ -35,12 +34,9 @@ import {
   type PromptBudgetDiagnostics,
   type PromptBudgetSection,
 } from "./prompt-budget.js";
-import { toPipelineStopReason } from "./policy.js";
 import type {
-  LLMFailureClass,
   LLMPipelineStopReason,
   LLMRetryPolicyMatrix,
-  LLMRetryPolicyRule,
 } from "./policy.js";
 import type {
   Pipeline,
@@ -64,6 +60,14 @@ import {
 // Imports from extracted sibling modules
 // ---------------------------------------------------------------------------
 
+import {
+  shouldRetryProviderImmediately,
+  shouldFallbackForFailureClass,
+  computeProviderCooldownMs,
+  annotateFailureError,
+  buildActiveCooldownSnapshot,
+  emitProviderTraceEvent,
+} from "./chat-executor-provider-retry.js";
 import {
   ChatBudgetExceededError,
   buildDefaultExecutionContext,
@@ -1800,7 +1804,7 @@ export class ChatExecutor {
         },
       );
     } catch (error) {
-      const annotated = this.annotateFailureError(
+      const annotated = annotateFailureError(
         error,
         `${input.phase} model call`,
       );
@@ -1886,7 +1890,7 @@ export class ChatExecutor {
         );
         return undefined;
       }
-      const annotated = this.annotateFailureError(
+      const annotated = annotateFailureError(
         error,
         "planner pipeline execution",
       );
@@ -2279,7 +2283,7 @@ export class ChatExecutor {
           },
         );
       } catch (error) {
-        const annotated = this.annotateFailureError(
+        const annotated = annotateFailureError(
           error,
           "evaluator retry",
         );
@@ -4314,7 +4318,7 @@ export class ChatExecutor {
                 ...(options?.trace?.onProviderTraceEvent
                   ? {
                     onProviderTraceEvent: (event) =>
-                      this.emitProviderTraceEvent(options, event),
+                      emitProviderTraceEvent(options, event),
                   }
                   : {}),
               },
@@ -4335,7 +4339,7 @@ export class ChatExecutor {
       const cooldown = this.cooldowns.get(provider.name);
 
       if (cooldown && cooldown.availableAt > now) {
-        this.emitProviderTraceEvent(options, {
+        emitProviderTraceEvent(options, {
           kind: "error",
           transport,
           provider: provider.name,
@@ -4391,7 +4395,7 @@ export class ChatExecutor {
           const priorCooldown = this.cooldowns.get(provider.name);
           this.cooldowns.delete(provider.name);
           if (priorCooldown) {
-            this.emitProviderTraceEvent(options, {
+            emitProviderTraceEvent(options, {
               kind: "response",
               transport,
               provider: provider.name,
@@ -4421,7 +4425,7 @@ export class ChatExecutor {
           const retryRule = this.retryPolicyMatrix[failureClass];
 
           if (
-            this.shouldRetryProviderImmediately(
+            shouldRetryProviderImmediately(
               failureClass,
               retryRule,
               lastError,
@@ -4432,24 +4436,26 @@ export class ChatExecutor {
             continue;
           }
 
-          if (!this.shouldFallbackForFailureClass(failureClass, lastError)) {
+          if (!shouldFallbackForFailureClass(failureClass, lastError)) {
             throw lastError;
           }
 
           // Apply cooldown for this provider before trying fallbacks.
           const failures =
             (this.cooldowns.get(provider.name)?.failures ?? 0) + 1;
-          const cooldownDuration = this.computeProviderCooldownMs(
+          const cooldownDuration = computeProviderCooldownMs(
             failures,
             retryRule,
             lastError,
+            this.cooldownMs,
+            this.maxCooldownMs,
           );
           const availableAt = Date.now() + cooldownDuration;
           this.cooldowns.set(provider.name, {
             availableAt,
             failures,
           });
-          this.emitProviderTraceEvent(options, {
+          emitProviderTraceEvent(options, {
             kind: "error",
             transport,
             provider: provider.name,
@@ -4485,13 +4491,13 @@ export class ChatExecutor {
       throw lastError;
     }
     const now = Date.now();
-    this.emitProviderTraceEvent(options, {
+    emitProviderTraceEvent(options, {
       kind: "error",
       transport,
       provider: "chat-executor",
       payload: {
         reason: "all_providers_in_cooldown",
-        providers: this.buildActiveCooldownSnapshot(now),
+        providers: buildActiveCooldownSnapshot(this.cooldowns, now),
       },
       context: {
         stage: "fallback_selection",
@@ -4504,136 +4510,6 @@ export class ChatExecutor {
     );
   }
 
-  private emitProviderTraceEvent(
-    options:
-      | {
-          trace?: ChatExecuteParams["trace"];
-          callIndex?: number;
-          callPhase?: ChatCallUsageRecord["phase"];
-        }
-      | undefined,
-    event: Omit<LLMProviderTraceEvent, "callIndex" | "callPhase">,
-  ): void {
-    options?.trace?.onProviderTraceEvent?.({
-      ...event,
-      ...(options.callIndex !== undefined
-        ? { callIndex: options.callIndex }
-        : {}),
-      ...(options.callPhase !== undefined
-        ? { callPhase: options.callPhase }
-        : {}),
-    });
-  }
-
-  private buildActiveCooldownSnapshot(
-    now: number,
-  ): Array<{
-    provider: string;
-    retryAfterMs: number;
-    availableAt: number;
-    failures: number;
-  }> {
-    return Array.from(this.cooldowns.entries())
-      .map(([provider, cooldown]) => ({
-        provider,
-        retryAfterMs: Math.max(0, cooldown.availableAt - now),
-        availableAt: cooldown.availableAt,
-        failures: cooldown.failures,
-      }))
-      .filter((entry) => entry.retryAfterMs > 0)
-      .sort((left, right) => left.provider.localeCompare(right.provider));
-  }
-
-  private shouldRetryProviderImmediately(
-    failureClass: LLMFailureClass,
-    retryRule: LLMRetryPolicyRule,
-    error: Error,
-    attempts: number,
-  ): boolean {
-    if (attempts >= retryRule.maxRetries) return false;
-    switch (failureClass) {
-      case "validation_error":
-      case "authentication_error":
-      case "budget_exceeded":
-      case "cancelled":
-      case "tool_error":
-      case "no_progress":
-        return false;
-      case "rate_limited":
-        // Respect provider retry-after via cooldown/fallback instead of tight-loop retries.
-        return !(error instanceof LLMRateLimitError && Boolean(error.retryAfterMs));
-      case "provider_error":
-        // 4xx-style provider validation/config failures are deterministic.
-        if (error instanceof LLMProviderError) return false;
-        return true;
-      default:
-        return true;
-    }
-  }
-
-  private shouldFallbackForFailureClass(
-    failureClass: LLMFailureClass,
-    error: Error,
-  ): boolean {
-    switch (failureClass) {
-      case "validation_error":
-      case "authentication_error":
-      case "budget_exceeded":
-      case "cancelled":
-        return false;
-      case "provider_error":
-        return !(error instanceof LLMProviderError);
-      default:
-        return true;
-    }
-  }
-
-  private computeProviderCooldownMs(
-    failures: number,
-    retryRule: LLMRetryPolicyRule,
-    error: Error,
-  ): number {
-    if (error instanceof LLMRateLimitError && error.retryAfterMs) {
-      return error.retryAfterMs;
-    }
-    const linearCooldown = Math.min(
-      this.cooldownMs * failures,
-      this.maxCooldownMs,
-    );
-    const policyCooldown = retryRule.baseDelayMs > 0
-      ? Math.min(retryRule.baseDelayMs * failures, retryRule.maxDelayMs)
-      : 0;
-    return Math.max(0, Math.max(linearCooldown, policyCooldown));
-  }
-
-  private annotateFailureError(
-    error: unknown,
-    stage: string,
-  ): {
-    error: Error;
-    failureClass: LLMFailureClass;
-    stopReason: LLMPipelineStopReason;
-    stopReasonDetail: string;
-  } {
-    const baseError = error instanceof Error ? error : new Error(String(error));
-    const failureClass = classifyLLMFailure(baseError);
-    const stopReason = toPipelineStopReason(failureClass);
-    const stopReasonDetail = `${stage} failed (${stopReason}): ${baseError.message}`;
-    const annotated = baseError as Error & {
-      failureClass?: LLMFailureClass;
-      stopReason?: LLMPipelineStopReason;
-      stopReasonDetail?: string;
-    };
-    annotated.failureClass = failureClass;
-    annotated.stopReason = stopReason;
-    annotated.stopReasonDetail = stopReasonDetail;
-    return {
-      error: annotated,
-      failureClass,
-      stopReason,
-      stopReasonDetail,
-    };
-  }
 
 
 
@@ -4831,7 +4707,7 @@ export class ChatExecutor {
           : {}),
       });
     } catch (error) {
-      throw this.annotateFailureError(error, "response evaluation").error;
+      throw annotateFailureError(error, "response evaluation").error;
     }
     const {
       response,
@@ -4932,7 +4808,7 @@ export class ChatExecutor {
           : {}),
       });
     } catch (error) {
-      throw this.annotateFailureError(error, "history compaction").error;
+      throw annotateFailureError(error, "history compaction").error;
     }
 
     const { response } = compactResponse;
