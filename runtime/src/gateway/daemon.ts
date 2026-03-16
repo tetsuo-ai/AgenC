@@ -162,7 +162,11 @@ import {
 import { MarkdownSkillInjector } from "../skills/markdown/injector.js";
 import { VoiceBridge } from "./voice-bridge.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
-import type { DesktopBridgeEvent } from "../desktop/rest-bridge.js";
+import {
+  configureDesktopRoutingForWebChat as configureDesktopRouting,
+  cleanupDesktopSessionResources as cleanupDesktopSession,
+  type DesktopRouterFactory,
+} from "./desktop-routing-config.js";
 import { ApprovalEngine } from "./approvals.js";
 import { resolveGatewayApprovalRules } from "./approval-runtime.js";
 import { buildToolPolicyAction } from "../policy/tool-governance.js";
@@ -245,7 +249,6 @@ import {
   createDelegatingSubAgentLLMProvider,
   getActiveDelegationAggressiveness as getActiveDelegationAggressivenessImpl,
   resolveDelegationScoreThreshold as resolveDelegationScoreThresholdImpl,
-  hasHighRiskDelegationCapabilities as hasHighRiskDelegationCapabilitiesImpl,
   selectSubagentProviderForTask as selectSubagentProviderForTaskImpl,
   refreshSubAgentToolCatalog as refreshSubAgentToolCatalogImpl,
   ensureSubAgentDefaultWorkspace as ensureSubAgentDefaultWorkspaceImpl,
@@ -295,10 +298,8 @@ import {
   formatInactiveBackgroundRunStop,
 } from "./background-run-control.js";
 import {
-  buildBackgroundRunSignalFromDesktopEvent,
   createBackgroundRunToolAfterHook,
   createBackgroundRunWebhookRoute,
-  mapDesktopBridgeEventTypeToWebChatEvent,
 } from "./background-run-wake-adapters.js";
 import {
   getMissingDoomEvidenceGap,
@@ -465,13 +466,7 @@ function buildDoomAutoplaySupervisionObjective(params: {
 
 /** Minimum confidence score for injecting learned patterns into conversations. */
 
-/** Default session manager config for external channel plugins. */
-const DEFAULT_CHANNEL_SESSION_CONFIG = {
-  scope: "per-channel-peer" as const,
-  reset: { mode: "idle" as const, idleMinutes: 30 },
-  compaction: "truncate" as const,
-  maxHistoryLength: 100,
-};
+// DEFAULT_CHANNEL_SESSION_CONFIG moved to ./channel-wiring.ts
 
 // SUBAGENT_CONFIG_HARD_CAPS moved to ./subagent-infrastructure.ts
 
@@ -1487,9 +1482,7 @@ export class DaemonManager {
     string,
     import("../mcp-client/types.js").MCPToolBridge[]
   > = new Map();
-  private _desktopRouterFactory:
-    | ((sessionId: string, allowedToolNames?: readonly string[]) => ToolHandler)
-    | null = null;
+  private _desktopRouterFactory: DesktopRouterFactory | null = null;
   private _desktopExecutor:
     | import("../autonomous/desktop-executor.js").DesktopExecutor
     | null = null;
@@ -1605,12 +1598,6 @@ export class DaemonManager {
       this._delegationAggressivenessOverride,
       resolved,
     );
-  }
-
-  private hasHighRiskDelegationCapabilities(
-    capabilities: readonly string[],
-  ): boolean {
-    return hasHighRiskDelegationCapabilitiesImpl(capabilities);
   }
 
   private selectSubagentProviderForTask(
@@ -1792,8 +1779,15 @@ export class DaemonManager {
         if (manager) {
           await manager.destroyContext(sessionIdentity);
         }
-        await this.cleanupDesktopSessionResources(
+        await cleanupDesktopSession(
           sessionIdentity.subagentSessionId,
+          {
+            desktopManager: this._desktopManager,
+            desktopBridges: this._desktopBridges,
+            playwrightBridges: this._playwrightBridges,
+            containerMCPBridges: this._containerMCPBridges,
+            logger: this.logger,
+          },
         );
       },
       defaultWorkspaceId: workspaceManager.getDefault(),
@@ -2049,11 +2043,37 @@ export class DaemonManager {
     const llmTools = registry.toLLMTools();
     let baseToolHandler = registry.createToolHandler();
 
-    await this.configureDesktopRoutingForWebChat(
-      config,
-      llmTools,
-      baseToolHandler,
-    );
+    if (config.desktop?.enabled && this._desktopManager) {
+      const factory = await configureDesktopRouting(
+        config,
+        llmTools,
+        baseToolHandler,
+        {
+          desktopManager: this._desktopManager,
+          desktopBridges: this._desktopBridges,
+          playwrightBridges: this._playwrightBridges,
+          containerMCPConfigs: this._containerMCPConfigs,
+          containerMCPBridges: this._containerMCPBridges,
+          logger: this.logger,
+          broadcastDesktopEvent: (sessionId, eventType, payload) => {
+            this._webChatChannel?.broadcastEvent(eventType, payload);
+          },
+          signalBackgroundRun: async (sessionId, signal) => {
+            const signalled = await this._backgroundRunSupervisor?.signalRun({
+              sessionId,
+              type: signal.type,
+              content: signal.content,
+              data: signal.data,
+            });
+            return signalled ?? false;
+          },
+          pushStatusToSession: (sessionId, msg) => {
+            this._webChatChannel?.pushToSession(sessionId, msg);
+          },
+        },
+      );
+      this._desktopRouterFactory = factory;
+    }
 
     this.refreshSubAgentToolCatalog(registry, environment, {
       includeStaticDesktopTools: config.desktop?.enabled === true,
@@ -3007,107 +3027,6 @@ export class DaemonManager {
     }
     const total = entries.reduce((sum, entry) => sum + entry.value, 0);
     return total / entries.length;
-  }
-
-  private async configureDesktopRoutingForWebChat(
-    config: GatewayConfig,
-    llmTools: LLMTool[],
-    baseToolHandler: ToolHandler,
-  ): Promise<void> {
-    if (!config.desktop?.enabled || !this._desktopManager) {
-      return;
-    }
-
-    const { createDesktopAwareToolHandler } =
-      await import("../desktop/session-router.js");
-    const desktopManager = this._desktopManager;
-    const desktopBridges = this._desktopBridges;
-    const playwrightBridges = this._playwrightBridges;
-    const desktopLogger = this.logger;
-    const playwrightEnabled = config.desktop?.playwright?.enabled !== false;
-    const handleDesktopEvent = (
-      sessionId: string,
-      event: DesktopBridgeEvent,
-    ): void => {
-      const eventType = mapDesktopBridgeEventTypeToWebChatEvent(event.type);
-      this._webChatChannel?.broadcastEvent(eventType, {
-        sessionId,
-        timestamp: event.timestamp,
-        ...event.payload,
-      });
-
-      const wakeSignal = buildBackgroundRunSignalFromDesktopEvent(event);
-      if (!wakeSignal) {
-        return;
-      }
-
-      void this._backgroundRunSupervisor
-        ?.signalRun({
-          sessionId,
-          type: wakeSignal.type,
-          content: wakeSignal.content,
-          data: wakeSignal.data,
-        })
-        .then((signalled) => {
-          if (!signalled) {
-            return;
-          }
-          this._webChatChannel?.pushToSession(sessionId, {
-            type: "agent.status",
-            payload: {
-              phase: "background_run",
-              detail: wakeSignal.content,
-            },
-          });
-        })
-        .catch((error) => {
-          this.logger.debug(
-            "Failed to signal background run from desktop event",
-            {
-              sessionId,
-              eventType: event.type,
-              error: toErrorMessage(error),
-            },
-          );
-        });
-    };
-
-    // Desktop tools are lazily initialized per session via the router.
-    // Add static desktop tool definitions to LLM tools so the model knows
-    // the full schemas (parameter names, types, required fields).
-    const { TOOL_DEFINITIONS } = await import("../desktop/tool-definitions.js");
-    const desktopToolDefs: LLMTool[] = TOOL_DEFINITIONS.filter(
-      (def) => def.name !== "screenshot",
-    ).map((def) => ({
-      type: "function" as const,
-      function: {
-        name: `desktop.${def.name}`,
-        description: def.description,
-        parameters: def.inputSchema,
-      },
-    }));
-    llmTools.push(...desktopToolDefs);
-
-    const containerMCPConfigs = this._containerMCPConfigs;
-    const containerMCPBridges = this._containerMCPBridges;
-    this._desktopRouterFactory = (
-      sessionId: string,
-      allowedToolNames?: readonly string[],
-    ) =>
-      createDesktopAwareToolHandler(baseToolHandler, sessionId, {
-        desktopManager,
-        bridges: desktopBridges,
-        playwrightBridges: playwrightEnabled ? playwrightBridges : undefined,
-        containerMCPConfigs:
-          containerMCPConfigs.length > 0 ? containerMCPConfigs : undefined,
-        containerMCPBridges:
-          containerMCPConfigs.length > 0 ? containerMCPBridges : undefined,
-        allowedToolNames,
-        onDesktopEvent: (event) => handleDesktopEvent(sessionId, event),
-        logger: desktopLogger,
-        // Force-disable automatic screenshot capture for action tools.
-        autoScreenshot: false,
-      });
   }
 
   private async createWebChatMemoryRetrievers(params: {
@@ -4970,7 +4889,13 @@ export class DaemonManager {
       },
     );
 
-    await this.cleanupDesktopSessionResources(webSessionId);
+    await cleanupDesktopSession(webSessionId, {
+      desktopManager: this._desktopManager,
+      desktopBridges: this._desktopBridges,
+      playwrightBridges: this._playwrightBridges,
+      containerMCPBridges: this._containerMCPBridges,
+      logger: this.logger,
+    });
   }
 
   private async hydrateWebSessionContext(params: {
@@ -5012,29 +4937,6 @@ export class DaemonManager {
       .map((entry) => entryToMessage(entry));
     sessionMgr.replaceHistory(historySessionId, history);
     await hydrateWebSessionRuntimeState(memoryBackend, webSessionId, session);
-  }
-
-  private async cleanupDesktopSessionResources(
-    sessionId: string,
-  ): Promise<void> {
-    if (!this._desktopManager) return;
-
-    await this._desktopManager.destroyBySession(sessionId).catch((error) => {
-      this.logger.debug("Failed to destroy desktop session during cleanup", {
-        sessionId,
-        error: toErrorMessage(error),
-      });
-    });
-
-    const { destroySessionBridge } =
-      await import("../desktop/session-router.js");
-    destroySessionBridge(
-      sessionId,
-      this._desktopBridges,
-      this._playwrightBridges,
-      this._containerMCPBridges,
-      this.logger,
-    );
   }
 
   private createCommandRegistry(
