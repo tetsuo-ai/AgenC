@@ -53,7 +53,6 @@ import {
 
 import {
   annotateFailureError,
-  emitProviderTraceEvent,
 } from "./chat-executor-provider-retry.js";
 import {
   ChatBudgetExceededError,
@@ -74,13 +73,8 @@ import type {
   EvaluatorConfig,
   CooldownEntry,
   FallbackResult,
-  PlannerDeterministicToolStepIntent,
-  PlannerSubAgentTaskStepIntent,
   ResolvedSubagentVerifierConfig,
-  ToolLoopState,
-  ToolCallAction,
   ExecutionContext,
-  PlannerDiagnostic,
 } from "./chat-executor-types.js";
 import {
   MAX_EVAL_USER_CHARS,
@@ -275,7 +269,6 @@ import {
 } from "./chat-executor-planner-execution.js";
 import {
   executeToolCallLoop as executeToolCallLoopFn,
-  executeSingleToolCall as executeSingleToolCallFn,
 } from "./chat-executor-tool-loop.js";
 export type {
   ToolRoundBudgetExtensionResult,
