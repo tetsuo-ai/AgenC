@@ -18,6 +18,7 @@ import type {
 } from "../workflow/pipeline.js";
 import type { HostToolingProfile } from "./host-tooling.js";
 import type {
+  DelegationContractSpec,
   DelegationOutputValidationCode,
 } from "../utils/delegation-validation.js";
 import {
@@ -31,9 +32,6 @@ import {
   type SubagentContextDiagnostics,
   type SubagentFailureOutcome,
   SUBAGENT_ORCHESTRATION_SECTION_RE,
-  NODE_PACKAGE_TOOLING_RE,
-  NODE_PACKAGE_MANIFEST_PATH_RE,
-  NODE_WORKSPACE_AUTHORING_RE,
 } from "./subagent-orchestrator-types.js";
 import {
   redactSensitiveData,
@@ -42,11 +40,7 @@ import {
 } from "./subagent-context-curation.js";
 import {
   isNodeWorkspaceRelevant,
-  collectReachableVerificationCategories,
 } from "./subagent-workspace-probes.js";
-import {
-  resolvePlannerStepWorkingDirectory,
-} from "./subagent-failure-classification.js";
 
 /* ------------------------------------------------------------------ */
 /*  Parent request summarization                                       */

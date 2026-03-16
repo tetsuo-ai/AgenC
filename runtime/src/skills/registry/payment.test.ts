@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { SkillPurchaseManager, type SkillPurchaseConfig } from "./payment.js";
 import { SkillPurchaseError } from "./errors.js";
 import { RuntimeErrorCodes, AnchorErrorCodes } from "../../types/errors.js";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID, TOKEN_PROGRAM_ID } from "@tetsuo-ai/sdk";
 import { silentLogger } from "../../utils/logger.js";
 import { generateAgentId } from "../../utils/encoding.js";
 import BN from "bn.js";

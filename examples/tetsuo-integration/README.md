@@ -52,5 +52,5 @@ npm run demo
 ## Links
 
 - [Tetsuo AI](https://tetsuo.ai)
-- [AgenC SDK](https://github.com/tetsuo-ai/AgenC)
+- [AgenC SDK](https://github.com/tetsuo/AgenC)
 - [Privacy Cash](https://privacycash.io)

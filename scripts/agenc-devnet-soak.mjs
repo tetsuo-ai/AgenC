@@ -19,7 +19,7 @@ import {
   getProtocolConfig,
   RECOMMENDED_CU_COMPLETE_TASK_PRIVATE,
   registerAgent,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 import {
   AddressLookupTableProgram,
   ComputeBudgetProgram,

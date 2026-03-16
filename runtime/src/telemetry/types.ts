@@ -1,5 +1,5 @@
 /**
- * Telemetry type definitions for @agenc/runtime.
+ * Telemetry type definitions for @tetsuo-ai/runtime.
  *
  * Re-exports MetricsProvider, TracingProvider, and Span from task/types.ts
  * (the canonical definitions) and defines the extended TelemetryCollector

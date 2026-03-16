@@ -6,7 +6,7 @@
  * 2. Query functions build correct memcmp filters
  * 3. Data parsing handles account data correctly including new fields
  *
- * @see https://github.com/tetsuo-ai/AgenC/issues/262
+ * @see https://github.com/tetsuo/AgenC/issues/262
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";

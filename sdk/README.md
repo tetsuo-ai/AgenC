@@ -1,4 +1,4 @@
-# @agenc/sdk
+# @tetsuo-ai/sdk
 
 Privacy-preserving agent coordination on Solana.
 
@@ -12,7 +12,7 @@ Privacy-preserving agent coordination on Solana.
 ## Installation
 
 ```bash
-npm install @agenc/sdk
+npm install @tetsuo-ai/sdk
 ```
 
 ## Private payload model
@@ -28,7 +28,7 @@ npm install @agenc/sdk
 ## Quick start
 
 ```ts
-import { generateProof, generateSalt, completeTaskPrivate } from '@agenc/sdk';
+import { generateProof, generateSalt, completeTaskPrivate } from '@tetsuo-ai/sdk';
 
 const proof = await generateProof(
   {

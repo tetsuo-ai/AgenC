@@ -12,7 +12,7 @@ import {
   computeHashes,
   bigintToBytes32,
   generateSalt,
-} from '@agenc/sdk';
+} from '@tetsuo-ai/sdk';
 
 const ROUTER_PROGRAM_ID = new PublicKey('E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ');
 const VERIFIER_PROGRAM_ID = new PublicKey('3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc');

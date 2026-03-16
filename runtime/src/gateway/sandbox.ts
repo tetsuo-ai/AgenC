@@ -1,5 +1,5 @@
 /**
- * Docker-based execution sandboxing for @agenc/runtime.
+ * Docker-based execution sandboxing for @tetsuo-ai/runtime.
  *
  * Provides isolated container environments for tool execution with configurable
  * resource limits, workspace mounting, and network access control. Three modes:

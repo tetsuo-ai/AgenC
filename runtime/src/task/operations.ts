@@ -9,7 +9,6 @@
  */
 
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
   deriveZkConfigPda,
   HASH_SIZE,
@@ -17,7 +16,8 @@ import {
   RISC0_JOURNAL_LEN,
   RISC0_SEAL_BYTES_LEN,
   TRUSTED_RISC0_SELECTOR,
-} from "@agenc/sdk";
+  getAssociatedTokenAddressSync,
+} from "@tetsuo-ai/sdk";
 import { toAnchorBytes } from "../utils/encoding.js";
 import { BN, type Program } from "@coral-xyz/anchor";
 import type { AgencCoordination } from "../types/agenc_coordination.js";

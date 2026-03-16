@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Connection, PublicKey, Keypair } from '@solana/web3.js';
-import { PROGRAM_ID } from '@agenc/sdk';
+import { PROGRAM_ID } from '@tetsuo-ai/sdk';
 import { AgentManager, type AgentManagerConfig } from './manager';
 import { IDL } from '../idl';
 import {

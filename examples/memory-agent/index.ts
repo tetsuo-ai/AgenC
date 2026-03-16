@@ -38,10 +38,10 @@ import {
   type MemoryBackend,
   type Task,
   type AutonomousTaskExecutor as TaskExecutor,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime';
 // For alternative backends:
-// import { SqliteBackend } from '@agenc/runtime';
-// import { RedisBackend } from '@agenc/runtime';
+// import { SqliteBackend } from '@tetsuo-ai/runtime';
+// import { RedisBackend } from '@tetsuo-ai/runtime';
 
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 const AGENT_CONTEXT_SESSION = 'agent-context';

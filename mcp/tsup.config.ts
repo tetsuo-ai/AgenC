@@ -8,6 +8,11 @@ export default defineConfig({
   clean: true,
   platform: 'node',
   target: 'node18',
+  // Keep the emitted JS filename stable so package metadata can point at an
+  // intentional CommonJS entrypoint instead of relying on tsup defaults.
+  outExtension() {
+    return { js: '.cjs' };
+  },
   // Bundle everything - resolving anchor interop at build time
   noExternal: [/.*/],
   esbuildOptions(options) {
@@ -15,8 +20,8 @@ export default defineConfig({
     // The SDK/Runtime .mjs files have broken anchor interop,
     // so we resolve to .js (CJS) entries where require() works.
     options.alias = {
-      '@agenc/sdk': path.resolve(__dirname, '../sdk/dist/index.js'),
-      '@agenc/runtime': path.resolve(__dirname, '../runtime/dist/index.js'),
+      '@tetsuo-ai/sdk': path.resolve(__dirname, '../sdk/dist/index.js'),
+      '@tetsuo-ai/runtime': path.resolve(__dirname, '../runtime/dist/index.js'),
     };
     // Mark native Node modules as external
     options.external = [

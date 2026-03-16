@@ -11,7 +11,7 @@
       "status": "ok",
       "command": "agenc_replay_status",
       "schema": "replay.status.output.v1",
-      "schema_hash": "7fbe5363088b59e7",
+      "schema_hash": "5b63568259a4ac22",
       "store_type": "memory",
       "event_count": 3,
       "unique_task_count": 1,
@@ -26,7 +26,7 @@
     }
   },
   "metadata": {
-    "generatedAt": "2026-02-28T06:38:16.785Z",
+    "generatedAt": "2026-03-16T11:12:18.643Z",
     "generatedBy": "contract-validator"
   }
 }

@@ -10,292 +10,33 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { LiteSVM, FailedTransactionMetadata, Clock } from "litesvm";
+import { LiteSVM, Clock } from "litesvm";
 import { fromWorkspace, LiteSVMProvider } from "anchor-litesvm";
 import {
   Keypair,
   PublicKey,
-  Transaction,
-  VersionedTransaction,
   LAMPORTS_PER_SOL,
-  SendTransactionError,
 } from "@solana/web3.js";
 import * as bs58Module from "bs58";
 import * as fs from "fs";
 import * as path from "path";
-import { AgencCoordination } from "../target/types/agenc_coordination";
+import type { AgencCoordination } from "../target/types/agenc_coordination.ts";
+import { extendLiteSVMConnectionProxy } from "./litesvm-connection-proxy.ts";
+import { syncAgencProgramBinary } from "./litesvm-program-artifact.ts";
+import {
+  BPF_LOADER_UPGRADEABLE_ID,
+  resolveBs58Codec,
+  seedLiteSVMClock,
+  setupProgramDataAccount,
+} from "./litesvm-shared.ts";
 
-const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
-  "BPFLoaderUpgradeab1e11111111111111111111111",
-);
-
-const bs58 = (() => {
-  const candidate = bs58Module as unknown as {
-    encode?: (input: Uint8Array | Buffer) => string;
-    decode?: (input: string) => Uint8Array;
-    default?: {
-      encode?: (input: Uint8Array | Buffer) => string;
-      decode?: (input: string) => Uint8Array;
-    };
-  };
-  if (typeof candidate.encode === "function" && typeof candidate.decode === "function") {
-    return candidate as {
-      encode: (input: Uint8Array | Buffer) => string;
-      decode: (input: string) => Uint8Array;
-    };
-  }
-  const fallback = candidate.default;
-  if (fallback && typeof fallback.encode === "function" && typeof fallback.decode === "function") {
-    return fallback as {
-      encode: (input: Uint8Array | Buffer) => string;
-      decode: (input: string) => Uint8Array;
-    };
-  }
-  throw new Error("Unsupported bs58 module shape");
-})();
+const bs58 = resolveBs58Codec(bs58Module);
 
 export interface LiteSVMContext {
   svm: LiteSVM;
   provider: anchor.AnchorProvider;
   program: Program<AgencCoordination>;
   payer: Keypair;
-}
-
-/**
- * Inject the BPF Loader Upgradeable ProgramData PDA.
- * Required because `initialize_protocol` validates the upgrade authority
- * via a remaining_accounts check on the ProgramData account.
- */
-function setupProgramDataAccount(
-  svm: LiteSVM,
-  programId: PublicKey,
-  authority: PublicKey,
-): void {
-  const [programDataPda] = PublicKey.findProgramAddressSync(
-    [programId.toBuffer()],
-    BPF_LOADER_UPGRADEABLE_ID,
-  );
-
-  // ProgramData layout:
-  //   4 bytes: AccountType (3 = ProgramData, little-endian u32)
-  //   8 bytes: slot (u64 LE)
-  //   1 byte:  Option<Pubkey> tag (1 = Some)
-  //   32 bytes: upgrade_authority pubkey
-  const data = new Uint8Array(45);
-  const view = new DataView(data.buffer);
-  view.setUint32(0, 3, true); // AccountType::ProgramData
-  view.setBigUint64(4, 0n, true); // slot = 0
-  data[12] = 1; // Option::Some
-  data.set(authority.toBytes(), 13); // upgrade_authority
-
-  svm.setAccount(programDataPda, {
-    lamports: 1_000_000_000,
-    data,
-    owner: BPF_LOADER_UPGRADEABLE_ID,
-    executable: false,
-  });
-}
-
-/**
- * Extend the LiteSVM connection proxy with methods needed by tests
- * and @solana/spl-token helper functions.
- *
- * The base LiteSVMConnectionProxy only provides getAccountInfo,
- * getAccountInfoAndContext, and getMinimumBalanceForRentExemption.
- * We add: getBalance, getLatestBlockhash, sendTransaction,
- * confirmTransaction, requestAirdrop, getSlot, getBlockTime,
- * getTransaction, and getParsedTransaction.
- */
-function extendConnectionProxy(
-  svm: LiteSVM,
-  connection: any,
-  walletRef: { publicKey: PublicKey },
-): void {
-  // Save original getAccountInfo to wrap it
-  const originalGetAccountInfo = connection.getAccountInfo.bind(connection);
-
-  // Override getAccountInfo to return null instead of throwing for non-existent accounts.
-  // This matches the real Connection behavior and is required by @solana/spl-token.
-  connection.getAccountInfo = async (
-    publicKey: PublicKey,
-    commitmentOrConfig?: any,
-  ) => {
-    const account = svm.getAccount(publicKey);
-    if (!account) return null;
-    return {
-      ...account,
-      data: Buffer.from(account.data),
-    };
-  };
-
-  // Also override getAccountInfoAndContext for consistency
-  connection.getAccountInfoAndContext = async (
-    publicKey: PublicKey,
-    commitmentOrConfig?: any,
-  ) => {
-    const account = svm.getAccount(publicKey);
-    if (!account) {
-      return {
-        context: { slot: Number(svm.getClock().slot) },
-        value: null,
-      };
-    }
-    return {
-      context: { slot: Number(svm.getClock().slot) },
-      value: {
-        ...account,
-        data: Buffer.from(account.data),
-      },
-    };
-  };
-
-  // getBalance — used ~48 times across tests for balance verification
-  connection.getBalance = async (
-    address: PublicKey,
-    _commitment?: any,
-  ): Promise<number> => {
-    const balance = svm.getBalance(address);
-    return balance !== null ? Number(balance) : 0;
-  };
-
-  // getLatestBlockhash — needed by @solana/web3.js sendAndConfirmTransaction
-  connection.getLatestBlockhash = async (_commitment?: any) => ({
-    blockhash: svm.latestBlockhash(),
-    lastValidBlockHeight: 0,
-  });
-
-  // sendTransaction — needed by @solana/spl-token's helper functions
-  // which call sendAndConfirmTransaction(connection, tx, signers)
-  connection.sendTransaction = async (
-    transaction: Transaction | VersionedTransaction,
-    signersOrOptions?: any,
-    options?: any,
-  ): Promise<string> => {
-    if ("version" in transaction) {
-      // VersionedTransaction
-      const signers = Array.isArray(signersOrOptions) ? signersOrOptions : [];
-      signers.forEach((s: any) => transaction.sign([s]));
-      const res = svm.sendTransaction(transaction);
-      // Use constructor.name instead of instanceof to handle module boundary
-      // mismatch between anchor-litesvm's bundled litesvm and project litesvm
-      if (res.constructor.name === "FailedTransactionMetadata") {
-        const failed = res as any;
-        throw new SendTransactionError({
-          action: "send",
-          signature: "unknown",
-          transactionMessage: failed.err().toString(),
-          logs: failed.meta().logs(),
-        });
-      }
-      return bs58.encode(transaction.signatures[0]);
-    }
-
-    // Legacy Transaction
-    const signers = Array.isArray(signersOrOptions) ? signersOrOptions : [];
-    transaction.feePayer = transaction.feePayer || walletRef.publicKey;
-    transaction.recentBlockhash = svm.latestBlockhash();
-    if (signers.length > 0) {
-      transaction.sign(...signers);
-    }
-
-    const res = svm.sendTransaction(transaction);
-    if (res.constructor.name === "FailedTransactionMetadata") {
-      const failed = res as any;
-      const sigRaw = transaction.signature;
-      const signature = sigRaw ? bs58.encode(sigRaw) : "unknown";
-      throw new SendTransactionError({
-        action: "send",
-        signature,
-        transactionMessage: failed.err().toString(),
-        logs: failed.meta().logs(),
-      });
-    }
-
-    return bs58.encode(transaction.signature!);
-  };
-
-  // confirmTransaction — no-op since LiteSVM is synchronous
-  connection.confirmTransaction = async (
-    _strategyOrSignature?: any,
-    _commitment?: any,
-  ): Promise<any> => ({
-    context: { slot: Number(svm.getClock().slot) },
-    value: { err: null },
-  });
-
-  // requestAirdrop — delegates to svm.airdrop(), returns a dummy signature
-  connection.requestAirdrop = async (
-    address: PublicKey,
-    lamports: number,
-  ): Promise<string> => {
-    svm.airdrop(address, BigInt(lamports));
-    return "litesvm-airdrop-" + address.toBase58().slice(0, 8);
-  };
-
-  // getSlot — used by test_1.ts for timestamp-related tests
-  connection.getSlot = async (_commitment?: any): Promise<number> => {
-    return Number(svm.getClock().slot);
-  };
-
-  // getBlockTime — used by test_1.ts for timestamp checks
-  connection.getBlockTime = async (_slot?: number): Promise<number | null> => {
-    return Number(svm.getClock().unixTimestamp);
-  };
-
-  // getTransaction — used by test_1.ts for fee verification (~7 calls).
-  // Returns a simplified object matching the fields tests actually check.
-  connection.getTransaction = async (
-    signature: string,
-    _opts?: any,
-  ): Promise<any> => {
-    let sigBytes: Uint8Array;
-    try {
-      sigBytes = bs58.decode(signature);
-    } catch {
-      return null;
-    }
-
-    const meta = svm.getTransaction(sigBytes);
-    if (!meta) return null;
-
-    // LiteSVM's TransactionMetadata doesn't expose fee directly.
-    // Standard Solana base fee is 5000 lamports per signature.
-    const BASE_FEE = 5000;
-
-    if (meta.constructor.name === "FailedTransactionMetadata") {
-      const failed = meta as any;
-      return {
-        meta: {
-          fee: BASE_FEE,
-          err: failed.err().toString(),
-        },
-      };
-    }
-
-    return {
-      meta: {
-        fee: BASE_FEE,
-        err: null,
-      },
-    };
-  };
-
-  // getParsedTransaction — some test patterns may use this
-  connection.getParsedTransaction = connection.getTransaction;
-
-  // getSignatureStatus — no-op, everything is confirmed
-  connection.getSignatureStatuses = async (
-    _signatures: string[],
-    _config?: any,
-  ) => ({
-    context: { slot: Number(svm.getClock().slot) },
-    value: _signatures.map(() => ({
-      slot: Number(svm.getClock().slot),
-      confirmations: 1,
-      err: null,
-      confirmationStatus: "confirmed" as const,
-    })),
-  });
 }
 
 /**
@@ -310,22 +51,20 @@ function extendConnectionProxy(
 export function createLiteSVMContext(opts?: {
   splTokens?: boolean;
 }): LiteSVMContext {
-  // Load the program using fromWorkspace as base, but fix address mismatch
-  // between Anchor.toml and the deploy keypair when they diverge.
-  const svm = fromWorkspace(".");
+  syncAgencProgramBinary(process.cwd());
 
-  // Ensure the program is loaded at the deploy keypair address (which matches
-  // the declare_id! in the compiled .so). When Anchor.toml has a different
-  // address, fromWorkspace loads the program there but the on-chain
-  // DeclaredProgramIdMismatch check fails. Reload at the correct address.
-  const keypairPath = path.resolve(process.cwd(), "target", "deploy", "agenc_coordination-keypair.json");
-  if (fs.existsSync(keypairPath)) {
-    const keypairData = JSON.parse(fs.readFileSync(keypairPath, "utf-8"));
-    const programKeypair = Keypair.fromSecretKey(Uint8Array.from(keypairData));
-    const soPath = path.resolve(process.cwd(), "target", "deploy", "agenc_coordination.so");
-    if (!svm.getAccount(programKeypair.publicKey) && fs.existsSync(soPath)) {
-      svm.addProgramFromFile(programKeypair.publicKey, soPath);
-    }
+  // Load the workspace, then ensure the compiled program binary is available at
+  // the IDL-declared address so the client, PDA derivations, and on-chain
+  // execution all target the same program id.
+  const svm = fromWorkspace(".");
+  const idlPath = path.resolve(process.cwd(), "target", "idl", "agenc_coordination.json");
+  const idl = JSON.parse(fs.readFileSync(idlPath, "utf-8")) as {
+    address: string;
+  };
+  const canonicalProgramId = new PublicKey(idl.address);
+  const soPath = path.resolve(process.cwd(), "target", "deploy", "agenc_coordination.so");
+  if (!svm.getAccount(canonicalProgramId) && fs.existsSync(soPath)) {
+    svm.addProgramFromFile(canonicalProgramId, soPath);
   }
 
   // Add SPL token programs if requested
@@ -338,10 +77,7 @@ export function createLiteSVMContext(opts?: {
 
   // Set initial clock to a realistic timestamp so on-chain time checks work
   // (LiteSVM defaults to unix_timestamp=0 which breaks cooldowns and deadlines)
-  const clock = svm.getClock();
-  clock.unixTimestamp = BigInt(Math.floor(Date.now() / 1000));
-  clock.slot = 1000n;
-  svm.setClock(clock);
+  seedLiteSVMClock(svm);
 
   // Create and fund the payer keypair
   const payer = Keypair.generate();
@@ -355,13 +91,17 @@ export function createLiteSVMContext(opts?: {
   ) as unknown as anchor.AnchorProvider;
 
   // Extend the connection proxy with missing methods
-  extendConnectionProxy(svm, (provider as any).connection, wallet);
+  extendLiteSVMConnectionProxy(svm, (provider as any).connection, wallet, bs58, {
+    allowConstructorNameFallback: true,
+  });
 
-  // Load IDL and create typed Program instance
-  // Use fs.readFileSync for ESM/CJS compatibility (Node 25+ defaults to ESM)
-  const idlPath = path.resolve(process.cwd(), "target", "idl", "agenc_coordination.json");
-  const idl = JSON.parse(fs.readFileSync(idlPath, "utf-8"));
-  const program = new Program<AgencCoordination>(idl as any, provider);
+  const program = new Program<AgencCoordination>(
+    {
+      ...idl,
+      address: canonicalProgramId.toBase58(),
+    } as any,
+    provider,
+  );
 
   // Inject BPF Loader Upgradeable ProgramData PDA
   // (required for initialize_protocol's upgrade authority check)

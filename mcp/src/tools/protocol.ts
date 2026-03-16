@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { SEEDS } from "@agenc/sdk";
+import { SEEDS } from "@tetsuo-ai/sdk";
 import {
   getAnchorErrorName,
   getAnchorErrorMessage,
@@ -7,7 +7,7 @@ import {
   deriveAgentPda,
   deriveProtocolPda,
   deriveAuthorityVotePda,
-} from "@agenc/runtime";
+} from "@tetsuo-ai/runtime";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {

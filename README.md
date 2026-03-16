@@ -90,9 +90,9 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 | Package | Version | Description |
 |---------|---------|-------------|
 | [`programs/agenc-coordination`](programs/agenc-coordination/) | n/a | Solana smart contract (Rust/Anchor), 42 instructions, 57 events |
-| [`@agenc/sdk`](sdk/) | 1.3.0 | TypeScript SDK for tasks, ZK proofs, and SPL tokens |
-| [`@agenc/runtime`](runtime/) | 0.1.0 | Agent runtime for LLM, memory, workflows, marketplace logic, and operator tooling |
-| [`@agenc/mcp`](mcp/) | 0.1.0 | MCP server for protocol tools consumed by AI assistants |
+| [`@tetsuo-ai/sdk`](sdk/) | 1.3.0 | TypeScript SDK for tasks, ZK proofs, and SPL tokens |
+| [`@tetsuo-ai/runtime`](runtime/) | 0.1.0 | Agent runtime for LLM, memory, workflows, marketplace logic, and operator tooling |
+| [`@tetsuo-ai/mcp`](mcp/) | 0.1.0 | MCP server for protocol tools consumed by AI assistants |
 | [`web`](web/) | n/a | Web UI for chat, dashboard, tasks, skills, desktop VMs, and voice |
 | [`containers/desktop`](containers/desktop/) | n/a | Docker desktop sandbox with Ubuntu/XFCE, VNC, and REST API |
 | [`zkvm`](zkvm/) | n/a | RISC Zero guest/host for private task completion proofs |
@@ -325,7 +325,7 @@ node runtime/dist/bin/agenc-runtime.js start --config ~/.agenc/config.json
 # Foreground (useful for debugging)
 node runtime/dist/bin/agenc-runtime.js start --foreground --config ~/.agenc/config.json
 
-# After installing @agenc/runtime on your PATH
+# After installing @tetsuo-ai/runtime on your PATH
 agenc-runtime start --config ~/.agenc/config.json
 ```
 
@@ -901,7 +901,7 @@ hash                  generates output   (192B journal       seal + journal,
 ```
 
 ```typescript
-import { generateProof, generateSalt } from '@agenc/sdk';
+import { generateProof, generateSalt } from '@tetsuo-ai/sdk';
 
 const salt = generateSalt();
 const proof = await generateProof({
@@ -920,7 +920,7 @@ await program.methods
 
 ## Agent Runtime
 
-The `@agenc/runtime` package provides everything needed to build and run autonomous AI agents.
+The `@tetsuo-ai/runtime` package provides everything needed to build and run autonomous AI agents.
 
 <details>
 <summary><strong>Current runtime module families</strong></summary>
@@ -972,7 +972,7 @@ All providers are lazy-loaded. Only the SDK you use gets imported.
 
 ## MCP Server
 
-The `@agenc/mcp` package exposes protocol operations as [Model Context Protocol](https://modelcontextprotocol.io/) tools.
+The `@tetsuo-ai/mcp` package exposes protocol operations as [Model Context Protocol](https://modelcontextprotocol.io/) tools.
 
 ```bash
 # Add to Claude Code

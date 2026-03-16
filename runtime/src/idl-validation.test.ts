@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from "vitest";
 import { Idl } from "@coral-xyz/anchor";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 import { validateIdl, IDL } from "./idl";
 
 const VALID_PROGRAM_ADDRESS = PROGRAM_ID.toBase58();

@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { Connection, PublicKey, Keypair, Transaction } from '@solana/web3.js';
 import { AnchorProvider, Wallet } from '@coral-xyz/anchor';
-import { PROGRAM_ID } from '@agenc/sdk';
+import { PROGRAM_ID } from '@tetsuo-ai/sdk';
 import rawIdlJson from '../idl/agenc_coordination.json';
 import {
   IDL,

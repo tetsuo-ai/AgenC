@@ -8,12 +8,9 @@
  */
 
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import {
-  getAssociatedTokenAddressSync,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
 import * as anchor from "@coral-xyz/anchor";
 import type { Program } from "@coral-xyz/anchor";
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@tetsuo-ai/sdk";
 
 const { BN } = anchor;
 import type { AgencCoordination } from "../../types/agenc_coordination.js";

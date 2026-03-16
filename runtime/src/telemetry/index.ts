@@ -1,5 +1,5 @@
 /**
- * Telemetry module — unified metrics collection and export for @agenc/runtime.
+ * Telemetry module — unified metrics collection and export for @tetsuo-ai/runtime.
  *
  * @module
  */

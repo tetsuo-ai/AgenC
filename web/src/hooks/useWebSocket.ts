@@ -11,7 +11,7 @@ import {
   parseJsonMessage,
   serializeAuthMessage,
   serializePingMessage,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime/browser';
 
 function getDefaultWsUrl(): string {
   if (typeof window !== 'undefined') {

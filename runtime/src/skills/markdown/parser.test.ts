@@ -198,7 +198,7 @@ metadata:
   agenc:
     install:
       - type: npm
-        package: "@agenc/sdk"
+        package: "@tetsuo-ai/sdk"
       - type: cargo
         package: risc0-prover
       - type: apt
@@ -210,7 +210,7 @@ metadata:
     expect(skill.metadata.install).toHaveLength(3);
     expect(skill.metadata.install[0]).toEqual({
       type: "npm",
-      package: "@agenc/sdk",
+      package: "@tetsuo-ai/sdk",
     });
     expect(skill.metadata.install[1]).toEqual({
       type: "cargo",

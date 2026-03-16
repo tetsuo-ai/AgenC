@@ -1,5 +1,5 @@
 /**
- * Type definitions for @agenc/runtime
+ * Type definitions for @tetsuo-ai/runtime
  * @packageDocumentation
  */
 

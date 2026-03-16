@@ -13,7 +13,7 @@
       "status": "ok",
       "command": "agenc_replay_backfill",
       "schema": "replay.backfill.output.v1",
-      "schema_hash": "a98f92cd016e3338",
+      "schema_hash": "6fafda1b81535e46",
       "mode": "backfill",
       "to_slot": 10,
       "store_type": "memory",
@@ -40,7 +40,7 @@
     }
   },
   "metadata": {
-    "generatedAt": "2026-02-28T06:38:16.775Z",
+    "generatedAt": "2026-03-16T11:12:18.631Z",
     "generatedBy": "contract-validator"
   }
 }

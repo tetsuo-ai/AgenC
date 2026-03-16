@@ -1,5 +1,5 @@
 /**
- * ZK Proof Engine for @agenc/runtime
+ * ZK Proof Engine for @tetsuo-ai/runtime
  *
  * Provides proof generation with caching, verification,
  * and statistics tracking (Phase 7).

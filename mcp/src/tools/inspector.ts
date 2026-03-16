@@ -8,8 +8,8 @@
 
 import { PublicKey } from "@solana/web3.js";
 import { BorshCoder } from "@coral-xyz/anchor";
-import { SEEDS } from "@agenc/sdk";
-import { getCapabilityNames, hexToBytes, IDL } from "@agenc/runtime";
+import { SEEDS } from "@tetsuo-ai/sdk";
+import { getCapabilityNames, hexToBytes, IDL } from "@tetsuo-ai/runtime";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {

@@ -9,7 +9,7 @@ import { readdir, readFile } from "fs/promises";
 import path from "path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { runCommand } from "@agenc/runtime";
+import { runCommand } from "@tetsuo-ai/runtime";
 import { toolTextResponse, withToolErrorResponse } from "./response.js";
 
 const MODULE_DIR = typeof __dirname !== "undefined" ? __dirname : process.cwd();

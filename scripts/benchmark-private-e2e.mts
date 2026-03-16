@@ -20,11 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import idlJson from "../runtime/idl/agenc_coordination.json";
-import type { AgencCoordination } from "../runtime/src/types/agenc_coordination";
-
-const require = createRequire(import.meta.url);
-const {
+import {
   bigintToBytes32,
   computeConstraintHash,
   deriveAgentPda,
@@ -39,17 +35,17 @@ const {
   RISC0_IMAGE_ID_LEN,
   TRUSTED_RISC0_IMAGE_ID,
   updateZkImageId,
-} = require("../sdk/src/index") as typeof import("../sdk/src/index");
-const { ProofEngine } =
-  require("../runtime/src/proof/engine") as typeof import("../runtime/src/proof/engine");
-const { TaskOperations } =
-  require("../runtime/src/task/operations") as typeof import("../runtime/src/task/operations");
-const { taskStatusToString } =
-  require("../runtime/src/task/types") as typeof import("../runtime/src/task/types");
-const { keypairToWallet } =
-  require("../runtime/src/types/wallet") as typeof import("../runtime/src/types/wallet");
-const { createLogger } =
-  require("../runtime/src/utils/logger") as typeof import("../runtime/src/utils/logger");
+} from "@tetsuo-ai/sdk";
+import {
+  IDL,
+  type AgencCoordination,
+  ProofEngine,
+  TaskOperations,
+  taskStatusToString,
+  createLogger,
+  keypairToWallet,
+} from "@tetsuo-ai/runtime";
+const require = createRequire(import.meta.url);
 const {
   deriveRouterPda,
   deriveVerifierEntryPda,
@@ -600,7 +596,7 @@ function createCoordinationProgram(
 ): Program<AgencCoordination> {
   return new Program(
     {
-      ...(idlJson as Idl),
+      ...(IDL as Idl),
       address: programId.toBase58(),
     },
     provider,

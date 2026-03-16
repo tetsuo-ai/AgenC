@@ -7,7 +7,7 @@ import {
   IncidentRoleViolationError,
   type IncidentCommandCategory,
   type OperatorRole,
-} from "@agenc/runtime";
+} from "@tetsuo-ai/runtime";
 import { registerAgentTools } from "./tools/agents.js";
 import { registerTaskTools } from "./tools/tasks.js";
 import { registerProtocolTools } from "./tools/protocol.js";

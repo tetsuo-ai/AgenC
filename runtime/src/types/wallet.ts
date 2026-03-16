@@ -1,5 +1,5 @@
 /**
- * Wallet type definitions and helpers for @agenc/runtime
+ * Wallet type definitions and helpers for @tetsuo-ai/runtime
  *
  * Provides Anchor-compatible wallet interfaces that work with both
  * Node.js Keypairs and browser wallet adapters.
@@ -88,7 +88,7 @@ export class KeypairFileError extends Error {
  * @example
  * ```typescript
  * import { Keypair } from '@solana/web3.js';
- * import { keypairToWallet } from '@agenc/runtime';
+ * import { keypairToWallet } from '@tetsuo-ai/runtime';
  *
  * const keypair = Keypair.generate();
  * const wallet = keypairToWallet(keypair);

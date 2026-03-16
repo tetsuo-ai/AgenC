@@ -1,5 +1,5 @@
 /**
- * Messaging-specific error classes for @agenc/runtime
+ * Messaging-specific error classes for @tetsuo-ai/runtime
  *
  * All messaging errors extend RuntimeError and use codes from RuntimeErrorCodes.
  *

@@ -34,7 +34,6 @@ import type {
 } from "../llm/types.js";
 import {
   DEFAULT_SUBAGENT_VERIFIER_MAX_ROUNDS,
-  DEFAULT_TOOL_BUDGET_PER_REQUEST,
 } from "../llm/chat-executor-constants.js";
 import type {
   SubAgentLifecycleEmitter,
@@ -46,10 +45,8 @@ import {
 import { sleep } from "../utils/async.js";
 import {
   type DelegationOutputValidationCode,
-  type DelegationContractSpec,
   resolveDelegatedChildToolScope,
   specRequiresSuccessfulToolEvidence,
-  specRequiresMeaningfulBrowserEvidence,
   validateDelegatedOutputContract,
 } from "../utils/delegation-validation.js";
 import {
@@ -64,13 +61,8 @@ import {
 } from "../llm/delegation-learning.js";
 /* ---- Extracted sub-modules ---- */
 import {
-  type SubagentFailureClass,
   type SubagentFailureOutcome,
   type SubagentContextDiagnostics,
-  type DependencyArtifactCandidate,
-  type CuratedSection,
-  type DependencyContextEntry,
-  type SubagentPromptBudgetCaps,
   isPipelineStopReasonHint,
   toPipelineStopReasonHint,
   summarizeSubagentFailureHistory,
@@ -98,7 +90,6 @@ import {
   computeRetryDelayMs,
   classifySpawnFailure,
   classifySubagentFailureResult,
-  resolveEffectiveDelegatedWorkingDirectory,
   resolvePlannerStepWorkingDirectory,
   buildEffectiveContextRequirements,
   hasHighRiskCapabilities,
@@ -111,9 +102,6 @@ import {
   buildSubagentAcceptanceProbePlans,
   renderDeterministicCommandSummary,
   buildWorkspaceStateGuidanceLines,
-  isNodeWorkspaceRelevant,
-  collectReachableVerificationCategories,
-  collectAcceptanceProbePackageDirectories,
 } from "./subagent-workspace-probes.js";
 import {
   summarizeParentRequestForSubagent,
@@ -2698,7 +2686,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
   }
 
   /* ---- Thin wrappers for test access to extracted standalone functions ---- */
-  private buildRetryTaskPrompt(
+  buildRetryTaskPrompt(
     currentTaskPrompt: string,
     step: PipelinePlannerSubagentStep,
     allowedTools: readonly string[],
@@ -2708,7 +2696,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     return buildRetryTaskPromptFn(currentTaskPrompt, step, allowedTools, failure, retryAttempt);
   }
 
-  private buildEffectiveDelegationSpec(
+  buildEffectiveDelegationSpec(
     step: PipelinePlannerSubagentStep,
     pipeline: Pipeline,
     options: {
@@ -2723,7 +2711,7 @@ export class SubAgentOrchestrator implements DeterministicPipelineExecutor {
     });
   }
 
-  private summarizeDependencyResultForPrompt(result: string | null): string {
+  summarizeDependencyResultForPrompt(result: string | null): string {
     return summarizeDependencyResultForPrompt(result);
   }
 }

@@ -1,5 +1,5 @@
 /**
- * Governance-specific error classes for @agenc/runtime.
+ * Governance-specific error classes for @tetsuo-ai/runtime.
  *
  * @module
  */

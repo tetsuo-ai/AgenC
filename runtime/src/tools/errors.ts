@@ -1,5 +1,5 @@
 /**
- * Tool-specific error types for @agenc/runtime
+ * Tool-specific error types for @tetsuo-ai/runtime
  *
  * @module
  */

@@ -1,5 +1,5 @@
 /**
- * Telegram channel-specific error types for @agenc/runtime.
+ * Telegram channel-specific error types for @tetsuo-ai/runtime.
  *
  * @module
  */

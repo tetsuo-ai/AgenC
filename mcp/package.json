@@ -1,22 +1,27 @@
 {
-  "name": "@agenc/mcp",
+  "name": "@tetsuo-ai/mcp",
   "version": "0.1.0",
   "description": "Model Context Protocol server for AgenC development — exposes protocol operations as MCP tools",
-  "main": "dist/index.cjs",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.cts",
   "bin": {
-    "agenc-mcp": "./dist/index.js"
+    "agenc-mcp": "./dist/index.cjs"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/index.d.cts",
+      "import": "./dist/index.cjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.cjs"
     }
   },
   "files": [
     "dist",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup",
     "test": "node --import tsx --test src/**/*.test.ts",
@@ -41,8 +46,8 @@
     "directory": "mcp"
   },
   "dependencies": {
-    "@agenc/runtime": "0.1.0",
-    "@agenc/sdk": "1.3.0",
+    "@tetsuo-ai/runtime": "0.1.0",
+    "@tetsuo-ai/sdk": "1.3.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "zod": "^4.3.6"
   },

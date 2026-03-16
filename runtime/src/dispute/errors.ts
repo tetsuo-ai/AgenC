@@ -1,5 +1,5 @@
 /**
- * Dispute-specific error classes for @agenc/runtime
+ * Dispute-specific error classes for @tetsuo-ai/runtime
  *
  * All dispute errors extend RuntimeError and use codes from RuntimeErrorCodes.
  *

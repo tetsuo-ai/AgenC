@@ -10,8 +10,8 @@ import {
   bigintToBytes32,
   buildJournalBytes,
   deriveTokenEscrowAddress,
+  getAssociatedTokenAddressSync,
 } from "../index.js";
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { TaskState, PROGRAM_ID } from "../constants.js";
 import { getAccount } from "../anchor-utils.js";
 

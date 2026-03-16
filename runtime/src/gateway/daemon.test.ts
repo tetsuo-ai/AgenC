@@ -15,7 +15,7 @@ vi.mock("../utils/async.js", () => ({
     error instanceof Error ? error.message : String(error),
 }));
 
-// Mock logger to avoid @agenc/sdk → @coral-xyz/anchor dependency chain
+// Mock logger to avoid @tetsuo-ai/sdk → @coral-xyz/anchor dependency chain
 vi.mock("../utils/logger.js", () => {
   const noop = () => {};
   return {

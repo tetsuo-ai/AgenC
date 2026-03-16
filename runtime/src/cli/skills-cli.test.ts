@@ -479,11 +479,11 @@ describe("skills-cli", () => {
 /**
  * Integration tests for skill CLI routing via runCli.
  *
- * These import index.ts which transitively pulls in @agenc/sdk via replay.ts.
+ * These import index.ts which transitively pulls in @tetsuo-ai/sdk via replay.ts.
  * They will only run when that dependency is available. The test uses
  * parseArgv (standalone export) and normalizeAndValidateSkillCommand
  * indirectly, so these are covered separately.
  *
  * To run: npx vitest run src/cli/skills-cli-integration.test.ts
- * (requires @agenc/sdk to be built/linked)
+ * (requires @tetsuo-ai/sdk to be built/linked)
  */

@@ -9,7 +9,7 @@ import {
   type SignaturesForAddressOptions,
   PublicKey,
 } from "@solana/web3.js";
-import { PROGRAM_ID } from "@agenc/sdk";
+import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 import {
   parseTrajectoryTrace,
   stableStringifyJson,

@@ -28,7 +28,7 @@ import {
   AnchorErrorCodes,
   ValidationError,
 } from "../types/errors.js";
-import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
+import { PROGRAM_ID, SEEDS } from "@tetsuo-ai/sdk";
 import { silentLogger } from "../utils/logger.js";
 import { generateAgentId } from "../utils/encoding.js";
 

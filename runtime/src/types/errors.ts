@@ -1,5 +1,5 @@
 /**
- * Error types and utilities for @agenc/runtime
+ * Error types and utilities for @tetsuo-ai/runtime
  *
  * Provides custom runtime error classes, complete Anchor error code mapping,
  * and helper functions for error handling in AgenC applications.

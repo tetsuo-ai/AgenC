@@ -25,7 +25,7 @@ import {
   type ReplayTimelineRecord,
   type ReplayTimelineStore,
   TrajectoryReplayEngine,
-} from "@agenc/runtime";
+} from "@tetsuo-ai/runtime";
 import {
   type ConfirmedSignatureInfo,
   Connection,
@@ -66,8 +66,8 @@ import {
   resolveToolCaps,
   type ToolRiskCaps,
 } from "./replay-risk.js";
-import type { ReplayComparisonResult } from "@agenc/runtime";
-import { parseTrajectoryTrace, type TrajectoryTrace } from "@agenc/runtime";
+import type { ReplayComparisonResult } from "@tetsuo-ai/runtime";
+import { parseTrajectoryTrace, type TrajectoryTrace } from "@tetsuo-ai/runtime";
 
 type JsonObject = Record<string, unknown>;
 type ReplayToolOutput = {

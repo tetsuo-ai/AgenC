@@ -17,7 +17,7 @@ import {
   loadKeypairFromFile,
   getDefaultKeypairPath,
   type AgencCoordination,
-} from "@agenc/runtime";
+} from "@tetsuo-ai/runtime";
 
 /** Supported network names */
 export type NetworkName = "localnet" | "devnet" | "mainnet";

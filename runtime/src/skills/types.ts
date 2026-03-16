@@ -1,5 +1,5 @@
 /**
- * Core skill system types for @agenc/runtime
+ * Core skill system types for @tetsuo-ai/runtime
  *
  * Provides the foundational interfaces for the skill library system,
  * including skill lifecycle, actions, metadata, and registry configuration.

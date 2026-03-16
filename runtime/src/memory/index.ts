@@ -1,5 +1,5 @@
 /**
- * Memory Backends for @agenc/runtime
+ * Memory Backends for @tetsuo-ai/runtime
  *
  * Provides pluggable memory storage for conversation history,
  * task context, and persistent key-value state (Phase 6).

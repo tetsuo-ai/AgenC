@@ -1,5 +1,5 @@
 /**
- * Discovery-specific error classes for @agenc/runtime
+ * Discovery-specific error classes for @tetsuo-ai/runtime
  *
  * @module
  */

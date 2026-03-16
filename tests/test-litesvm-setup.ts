@@ -26,7 +26,7 @@ import {
   SystemProgram,
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
-import { AgencCoordination } from "../target/types/agenc_coordination";
+import type { AgencCoordination } from "../target/types/agenc_coordination.ts";
 import {
   CAPABILITY_COMPUTE,
   CAPABILITY_INFERENCE,
@@ -38,12 +38,12 @@ import {
   deriveClaimPda as _deriveClaimPda,
   deriveProgramDataPda,
   disableRateLimitsForTests,
-} from "./test-utils";
+} from "./test-utils.ts";
 import {
   createLiteSVMContext,
   fundAccount,
   advanceClock,
-} from "./litesvm-helpers";
+} from "./litesvm-helpers.ts";
 import type { LiteSVM } from "litesvm";
 
 export interface LiteSVMTestContext {
@@ -277,7 +277,10 @@ export function createTestContext(): LiteSVMTestContext {
       ctx.treasuryPubkey = ctx.secondSigner.publicKey;
     } catch (e: unknown) {
       const protocolConfig =
-        await program.account.protocolConfig.fetch(protocolPda);
+        await program.account.protocolConfig.fetchNullable(protocolPda);
+      if (!protocolConfig) {
+        throw e;
+      }
       ctx.treasuryPubkey = protocolConfig.treasury;
     }
 

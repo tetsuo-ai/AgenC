@@ -1,5 +1,5 @@
 /**
- * Skill library system for @agenc/runtime
+ * Skill library system for @tetsuo-ai/runtime
  *
  * Provides a pluggable skill abstraction for packaging reusable
  * blockchain operations (swaps, transfers, staking) as composable units.

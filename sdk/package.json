@@ -1,5 +1,5 @@
 {
-  "name": "@agenc/sdk",
+  "name": "@tetsuo-ai/sdk",
   "version": "1.3.0",
   "description": "TypeScript SDK for AgenC - Privacy-preserving agent coordination on Solana",
   "main": "dist/index.js",
@@ -10,14 +10,22 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./internal/spl-token": {
+      "types": "./dist/spl-token.d.ts",
+      "import": "./dist/spl-token.mjs",
+      "require": "./dist/spl-token.js"
     }
   },
   "files": [
     "dist",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external privacycash --external @solana/spl-token",
+    "build": "tsup src/index.ts src/spl-token.ts --format cjs,esm --dts --clean --external privacycash",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -61,7 +69,6 @@
     "rollup": "^4.59.0"
   },
   "devDependencies": {
-    "@solana/spl-token": "^0.4.14",
     "@types/node": "^25.4.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
@@ -69,8 +76,7 @@
   },
   "peerDependencies": {
     "@coral-xyz/anchor": ">=0.29.0",
-    "@solana/web3.js": ">=1.90.0",
-    "@solana/spl-token": ">=0.4.0"
+    "@solana/web3.js": ">=1.90.0"
   },
   "engines": {
     "node": ">=18.0.0"

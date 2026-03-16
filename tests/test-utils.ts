@@ -15,7 +15,7 @@ import {
   Connection,
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
-import type { AgencCoordination } from "../target/types/agenc_coordination";
+import type { AgencCoordination } from "../target/types/agenc_coordination.ts";
 
 // Re-export SDK ZK helpers for integration tests
 export {
@@ -23,7 +23,7 @@ export {
   computeConstraintHash,
   generateSalt,
   bigintToBytes32,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 
 // ============================================================================
 // Capability Constants (matches program)

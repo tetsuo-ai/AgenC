@@ -22,7 +22,7 @@ import {
   RISC0_JOURNAL_LEN,
   RISC0_SEAL_BORSH_LEN,
   TRUSTED_RISC0_SELECTOR,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
   "E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ",

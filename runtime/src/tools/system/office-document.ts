@@ -1,5 +1,5 @@
 /**
- * Typed office-document inspection/extraction tools for @agenc/runtime.
+ * Typed office-document inspection/extraction tools for @tetsuo-ai/runtime.
  *
  * Provides:
  * - system.officeDocumentInfo — inspect local DOCX/ODT metadata

@@ -1,5 +1,5 @@
 /**
- * Utility exports for @agenc/runtime
+ * Utility exports for @tetsuo-ai/runtime
  * @module
  */
 

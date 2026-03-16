@@ -6,7 +6,7 @@
 
 import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import anchor, { Program, AnchorProvider } from "@coral-xyz/anchor";
-import { deriveZkConfigPda } from "@agenc/sdk";
+import { deriveZkConfigPda } from "@tetsuo-ai/sdk";
 // SDK proof functions removed — proof generation requires ProofEngine
 import { AgentRuntime } from "../runtime.js";
 import { TaskScanner, TaskEventSubscription } from "./scanner.js";

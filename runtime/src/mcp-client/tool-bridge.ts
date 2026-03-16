@@ -1,5 +1,5 @@
 /**
- * MCP tool bridge for @agenc/runtime.
+ * MCP tool bridge for @tetsuo-ai/runtime.
  *
  * Converts MCP server tools into runtime Tool instances,
  * enabling seamless integration with the ToolRegistry and LLM system.

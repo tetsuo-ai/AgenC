@@ -1,9 +1,9 @@
 /**
- * @agenc/runtime - Agent runtime infrastructure for AgenC
+ * @tetsuo-ai/runtime - Agent runtime infrastructure for AgenC
  *
- * This is the main entry point for the @agenc/runtime package.
+ * This is the main entry point for the @tetsuo-ai/runtime package.
  * It re-exports all public APIs including agent management, types,
- * utilities, and key constants from @agenc/sdk.
+ * utilities, and key constants from @tetsuo-ai/sdk.
  *
  * @packageDocumentation
  */
@@ -32,7 +32,7 @@ export {
   isValidBps,
   TaskState,
   type TaskStatus,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 
 // IDL and program creation
 export {

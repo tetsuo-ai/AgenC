@@ -1,5 +1,5 @@
 /**
- * Memory-specific error types for @agenc/runtime
+ * Memory-specific error types for @tetsuo-ai/runtime
  *
  * @module
  */

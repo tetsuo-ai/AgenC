@@ -176,7 +176,7 @@ function toListingEntry(listing: SkillListing): SkillListingEntry {
  * @example
  * ```typescript
  * import { Connection } from '@solana/web3.js';
- * import { OnChainSkillRegistryClient } from '@agenc/runtime';
+ * import { OnChainSkillRegistryClient } from '@tetsuo-ai/runtime';
  *
  * const client = new OnChainSkillRegistryClient({
  *   connection: new Connection('https://api.mainnet-beta.solana.com'),

@@ -1,4 +1,4 @@
-# @agenc/mcp
+# @tetsuo-ai/mcp
 
 Model Context Protocol (MCP) server for AgenC protocol development. Exposes AgenC protocol operations as MCP tools, enabling AI coding assistants to interact directly with agents, tasks, disputes, and escrow state on Solana.
 
@@ -19,7 +19,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for release history and migration notes.
 ### Claude Code
 
 ```bash
-claude mcp add agenc-dev -- node /path/to/AgenC/mcp/dist/index.js
+claude mcp add agenc-dev -- node /path/to/AgenC/mcp/dist/index.cjs
 ```
 
 Or with environment variables:
@@ -28,7 +28,7 @@ Or with environment variables:
 claude mcp add agenc-dev \
   -e SOLANA_RPC_URL=http://localhost:8899 \
   -e SOLANA_KEYPAIR_PATH=~/.config/solana/id.json \
-  -- node /path/to/AgenC/mcp/dist/index.js
+  -- node /path/to/AgenC/mcp/dist/index.cjs
 ```
 
 ### Cursor
@@ -40,7 +40,7 @@ Add to `.cursor/mcp.json`:
   "mcpServers": {
     "agenc-dev": {
       "command": "node",
-      "args": ["/path/to/AgenC/mcp/dist/index.js"],
+      "args": ["/path/to/AgenC/mcp/dist/index.cjs"],
       "env": {
         "SOLANA_RPC_URL": "http://localhost:8899"
       }
@@ -58,7 +58,7 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
   "mcpServers": {
     "agenc-dev": {
       "command": "node",
-      "args": ["/path/to/AgenC/mcp/dist/index.js"],
+      "args": ["/path/to/AgenC/mcp/dist/index.cjs"],
       "env": {
         "SOLANA_RPC_URL": "http://localhost:8899"
       }

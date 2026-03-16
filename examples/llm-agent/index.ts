@@ -47,7 +47,7 @@ import {
   // Types
   type LLMProvider,
   type Task,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime';
 
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 const logger = createLogger('info', '[LLM-Agent]');

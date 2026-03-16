@@ -64,4 +64,4 @@ export {
   WS_OBSERVABILITY_LOGS,
   WS_APPROVAL_REQUEST,
   WS_AGENT_STATUS,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime/browser';

@@ -9,13 +9,13 @@ import {
   canonicalizeMarketplaceId,
   isValidBps,
   validateMarketplaceId,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 import type {
   BidAntiSpamConfig,
   MatchingPolicyConfig,
   TaskBid,
   TaskBidUpdateInput,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 import {
   MarketplaceAuthorizationError,
   MarketplaceMatchingError,

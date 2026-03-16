@@ -1,5 +1,5 @@
 /**
- * Typed spreadsheet inspection/extraction tools for @agenc/runtime.
+ * Typed spreadsheet inspection/extraction tools for @tetsuo-ai/runtime.
  *
  * Provides:
  * - system.spreadsheetInfo — inspect workbook/sheet metadata and sample rows

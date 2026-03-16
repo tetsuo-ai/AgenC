@@ -1,4 +1,4 @@
-# @agenc/docs-mcp
+# @tetsuo-ai/docs-mcp
 
 MCP server serving AgenC documentation, architecture references, and contract artifacts to AI agents.
 
@@ -35,10 +35,10 @@ Important limits:
 cd docs-mcp && npm install && npm run build
 
 # Add to Claude Code
-claude mcp add agenc-docs -- node /path/to/AgenC/docs-mcp/dist/index.js
+claude mcp add agenc-docs -- node /path/to/AgenC/docs-mcp/dist/index.cjs
 
 # Or with custom docs root
-claude mcp add agenc-docs -e DOCS_ROOT=/path/to/AgenC -- node /path/to/AgenC/docs-mcp/dist/index.js
+claude mcp add agenc-docs -e DOCS_ROOT=/path/to/AgenC -- node /path/to/AgenC/docs-mcp/dist/index.cjs
 ```
 
 ## Tools

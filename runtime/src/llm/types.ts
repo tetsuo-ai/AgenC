@@ -1,5 +1,5 @@
 /**
- * LLM provider types for @agenc/runtime
+ * LLM provider types for @tetsuo-ai/runtime
  *
  * Defines the core interfaces for LLM adapters that bridge
  * language model providers to the AgenC task execution system.

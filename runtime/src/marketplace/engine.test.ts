@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MatchingPolicyConfig } from "@agenc/sdk";
+import type { MatchingPolicyConfig } from "@tetsuo-ai/sdk";
 import {
   MarketplaceMatchingError,
   MarketplaceAuthorizationError,

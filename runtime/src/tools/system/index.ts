@@ -1,5 +1,5 @@
 /**
- * System tools for @agenc/runtime.
+ * System tools for @tetsuo-ai/runtime.
  *
  * @module
  */

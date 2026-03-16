@@ -7,7 +7,7 @@
  * @module
  */
 
-import { Task, ClaimStrategy } from '@agenc/runtime';
+import { Task, ClaimStrategy } from '@tetsuo-ai/runtime';
 
 /**
  * Greedy claim strategy - claim as many tasks as allowed concurrently

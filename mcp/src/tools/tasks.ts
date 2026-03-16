@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
-import { deriveTaskPda, deriveEscrowPda } from "@agenc/sdk";
-import { getCapabilityNames, hexToBytes } from "@agenc/runtime";
+import { deriveTaskPda, deriveEscrowPda } from "@tetsuo-ai/sdk";
+import { getCapabilityNames, hexToBytes } from "@tetsuo-ai/runtime";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -252,7 +252,7 @@ export function registerTaskTools(server: McpServer): void {
               "Task creation via MCP requires a running validator and funded keypair.",
               "Use the SDK directly for transaction submission:",
               "",
-              '  import { createTask } from "@agenc/sdk";',
+              '  import { createTask } from "@tetsuo-ai/sdk";',
               "  await createTask(connection, program, creator, params);",
               "",
               "Or use anchor test to run the full integration test suite.",
@@ -279,7 +279,7 @@ export function registerTaskTools(server: McpServer): void {
               "Task claiming via MCP requires a running validator and funded keypair.",
               "Use the SDK directly for transaction submission:",
               "",
-              '  import { claimTask } from "@agenc/sdk";',
+              '  import { claimTask } from "@tetsuo-ai/sdk";',
               "  await claimTask(connection, program, agent, taskId);",
             ].join("\n"),
           },
@@ -309,7 +309,7 @@ export function registerTaskTools(server: McpServer): void {
               "Task completion via MCP requires a running validator and funded keypair.",
               "Use the SDK directly for transaction submission:",
               "",
-              '  import { completeTask } from "@agenc/sdk";',
+              '  import { completeTask } from "@tetsuo-ai/sdk";',
               "  await completeTask(connection, program, worker, taskId, resultHash);",
             ].join("\n"),
           },

@@ -1,5 +1,5 @@
 /**
- * Encoding utilities for @agenc/runtime
+ * Encoding utilities for @tetsuo-ai/runtime
  * Cross-platform utilities for ID generation, hex/byte conversion,
  * agent ID helpers, and SOL/lamports conversion.
  * @module

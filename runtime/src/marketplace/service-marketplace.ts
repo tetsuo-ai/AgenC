@@ -11,7 +11,7 @@ import {
   BPS_BASE,
   canonicalizeMarketplaceId,
   validateMarketplaceId,
-} from "@agenc/sdk";
+} from "@tetsuo-ai/sdk";
 import {
   MarketplaceAuthorizationError,
   MarketplaceStateError,
@@ -33,7 +33,7 @@ import type {
   ResolveServiceDisputeInput,
   ListServiceRequestsInput,
 } from "./types.js";
-import type { TaskBid } from "@agenc/sdk";
+import type { TaskBid } from "@tetsuo-ai/sdk";
 
 const DEFAULT_MAX_TITLE_LENGTH = 256;
 const DEFAULT_MAX_DESCRIPTION_LENGTH = 4096;

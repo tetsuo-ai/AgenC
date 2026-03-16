@@ -1,8 +1,8 @@
 /**
  * Integration tests for skill CLI routing via runCli.
  *
- * These import index.ts which transitively pulls in @agenc/sdk via replay.ts.
- * They will fail at module resolution until @agenc/sdk is built/linked.
+ * These import index.ts which transitively pulls in @tetsuo-ai/sdk via replay.ts.
+ * They will fail at module resolution until @tetsuo-ai/sdk is built/linked.
  *
  * To run: npx vitest run src/cli/skills-cli-integration.test.ts
  */

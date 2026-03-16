@@ -1,5 +1,5 @@
 /**
- * Built-in heartbeat actions for @agenc/runtime.
+ * Built-in heartbeat actions for @tetsuo-ai/runtime.
  *
  * Each factory creates a {@link HeartbeatAction} that follows the "quiet
  * heartbeat" contract — nothing is reported unless something noteworthy

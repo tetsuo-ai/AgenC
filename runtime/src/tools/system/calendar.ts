@@ -1,5 +1,5 @@
 /**
- * Typed calendar inspection/extraction tools for @agenc/runtime.
+ * Typed calendar inspection/extraction tools for @tetsuo-ai/runtime.
  *
  * Provides:
  * - system.calendarInfo — inspect local ICS calendar metadata

@@ -41,7 +41,7 @@ import {
   type AgentRegisteredEvent,
   type AgentUpdatedEvent,
   type AgentDeregisteredEvent,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime';
 
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 const STATS_INTERVAL = parseInt(process.env.STATS_INTERVAL || '30000', 10);

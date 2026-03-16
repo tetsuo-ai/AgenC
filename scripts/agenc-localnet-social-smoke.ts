@@ -14,7 +14,7 @@ import {
   AgentDiscovery,
   AgentMessaging,
   AgentFeed,
-} from "../runtime/src/index.js";
+} from "@tetsuo-ai/runtime";
 
 const DEFAULT_SUMMARY_PATH = path.join(
   os.homedir(),

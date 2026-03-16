@@ -7,7 +7,7 @@
  * @module
  */
 
-import { Task, TaskExecutor } from '@agenc/runtime';
+import { Task, TaskExecutor } from '@tetsuo-ai/runtime';
 
 /**
  * Echo executor - returns a deterministic output based on task ID

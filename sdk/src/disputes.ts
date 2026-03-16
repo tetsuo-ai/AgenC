@@ -9,7 +9,7 @@ import { type Program } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+} from "./spl-token";
 import { PROGRAM_ID, SEEDS } from "./constants";
 import { getAccount } from "./anchor-utils";
 import { deriveClaimPda, deriveEscrowPda } from "./tasks";
