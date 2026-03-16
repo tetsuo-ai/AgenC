@@ -160,7 +160,6 @@ import { MarkdownSkillInjector } from "../skills/markdown/injector.js";
 import { VoiceBridge } from "./voice-bridge.js";
 import { createSessionToolHandler } from "./tool-handler-factory.js";
 import type { DesktopBridgeEvent } from "../desktop/rest-bridge.js";
-import { InMemoryBackend } from "../memory/in-memory/backend.js";
 import { ApprovalEngine } from "./approvals.js";
 import { resolveGatewayApprovalRules } from "./approval-runtime.js";
 import { buildToolPolicyAction } from "../policy/tool-governance.js";
@@ -174,6 +173,8 @@ import {
 import type { MemoryBackend } from "../memory/types.js";
 import { entryToMessage } from "../memory/types.js";
 import { createMemoryRetrievers } from "./memory-retriever-factory.js";
+import { createMemoryBackend } from "./memory-backend-factory.js";
+import { loadWallet } from "./wallet-loader.js";
 import {
   clearWebSessionRuntimeState,
   hydrateWebSessionRuntimeState,
@@ -1559,15 +1560,6 @@ function getDefaultMaxToolRounds(config: GatewayConfig): number {
 }
 
 /** Result of loadWallet() — either a keypair + wallet adapter or null. */
-interface WalletResult {
-  keypair: import("@solana/web3.js").Keypair;
-  agentId: Uint8Array;
-  wallet: {
-    publicKey: import("@solana/web3.js").PublicKey;
-    signTransaction: (tx: any) => Promise<any>;
-    signAllTransactions: (txs: any[]) => Promise<any[]>;
-  };
-}
 
 interface WebChatSkillSummary {
   name: string;
@@ -2491,10 +2483,11 @@ export class DaemonManager {
     const providers = await this.createLLMProviders(config, this._llmTools);
     this._llmProviders = providers;
     const skillInjector = this.createSkillInjector(availableSkills);
-    const memoryBackend = await this.createMemoryBackend(
+    const memoryBackend = await createMemoryBackend({
       config,
-      telemetry ?? undefined,
-    );
+      metrics: telemetry ?? undefined,
+      logger: this.logger,
+    });
     this._memoryBackend = memoryBackend;
 
     const { memoryRetriever, learningProvider } =
@@ -4461,7 +4454,7 @@ export class DaemonManager {
 
     const connection = this._connectionManager.getConnection();
 
-    const walletResult = await this.loadWallet(config);
+    const walletResult = await loadWallet(config);
     if (!walletResult) {
       this.logger.warn?.(
         "Social module keypair unavailable — write operations disabled",
@@ -5512,7 +5505,7 @@ export class DaemonManager {
       ),
     );
     registry.register(createExecuteWithAgentTool());
-    const walletResult = await this.loadWallet(config);
+    const walletResult = await loadWallet(config);
     const marketplaceActorId = walletResult
       ? Buffer.from(walletResult.agentId).toString("hex")
       : "gateway-agent";
@@ -9980,48 +9973,6 @@ Concise and action-oriented.
     }
   }
 
-  /**
-   * Create a memory backend based on gateway config.
-   * Defaults to SqliteBackend for persistence across restarts.
-   * Use backend='memory' to explicitly opt into InMemoryBackend.
-   */
-  private async createMemoryBackend(
-    config: GatewayConfig,
-    metrics?: UnifiedTelemetryCollector,
-  ): Promise<MemoryBackend> {
-    const memConfig = config.memory;
-    const backend = memConfig?.backend ?? "sqlite";
-    const encryption = memConfig?.encryptionKey
-      ? { key: memConfig.encryptionKey }
-      : undefined;
-
-    switch (backend) {
-      case "sqlite": {
-        const { SqliteBackend } = await import("../memory/sqlite/backend.js");
-        return new SqliteBackend({
-          dbPath: memConfig?.dbPath ?? join(homedir(), ".agenc", "memory.db"),
-          logger: this.logger,
-          metrics,
-          encryption,
-        });
-      }
-      case "redis": {
-        const { RedisBackend } = await import("../memory/redis/backend.js");
-        return new RedisBackend({
-          url: memConfig?.url,
-          host: memConfig?.host,
-          port: memConfig?.port,
-          password: memConfig?.password,
-          logger: this.logger,
-          metrics,
-        });
-      }
-      case "memory":
-        return new InMemoryBackend({ logger: this.logger, metrics });
-      default:
-        return new InMemoryBackend({ logger: this.logger, metrics });
-    }
-  }
 
   /**
    * Discover bundled skills and, when explicitly enabled, user-home skills.
@@ -10045,37 +9996,6 @@ Concise and action-oriented.
     }
   }
 
-  /**
-   * Load keypair from config and build a wallet adapter.
-   * Returns null when keypair is unavailable (read-only mode).
-   */
-  private async loadWallet(
-    config: GatewayConfig,
-  ): Promise<WalletResult | null> {
-    try {
-      const { loadKeypairFromFile, getDefaultKeypairPath } =
-        await import("../types/wallet.js");
-      const kpPath = config.connection?.keypairPath ?? getDefaultKeypairPath();
-      const keypair = await loadKeypairFromFile(kpPath);
-      return {
-        keypair,
-        agentId: keypair.publicKey.toBytes(),
-        wallet: {
-          publicKey: keypair.publicKey,
-          signTransaction: async (tx: any) => {
-            tx.sign(keypair);
-            return tx;
-          },
-          signAllTransactions: async (txs: any[]) => {
-            txs.forEach((tx) => tx.sign(keypair));
-            return txs;
-          },
-        },
-      };
-    } catch {
-      return null;
-    }
-  }
 
   async stop(): Promise<void> {
     if (this.shutdownInProgress) {
