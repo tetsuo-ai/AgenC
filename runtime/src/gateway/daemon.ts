@@ -20,7 +20,7 @@ import {
 import { constants } from "node:fs";
 import { basename, delimiter, dirname, join, resolve as resolvePath } from "node:path";
 import { homedir } from "node:os";
-import { spawn } from "node:child_process";
+// spawn import moved to ./daemon-command-registry.ts
 import { Gateway } from "./gateway.js";
 import { loadGatewayConfig } from "./config-watcher.js";
 import { GatewayLifecycleError, GatewayStateError } from "./errors.js";
@@ -29,7 +29,6 @@ import type {
   GatewayConfig,
   GatewayLLMConfig,
   GatewayMCPServerConfig,
-  GatewayPolicyConfig,
   GatewayBackgroundRunStatus,
   GatewayStatus,
   ConfigDiff,
@@ -41,8 +40,6 @@ import type {
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import {
-  EVAL_REPLY_MAX_CHARS,
-  logProviderPayloadTraceEvent,
   logTraceErrorEvent,
   logTraceEvent,
   resolveTraceFanoutEnabled,
@@ -60,7 +57,6 @@ import { WebChatChannel } from "../channels/webchat/plugin.js";
 import type { TelegramChannel } from "../channels/telegram/plugin.js";
 import { WorkspaceManager } from "./workspace.js";
 import {
-  buildAllowedFilesystemPaths,
   resolveHostWorkspacePath,
 } from "./host-workspace.js";
 import {
@@ -86,7 +82,6 @@ import {
 import type {
   LLMProvider,
   LLMProviderExecutionProfile,
-  LLMProviderTraceEvent,
   LLMTool,
   ToolHandler,
   StreamProgressCallback,
@@ -130,27 +125,10 @@ import {
 } from "../llm/delegation-learning.js";
 import { DEFAULT_TOOL_CALL_TIMEOUT_MS } from "../llm/chat-executor-constants.js";
 import { ToolRegistry } from "../tools/registry.js";
-import { createBashTool } from "../tools/system/bash.js";
-import { createHttpTools } from "../tools/system/http.js";
-import { createFilesystemTools } from "../tools/system/filesystem.js";
-import { createBrowserTools } from "../tools/system/browser.js";
-import { createProcessTools } from "../tools/system/process.js";
-import { createPdfTools } from "../tools/system/pdf.js";
-import { createOfficeDocumentTools } from "../tools/system/office-document.js";
-import { createEmailMessageTools } from "../tools/system/email-message.js";
-import { createCalendarTools } from "../tools/system/calendar.js";
 import {
-  createRemoteJobTools,
   SystemRemoteJobManager,
 } from "../tools/system/remote-job.js";
-import { createResearchTools } from "../tools/system/research.js";
-import { createSandboxTools } from "../tools/system/sandbox-handle.js";
-import { createServerTools } from "../tools/system/server.js";
-import { createSqliteTools } from "../tools/system/sqlite.js";
-import { createSpreadsheetTools } from "../tools/system/spreadsheet.js";
 import { DEFAULT_TIMEOUT_MS as DEFAULT_BASH_TOOL_TIMEOUT_MS } from "../tools/system/types.js";
-import { resolveBrowserToolMode } from "./browser-tool-mode.js";
-import { createExecuteWithAgentTool } from "./delegation-tool.js";
 import {
   SkillDiscovery,
   type DiscoveryPaths,
@@ -170,15 +148,12 @@ import { buildToolPolicyAction } from "../policy/tool-governance.js";
 import {
   SessionCredentialBroker,
   type GovernanceAuditEventType,
-  type RuntimeSessionCredentialConfig,
-  validateMCPServerBinaryIntegrity,
-  validateMCPServerStaticPolicy,
 } from "../policy/index.js";
 import type { MemoryBackend } from "../memory/types.js";
 import { entryToMessage } from "../memory/types.js";
 import { createMemoryRetrievers } from "./memory-retriever-factory.js";
 import { createMemoryBackend } from "./memory-backend-factory.js";
-import { loadWallet } from "./wallet-loader.js";
+// loadWallet moved to ./daemon-tool-registry.ts and ./daemon-feature-wiring.ts
 import {
   clearWebSessionRuntimeState,
   hydrateWebSessionRuntimeState,
@@ -193,10 +168,10 @@ import {
   SessionManager,
 } from "./session.js";
 import {
-  WorkspaceLoader,
+
   getDefaultWorkspacePath,
 } from "./workspace-files.js";
-import { SlashCommandRegistry, createDefaultCommands } from "./commands.js";
+import { SlashCommandRegistry } from "./commands.js";
 import {
   buildDesktopContext,
   buildSystemPrompt,
@@ -210,13 +185,10 @@ import {
 import { ProgressTracker, summarizeToolResult } from "./progress.js";
 import {
   inferContextWindowTokens,
-  listKnownGrokModels,
   normalizeGrokModel,
 } from "./context-window.js";
 import {
   PipelineExecutor,
-  type Pipeline,
-  type PipelineStep,
 } from "../workflow/pipeline.js";
 import { ConnectionManager } from "../connection/manager.js";
 import type { DiscordChannel } from "../channels/discord/plugin.js";
@@ -253,7 +225,7 @@ import {
   clearDelegationRuntimeServices as clearDelegationRuntimeServicesImpl,
   destroySubAgentInfrastructure as destroySubAgentInfrastructureImpl,
 } from "./subagent-infrastructure.js";
-import { deriveCuriosityInterestsFromWorkspaceFiles } from "../autonomous/curiosity-interests.js";
+// deriveCuriosityInterestsFromWorkspaceFiles moved to ./daemon-feature-wiring.ts
 import {
   BackgroundRunSupervisor,
   inferBackgroundRunIntent,
@@ -306,6 +278,23 @@ import {
 import { parseBackgroundRunQualityArtifact } from "../eval/background-run-quality.js";
 import type { DelegationBenchmarkSummary } from "../eval/delegation-benchmark.js";
 import {
+  createDaemonCommandRegistry,
+  type CommandRegistryDaemonContext,
+  type WebChatSkillSummary,
+  didEvalScriptPass as didEvalScriptPassImported,
+  formatEvalScriptReply as formatEvalScriptReplyImported,
+  type EvalScriptResult,
+} from "./daemon-command-registry.js";
+import {
+  createDaemonToolRegistry,
+} from "./daemon-tool-registry.js";
+import {
+  wireMarketplace as wireMarketplaceStandalone,
+  wireSocial as wireSocialStandalone,
+  wireAutonomousFeatures as wireAutonomousFeaturesStandalone,
+  type FeatureWiringContext,
+} from "./daemon-feature-wiring.js";
+import {
   blockUntilDoomStopTool,
   isDoomStopRequest,
 } from "./doom-stop-guard.js";
@@ -323,6 +312,15 @@ export {
   summarizeToolFailureForLog,
   summarizeToolResultForTrace,
 } from "./daemon-trace.js";
+import {
+  mapScopedActionBudgets,
+  mapScopedSpendBudgets,
+  mapScopedTokenBudgets,
+  mapScopedRuntimeBudgets,
+  mapScopedProcessBudgets,
+  mapPolicyBundles,
+  mapCredentialCatalog,
+} from "./daemon-policy-mapping.js";
 export {
   summarizeLLMFailureForSurface,
 } from "./daemon-llm-failure.js";
@@ -476,16 +474,11 @@ const HOOK_PRIORITIES = {
 } as const;
 
 /** Cron schedule expressions for autonomous features. */
-const CRON_SCHEDULES = {
-  CURIOSITY: "0 */2 * * *",
-  SELF_LEARNING: "0 */6 * * *",
-} as const;
 
 // DEFAULT_SESSION_TOKEN_BUDGET moved to ./llm-provider-manager.js
 const MODEL_QUERY_RE =
   /\b(what|which|actual|current)\b[\s\S]{0,80}(model|llm|provider)\b/i;
-const EVAL_SCRIPT_NAME = "agenc-eval-test.cjs";
-const EVAL_SCRIPT_TIMEOUT_MS = 10 * 60_000;
+// EVAL_SCRIPT_NAME and EVAL_SCRIPT_TIMEOUT_MS moved to ./daemon-command-registry.ts
 // DelegationAggressivenessProfile, SubagentChildProviderStrategy,
 // DelegationHardBlockedTaskClass, DELEGATION_AGGRESSIVENESS_THRESHOLD_OFFSETS,
 // DEFAULT_HANDOFF_MIN_PLANNER_CONFIDENCE, DEFAULT_HARD_BLOCKED_TASK_CLASSES
@@ -637,188 +630,6 @@ export function resolveBashToolTimeoutConfig(
   };
 }
 
-function mapScopedActionBudgets(
-  value: GatewayPolicyConfig["scopedActionBudgets"],
-): {
-  tenant?: Record<string, { limit: number; windowMs: number }>;
-  project?: Record<string, { limit: number; windowMs: number }>;
-  run?: Record<string, { limit: number; windowMs: number }>;
-} {
-  return {
-    tenant: value?.tenant ? { ...value.tenant } : undefined,
-    project: value?.project ? { ...value.project } : undefined,
-    run: value?.run ? { ...value.run } : undefined,
-  };
-}
-
-function mapScopedSpendBudgets(
-  value: GatewayPolicyConfig["scopedSpendBudgets"],
-): {
-  tenant?: { limitLamports: bigint; windowMs: number };
-  project?: { limitLamports: bigint; windowMs: number };
-  run?: { limitLamports: bigint; windowMs: number };
-} {
-  const mapRule = (
-    rule: { limitLamports: string; windowMs: number } | undefined,
-  ) =>
-    rule
-      ? {
-          limitLamports: BigInt(rule.limitLamports),
-          windowMs: rule.windowMs,
-        }
-      : undefined;
-  return {
-    tenant: mapRule(value?.tenant),
-    project: mapRule(value?.project),
-    run: mapRule(value?.run),
-  };
-}
-
-function mapScopedTokenBudgets(
-  value: GatewayPolicyConfig["scopedTokenBudgets"],
-): {
-  tenant?: { limitTokens: number; windowMs: number };
-  project?: { limitTokens: number; windowMs: number };
-  run?: { limitTokens: number; windowMs: number };
-} {
-  const mapRule = (
-    rule: { limitTokens: number; windowMs: number } | undefined,
-  ) =>
-    rule
-      ? {
-          limitTokens: rule.limitTokens,
-          windowMs: rule.windowMs,
-        }
-      : undefined;
-  return {
-    tenant: mapRule(value?.tenant),
-    project: mapRule(value?.project),
-    run: mapRule(value?.run),
-  };
-}
-
-function mapScopedRuntimeBudgets(
-  value: GatewayPolicyConfig["scopedRuntimeBudgets"],
-): {
-  tenant?: { maxElapsedMs: number };
-  project?: { maxElapsedMs: number };
-  run?: { maxElapsedMs: number };
-} {
-  const mapRule = (rule: { maxElapsedMs: number } | undefined) =>
-    rule
-      ? {
-          maxElapsedMs: rule.maxElapsedMs,
-        }
-      : undefined;
-  return {
-    tenant: mapRule(value?.tenant),
-    project: mapRule(value?.project),
-    run: mapRule(value?.run),
-  };
-}
-
-function mapScopedProcessBudgets(
-  value: GatewayPolicyConfig["scopedProcessBudgets"],
-): {
-  tenant?: { maxConcurrent: number };
-  project?: { maxConcurrent: number };
-  run?: { maxConcurrent: number };
-} {
-  const mapRule = (rule: { maxConcurrent: number } | undefined) =>
-    rule
-      ? {
-          maxConcurrent: rule.maxConcurrent,
-        }
-      : undefined;
-  return {
-    tenant: mapRule(value?.tenant),
-    project: mapRule(value?.project),
-    run: mapRule(value?.run),
-  };
-}
-
-function mapPolicyBundles(
-  bundles:
-    | GatewayPolicyConfig["tenantBundles"]
-    | GatewayPolicyConfig["projectBundles"],
-):
-  | Record<string, import("../policy/types.js").RuntimePolicyBundleConfig>
-  | undefined {
-  if (!bundles) return undefined;
-  return Object.fromEntries(
-    Object.entries(bundles).map(([key, bundle]) => [
-      key,
-      {
-        ...bundle,
-        credentialAllowList: bundle.credentialAllowList
-          ? [...bundle.credentialAllowList]
-          : undefined,
-        actionBudgets: bundle.actionBudgets
-          ? { ...bundle.actionBudgets }
-          : undefined,
-        spendBudget: bundle.spendBudget
-          ? {
-              limitLamports: BigInt(bundle.spendBudget.limitLamports),
-              windowMs: bundle.spendBudget.windowMs,
-            }
-          : undefined,
-        tokenBudget: bundle.tokenBudget
-          ? {
-              limitTokens: bundle.tokenBudget.limitTokens,
-              windowMs: bundle.tokenBudget.windowMs,
-            }
-          : undefined,
-        runtimeBudget: bundle.runtimeBudget
-          ? {
-              maxElapsedMs: bundle.runtimeBudget.maxElapsedMs,
-            }
-          : undefined,
-        processBudget: bundle.processBudget
-          ? {
-              maxConcurrent: bundle.processBudget.maxConcurrent,
-            }
-          : undefined,
-        scopedActionBudgets: bundle.scopedActionBudgets
-          ? mapScopedActionBudgets(bundle.scopedActionBudgets)
-          : undefined,
-        scopedSpendBudgets: bundle.scopedSpendBudgets
-          ? mapScopedSpendBudgets(bundle.scopedSpendBudgets)
-          : undefined,
-        scopedTokenBudgets: bundle.scopedTokenBudgets
-          ? mapScopedTokenBudgets(bundle.scopedTokenBudgets)
-          : undefined,
-        scopedRuntimeBudgets: bundle.scopedRuntimeBudgets
-          ? mapScopedRuntimeBudgets(bundle.scopedRuntimeBudgets)
-          : undefined,
-        scopedProcessBudgets: bundle.scopedProcessBudgets
-          ? mapScopedProcessBudgets(bundle.scopedProcessBudgets)
-          : undefined,
-        policyClassRules: bundle.policyClassRules,
-      },
-    ]),
-  );
-}
-
-function mapCredentialCatalog(
-  catalog: GatewayPolicyConfig["credentialCatalog"],
-): Record<string, RuntimeSessionCredentialConfig> | undefined {
-  if (!catalog) return undefined;
-  return Object.fromEntries(
-    Object.entries(catalog).map(([credentialId, value]) => [
-      credentialId,
-      {
-        sourceEnvVar: value.sourceEnvVar,
-        domains: [...value.domains],
-        headerTemplates: value.headerTemplates
-          ? { ...value.headerTemplates }
-          : undefined,
-        allowedTools: value.allowedTools ? [...value.allowedTools] : undefined,
-        ttlMs: value.ttlMs,
-      },
-    ]),
-  );
-}
-
 function splitPathEntries(pathValue: string | undefined): string[] {
   if (!pathValue) return [];
   return pathValue
@@ -854,16 +665,7 @@ async function resolveExecutablePath(
   return undefined;
 }
 
-function prependPathEntry(
-  pathValue: string | undefined,
-  entry: string,
-): string {
-  const entries = splitPathEntries(pathValue);
-  if (entries.includes(entry)) {
-    return entries.join(delimiter);
-  }
-  return [entry, ...entries].join(delimiter);
-}
+// prependPathEntry moved to ./daemon-tool-registry.ts
 
 function buildChromiumShimScript(targetExecutable: string): string {
   return [
@@ -1038,184 +840,12 @@ export function isCommandUnavailableError(error: unknown): boolean {
   return message.includes("enoent") || message.includes("command not found");
 }
 
-interface EvalScriptResult {
-  readonly exitCode: number | null;
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly timedOut: boolean;
-  readonly durationMs: number;
-}
-
-function extractEvalOverall(stdout: string): "pass" | "fail" | undefined {
-  const marker = stdout.match(/\bOverall:\s*(pass|fail)\b/i);
-  if (marker) {
-    return marker[1].toLowerCase() as "pass" | "fail";
-  }
-
-  const objectMatches = stdout.match(/\{[\s\S]*?\}/g);
-  if (!objectMatches) return undefined;
-  for (let i = objectMatches.length - 1; i >= 0; i--) {
-    const candidate = objectMatches[i];
-    try {
-      const parsed = JSON.parse(candidate) as Record<string, unknown>;
-      if (parsed.overall === "pass" || parsed.overall === "fail") {
-        return parsed.overall;
-      }
-    } catch {
-      // continue scanning
-    }
-  }
-
-  return undefined;
-}
-
-export function didEvalScriptPass(result: EvalScriptResult): boolean {
-  if (result.timedOut || result.exitCode !== 0) return false;
-  return extractEvalOverall(result.stdout) === "pass";
-}
-
-function formatEvalTextForReply(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  return truncateToolLogText(trimmed, EVAL_REPLY_MAX_CHARS);
-}
-
-export function formatEvalScriptReply(result: EvalScriptResult): string {
-  const stdout = formatEvalTextForReply(result.stdout);
-  const stderr = formatEvalTextForReply(result.stderr);
-  if (result.timedOut) {
-    return (
-      `Eval test timed out after ${result.durationMs}ms.` +
-      (stdout ? `\nstdout:\n${stdout}` : "") +
-      (stderr ? `\nstderr:\n${stderr}` : "")
-    );
-  }
-  if (result.exitCode === 0) {
-    return (
-      `Eval test passed in ${result.durationMs}ms.` +
-      (stdout ? `\nstdout:\n${stdout}` : "") +
-      (stderr ? `\nstderr:\n${stderr}` : "")
-    );
-  }
-  return (
-    `Eval test failed (exit ${result.exitCode ?? "unknown"}) in ${result.durationMs}ms.` +
-    (stderr ? `\nstderr:\n${stderr}` : "") +
-    (stdout ? `\nstdout:\n${stdout}` : "")
-  );
-}
-
-async function resolveEvalScriptPathCandidates(): Promise<string | undefined> {
-  const candidates = [
-    resolvePath(process.cwd(), EVAL_SCRIPT_NAME),
-    resolvePath(getDefaultWorkspacePath(), EVAL_SCRIPT_NAME),
-  ];
-  for (const candidate of candidates) {
-    try {
-      await access(candidate, constants.R_OK);
-      return candidate;
-    } catch {
-      // continue
-    }
-  }
-  return undefined;
-}
-
-async function runEvalScript(
-  scriptPath: string,
-  args: readonly string[],
-  onProgress?: (progress: {
-    stream: "stdout" | "stderr";
-    line: string;
-  }) => void,
-): Promise<EvalScriptResult> {
-  const start = Date.now();
-  return new Promise((resolve) => {
-    let stdout = "";
-    let stderr = "";
-    let stdoutCarry = "";
-    let stderrCarry = "";
-    let settled = false;
-    let timedOut = false;
-
-    const emitProgressLines = (
-      stream: "stdout" | "stderr",
-      chunk: string,
-      carry: string,
-    ): { nextCarry: string } => {
-      const combined = carry + chunk;
-      const parts = combined.split(/\r?\n/);
-      const nextCarry = parts.pop() ?? "";
-      for (const rawLine of parts) {
-        const line = rawLine.trim();
-        if (!line) continue;
-        onProgress?.({ stream, line });
-      }
-      return { nextCarry };
-    };
-
-    const finalize = (exitCode: number | null, errorMessage?: string): void => {
-      if (settled) return;
-      settled = true;
-
-      if (stdoutCarry.trim().length > 0) {
-        onProgress?.({ stream: "stdout", line: stdoutCarry.trim() });
-      }
-      if (stderrCarry.trim().length > 0) {
-        onProgress?.({ stream: "stderr", line: stderrCarry.trim() });
-      }
-
-      if (errorMessage && stderr.trim().length === 0) {
-        stderr = errorMessage;
-      }
-
-      resolve({
-        exitCode: timedOut ? null : exitCode,
-        stdout,
-        stderr,
-        timedOut,
-        durationMs: Date.now() - start,
-      });
-    };
-
-    const child = spawn(process.execPath, [scriptPath, ...args], {
-      cwd: dirname(scriptPath),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // best-effort kill
-      }
-    }, EVAL_SCRIPT_TIMEOUT_MS);
-    timeout.unref();
-
-    child.stdout.on("data", (chunk: Buffer | string) => {
-      const text = chunk.toString();
-      stdout += text;
-      const { nextCarry } = emitProgressLines("stdout", text, stdoutCarry);
-      stdoutCarry = nextCarry;
-    });
-    child.stderr.on("data", (chunk: Buffer | string) => {
-      const text = chunk.toString();
-      stderr += text;
-      const { nextCarry } = emitProgressLines("stderr", text, stderrCarry);
-      stderrCarry = nextCarry;
-    });
-
-    child.on("error", (err) => {
-      clearTimeout(timeout);
-      finalize(1, toErrorMessage(err));
-    });
-
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      finalize(code ?? 1);
-    });
-  });
-}
+// EvalScriptResult, didEvalScriptPass, formatEvalScriptReply,
+// resolveEvalScriptPathCandidates, runEvalScript
+// moved to ./daemon-command-registry.ts
+export const didEvalScriptPass = didEvalScriptPassImported;
+export const formatEvalScriptReply = formatEvalScriptReplyImported;
+export type { EvalScriptResult };
 
 /**
  * Default max tool rounds for ChatExecutor based on config.
@@ -1234,11 +864,7 @@ function getDefaultMaxToolRounds(config: GatewayConfig): number {
 
 /** Result of loadWallet() — either a keypair + wallet adapter or null. */
 
-interface WebChatSkillSummary {
-  name: string;
-  description: string;
-  enabled: boolean;
-}
+// WebChatSkillSummary moved to ./daemon-command-registry.ts
 
 interface WebChatSignals {
   signalThinking: (sessionId: string) => void;
@@ -3434,559 +3060,74 @@ export class DaemonManager {
     };
   }
 
-  /**
-   * Wire the TaskBidMarketplace + ServiceMarketplace for agent-to-agent task bidding.
-   * Session-scoped, in-memory bid book.
-   */
-  private async wireMarketplace(config: GatewayConfig): Promise<void> {
-    if (!config.marketplace?.enabled) return;
-
-    try {
-      const { TaskBidMarketplace } = await import("../marketplace/engine.js");
-      const { ServiceMarketplace } =
-        await import("../marketplace/service-marketplace.js");
-
-      const bidMarketplace = new TaskBidMarketplace({
-        antiSpam: config.marketplace.antiSpam,
-        defaultPolicy: config.marketplace.defaultMatchingPolicy
-          ? { policy: config.marketplace.defaultMatchingPolicy }
-          : undefined,
-        authorizedSelectorIds: config.marketplace.authorizedSelectorIds,
-      });
-
-      this._marketplace = new ServiceMarketplace({
-        bidMarketplace,
-      });
-
-      this.logger.info(
-        "Marketplace initialized (TaskBidMarketplace + ServiceMarketplace)",
-      );
-    } catch (err) {
-      this.logger.warn?.("Marketplace initialization failed:", err);
-    }
-  }
-
-  /**
-   * Wire the social module: AgentDiscovery, AgentMessaging, AgentFeed,
-   * ReputationScorer, and CollaborationProtocol.
-   *
-   * Each sub-component is independently enabled/disabled.
-   * CollaborationProtocol only initializes when all its dependencies are available.
-   */
-  private async wireSocial(config: GatewayConfig): Promise<void> {
-    if (!config.social?.enabled) return;
-    if (!this._connectionManager) {
-      this.logger.warn?.("Social module requires connection config — skipping");
-      return;
-    }
-
-    const connection = this._connectionManager.getConnection();
-
-    const walletResult = await loadWallet(config);
-    if (!walletResult) {
-      this.logger.warn?.(
-        "Social module keypair unavailable — write operations disabled",
-      );
-    }
-    const keypair = walletResult?.keypair ?? null;
-    const agentId = walletResult?.agentId ?? null;
-
-    // Create program instance
-    let program: import("@coral-xyz/anchor").Program<
-      import("../types/agenc_coordination.js").AgencCoordination
-    >;
-    try {
-      if (walletResult) {
-        const { AnchorProvider } = await import("@coral-xyz/anchor");
-        const provider = new AnchorProvider(
-          connection,
-          walletResult.wallet as any,
-          {},
-        );
-        const { createProgram } = await import("../idl.js");
-        program = createProgram(provider);
-      } else {
-        const { createReadOnlyProgram } = await import("../idl.js");
-        program = createReadOnlyProgram(connection);
-      }
-    } catch (err) {
-      this.logger.warn?.("Social module program creation failed:", err);
-      return;
-    }
-
-    // 1. AgentDiscovery (read-only, no wallet needed)
-    if (config.social.discoveryEnabled !== false) {
-      try {
-        const { AgentDiscovery } = await import("../social/discovery.js");
-        this._agentDiscovery = new AgentDiscovery({
-          program,
-          logger: this.logger,
-          cache: {
-            ttlMs: config.social.discoveryCacheTtlMs ?? 60_000,
-            maxEntries: config.social.discoveryCacheMaxEntries ?? 200,
-          },
-        });
-        this.logger.info("Agent discovery initialized");
-      } catch (err) {
-        this.logger.warn?.("Agent discovery initialization failed:", err);
-      }
-    }
-
-    // 2. AgentMessaging (needs wallet)
-    if (keypair && agentId && config.social.messagingEnabled !== false) {
-      try {
-        const { AgentMessaging } = await import("../social/messaging.js");
-        this._agentMessaging = new AgentMessaging({
-          program,
-          agentId,
-          wallet: keypair,
-          logger: this.logger,
-          memoryBackend: this._memoryBackend ?? undefined,
-          config: {
-            defaultMode: config.social.messagingMode ?? "auto",
-            offChainPort: config.social.messagingPort ?? 0,
-          },
-        });
-        await this._agentMessaging.hydrateRecentMessages();
-        if (config.social.messagingPort) {
-          await this._agentMessaging.startListener(config.social.messagingPort);
-        }
-        this._agentMessagingUnsubscribe = this._agentMessaging.onMessage(
-          (message) => {
-            this.handleIncomingSocialMessage(message);
-          },
-        );
-        this.logger.info("Agent messaging initialized");
-      } catch (err) {
-        this.logger.warn?.("Agent messaging initialization failed:", err);
-      }
-    }
-
-    // 3. AgentFeed (needs wallet)
-    if (keypair && agentId && config.social.feedEnabled !== false) {
-      try {
-        const { AgentFeed } = await import("../social/feed.js");
-        this._agentFeed = new AgentFeed({
-          program,
-          agentId,
-          wallet: keypair,
-          config: { logger: this.logger },
-        });
-        this.logger.info("Agent feed initialized");
-      } catch (err) {
-        this.logger.warn?.("Agent feed initialization failed:", err);
-      }
-    }
-
-    // 4. ReputationScorer (read-only)
-    if (config.social.reputationEnabled !== false) {
-      try {
-        const { ReputationScorer } = await import("../social/reputation.js");
-        this._reputationScorer = new ReputationScorer({
-          program,
-          logger: this.logger,
-        });
-        this.logger.info("Reputation scorer initialized");
-      } catch (err) {
-        this.logger.warn?.("Reputation scorer initialization failed:", err);
-      }
-    }
-
-    // 5. CollaborationProtocol (needs all sub-components + wallet)
-    if (
-      config.social.collaborationEnabled !== false &&
-      keypair &&
-      agentId &&
-      this._agentDiscovery &&
-      this._agentMessaging &&
-      this._agentFeed
-    ) {
-      try {
-        const { CollaborationProtocol } =
-          await import("../social/collaboration.js");
-        const { TeamContractEngine } = await import("../team/engine.js");
-        const teamEngine = new TeamContractEngine();
-        this._collaborationProtocol = new CollaborationProtocol({
-          program,
-          agentId,
-          wallet: keypair,
-          feed: this._agentFeed,
-          messaging: this._agentMessaging,
-          discovery: this._agentDiscovery,
-          teamEngine,
-          config: { logger: this.logger },
-        });
-        this.logger.info("Collaboration protocol initialized");
-      } catch (err) {
-        this.logger.warn?.(
-          "Collaboration protocol initialization failed:",
-          err,
-        );
-      }
-    }
-
-    const wiredCount = [
-      this._agentDiscovery,
-      this._agentMessaging,
-      this._agentFeed,
-      this._reputationScorer,
-      this._collaborationProtocol,
-    ].filter(Boolean).length;
-    this.logger.info(`Social module wired with ${wiredCount}/5 components`);
-  }
-
-  /**
-   * Wire autonomous features: curiosity, self-learning, meta-planner, proactive comms, desktop awareness.
-   *
-   * Uses HeartbeatScheduler for short-cycle actions (meta-planner, proactive comms, desktop awareness)
-   * and CronScheduler for long-running research tasks (curiosity every 2h, self-learning every 6h).
-   */
-  private async wireAutonomousFeatures(config: GatewayConfig): Promise<void> {
-    const heartbeatConfig = (config as unknown as Record<string, unknown>)
-      .heartbeat as { enabled?: boolean; intervalMs?: number } | undefined;
-    if (heartbeatConfig?.enabled === false) return;
-    if (!this._chatExecutor || !this._memoryBackend) return;
-
-    const intervalMs = heartbeatConfig?.intervalMs ?? 300_000; // default 5 min
-
-    // Build active channels map for ProactiveCommunicator
-    const activeChannels = new Map<string, ChannelPlugin>();
-    if (this._telegramChannel)
-      activeChannels.set(
-        "telegram",
-        this._telegramChannel as unknown as ChannelPlugin,
-      );
-    if (this._discordChannel)
-      activeChannels.set(
-        "discord",
-        this._discordChannel as unknown as ChannelPlugin,
-      );
-    if (this._slackChannel)
-      activeChannels.set(
-        "slack",
-        this._slackChannel as unknown as ChannelPlugin,
-      );
-    if (this._whatsAppChannel)
-      activeChannels.set(
-        "whatsapp",
-        this._whatsAppChannel as unknown as ChannelPlugin,
-      );
-    if (this._signalChannel)
-      activeChannels.set(
-        "signal",
-        this._signalChannel as unknown as ChannelPlugin,
-      );
-    if (this._matrixChannel)
-      activeChannels.set(
-        "matrix",
-        this._matrixChannel as unknown as ChannelPlugin,
-      );
-    if (this._imessageChannel)
-      activeChannels.set("imessage", this._imessageChannel);
-
-    // ProactiveCommunicator works fine with no channels — it just won't broadcast.
-    // Don't block autonomous features for channel-less configurations.
-
-    try {
-      const traceConfig = resolveTraceLoggingConfig(
-        this.gateway?.config.logging,
-      );
-      const traceProviderPayloads =
-        traceConfig.enabled && traceConfig.includeProviderPayloads;
-      const { ProactiveCommunicator: ProactiveComm } =
-        await import("./proactive.js");
-      const communicator = new ProactiveComm({
-        channels: activeChannels,
-        logger: this.logger,
-        defaultTargets: {},
-      });
-      this._proactiveCommunicator = communicator;
-
-      // Import autonomous action factories
-      const [
-        { createCuriosityAction },
-        { createSelfLearningAction },
-        { createMetaPlannerAction },
-        { createProactiveCommsAction },
-      ] = await Promise.all([
-        import("../autonomous/curiosity.js"),
-        import("../autonomous/self-learning.js"),
-        import("../autonomous/meta-planner.js"),
-        import("./heartbeat-actions.js"),
-      ]);
-
-      // Get a provider for actions that need direct LLM access
-      const llm = this._llmProviders[0];
-      if (!llm) {
-        this.logger.warn?.("No LLM provider — skipping autonomous features");
-        return;
-      }
-
-      // Create GoalManager early so actions can reference it
-      const { GoalManager } = await import("../autonomous/goal-manager.js");
-      this._goalManager = new GoalManager({ memory: this._memoryBackend! });
-      const workspaceFiles = await new WorkspaceLoader(
+  private _buildFeatureWiringContext(): FeatureWiringContext {
+    return {
+      logger: this.logger,
+      connectionManager: this._connectionManager,
+      marketplace: this._marketplace as any,
+      agentDiscovery: this._agentDiscovery as any,
+      agentMessaging: this._agentMessaging as any,
+      agentMessagingUnsubscribe: this._agentMessagingUnsubscribe,
+      agentFeed: this._agentFeed as any,
+      reputationScorer: this._reputationScorer as any,
+      collaborationProtocol: this._collaborationProtocol as any,
+      chatExecutor: this._chatExecutor,
+      memoryBackend: this._memoryBackend,
+      baseToolHandler: this._baseToolHandler,
+      approvalEngine: this._approvalEngine,
+      proactiveCommunicator: this._proactiveCommunicator as any,
+      heartbeatScheduler: this._heartbeatScheduler as any,
+      cronScheduler: this._cronScheduler as any,
+      goalManager: this._goalManager as any,
+      desktopExecutor: this._desktopExecutor as any,
+      mcpManager: this._mcpManager as any,
+      telegramChannel: this._telegramChannel as any,
+      discordChannel: this._discordChannel as any,
+      slackChannel: this._slackChannel as any,
+      whatsAppChannel: this._whatsAppChannel as any,
+      signalChannel: this._signalChannel as any,
+      matrixChannel: this._matrixChannel as any,
+      imessageChannel: this._imessageChannel as any,
+      llmProviders: this._llmProviders,
+      gatewayLogging: this.gateway?.config.logging,
+      resolveActiveHostWorkspacePath: (config) =>
         this._resolveActiveHostWorkspacePath(config),
-      ).load();
-      const curiosityInterests = deriveCuriosityInterestsFromWorkspaceFiles(
-        workspaceFiles,
-      );
+      handleIncomingSocialMessage: (message) =>
+        this.handleIncomingSocialMessage(message),
+    };
+  }
 
-      const curiosityAction = createCuriosityAction({
-        interests: [...curiosityInterests],
-        chatExecutor: this._chatExecutor!,
-        toolHandler: this._baseToolHandler!,
-        memory: this._memoryBackend!,
-        systemPrompt: "You are an autonomous AI research agent.",
-        communicator,
-        goalManager: this._goalManager,
-        traceProviderPayloads,
-      });
-      const selfLearningAction = createSelfLearningAction({
-        llm,
-        memory: this._memoryBackend!,
-        traceProviderPayloads,
-      });
-      const metaPlannerAction = createMetaPlannerAction({
-        llm,
-        memory: this._memoryBackend!,
-        traceProviderPayloads,
-      });
-      const proactiveCommsAction = createProactiveCommsAction({
-        llm,
-        memory: this._memoryBackend!,
-        communicator,
-        traceProviderPayloads,
-      });
+  private _applyFeatureWiringContext(ctx: FeatureWiringContext): void {
+    this._marketplace = ctx.marketplace as any;
+    this._agentDiscovery = ctx.agentDiscovery as any;
+    this._agentMessaging = ctx.agentMessaging as any;
+    this._agentMessagingUnsubscribe = ctx.agentMessagingUnsubscribe;
+    this._agentFeed = ctx.agentFeed as any;
+    this._reputationScorer = ctx.reputationScorer as any;
+    this._collaborationProtocol = ctx.collaborationProtocol as any;
+    this._proactiveCommunicator = ctx.proactiveCommunicator as any;
+    this._heartbeatScheduler = ctx.heartbeatScheduler as any;
+    this._cronScheduler = ctx.cronScheduler as any;
+    this._goalManager = ctx.goalManager as any;
+    this._desktopExecutor = ctx.desktopExecutor as any;
+  }
 
-      // --- HeartbeatScheduler for short-cycle actions ---
-      const { HeartbeatScheduler } = await import("./heartbeat.js");
-      const heartbeatScheduler = new HeartbeatScheduler(
-        { enabled: true, intervalMs, timeoutMs: 60_000 },
-        { logger: this.logger },
-      );
-      heartbeatScheduler.registerAction(metaPlannerAction);
-      heartbeatScheduler.registerAction(proactiveCommsAction);
+  private async wireMarketplace(config: GatewayConfig): Promise<void> {
+    const ctx = this._buildFeatureWiringContext();
+    await wireMarketplaceStandalone(config, ctx);
+    this._applyFeatureWiringContext(ctx);
+  }
 
-      // Desktop awareness: register if Peekaboo MCP tools are available
-      let setBridgeCallback:
-        | ((cb: (text: string) => Promise<unknown>) => void)
-        | null = null;
-      if (this._mcpManager) {
-        const screenshotTool = this._mcpManager
-          .getToolsByServer("peekaboo")
-          .find((t) => t.name.includes("takeScreenshot"));
-        if (screenshotTool) {
-          const { createDesktopAwarenessAction } =
-            await import("../autonomous/desktop-awareness.js");
-          const awarenessAction = createDesktopAwarenessAction({
-            screenshotTool,
-            llm,
-            memory: this._memoryBackend!,
-            traceProviderPayloads,
-          });
+  private async wireSocial(config: GatewayConfig): Promise<void> {
+    const ctx = this._buildFeatureWiringContext();
+    await wireSocialStandalone(config, ctx);
+    this._applyFeatureWiringContext(ctx);
+  }
 
-          // Wrap awareness to pipe noteworthy output through goal bridge (attached below)
-          let awarenessBridgeCallback:
-            | ((text: string) => Promise<unknown>)
-            | null = null;
-          const daemonLogger = this.logger;
-          const originalAwarenessExecute =
-            awarenessAction.execute.bind(awarenessAction);
-          const wrappedAwareness: typeof awarenessAction = {
-            name: awarenessAction.name,
-            enabled: awarenessAction.enabled,
-            async execute(ctx) {
-              const result = await originalAwarenessExecute(ctx);
-              if (
-                result.hasOutput &&
-                result.output &&
-                awarenessBridgeCallback
-              ) {
-                await awarenessBridgeCallback(result.output).catch((error) => {
-                  daemonLogger.debug("Awareness bridge callback failed", {
-                    error: toErrorMessage(error),
-                  });
-                });
-              }
-              return result;
-            },
-          };
-          // Store setter in closure-accessible variable for GoalManager to connect
-          setBridgeCallback = (cb) => {
-            awarenessBridgeCallback = cb;
-          };
-
-          heartbeatScheduler.registerAction(wrappedAwareness);
-          this.logger.info(
-            "Desktop awareness action registered (Peekaboo available)",
-          );
-        }
-
-        // Desktop executor: instantiate if Peekaboo + action tools available
-        const peekabooTools = this._mcpManager.getToolsByServer("peekaboo");
-        const screenshotToolForExec = peekabooTools.find((t) =>
-          t.name.includes("takeScreenshot"),
-        );
-        const hasActionTools = peekabooTools.some(
-          (t) => t.name.includes("click") || t.name.includes("type"),
-        );
-
-        if (screenshotToolForExec && hasActionTools) {
-          const { DesktopExecutor } =
-            await import("../autonomous/desktop-executor.js");
-          this._desktopExecutor = new DesktopExecutor({
-            chatExecutor: this._chatExecutor!,
-            toolHandler: this._baseToolHandler!,
-            screenshotTool: screenshotToolForExec,
-            llm,
-            memory: this._memoryBackend!,
-            approvalEngine: this._approvalEngine ?? undefined,
-            communicator,
-            logger: this.logger,
-            traceProviderPayloads,
-          });
-          this.logger.info(
-            "Desktop executor ready (Peekaboo action tools available)",
-          );
-        }
-      }
-
-      // Wire awareness → goal bridge
-      if (this._goalManager && setBridgeCallback) {
-        const { createAwarenessGoalBridge } =
-          await import("../autonomous/awareness-goal-bridge.js");
-        setBridgeCallback(
-          createAwarenessGoalBridge({
-            goalManager: this._goalManager,
-          }),
-        );
-        this.logger.info("Awareness → goal bridge connected");
-      }
-
-      // Bridge meta-planner goals into GoalManager
-      {
-        const goalManager = this._goalManager;
-        const memory = this._memoryBackend!;
-        const originalMetaPlannerExecute =
-          metaPlannerAction.execute.bind(metaPlannerAction);
-        (
-          metaPlannerAction as { execute: typeof metaPlannerAction.execute }
-        ).execute = async function (ctx) {
-          const result = await originalMetaPlannerExecute(ctx);
-          if (result.hasOutput) {
-            try {
-              const goals =
-                await memory.get<
-                  Array<{
-                    description: string;
-                    title: string;
-                    priority: "critical" | "high" | "medium" | "low";
-                    rationale: string;
-                    status: string;
-                  }>
-                >("goal:active");
-              if (goals) {
-                for (const g of goals.filter((g) => g.status === "proposed")) {
-                  const active = await goalManager.getActiveGoals();
-                  if (!goalManager.isDuplicate(g.description, active)) {
-                    await goalManager.addGoal({
-                      title: g.title,
-                      description: g.description,
-                      priority: g.priority,
-                      source: "meta-planner",
-                      maxAttempts: 2,
-                      rationale: g.rationale,
-                    });
-                  }
-                }
-              }
-            } catch {
-              // Silently ignore sync errors — meta-planner result still valid
-            }
-          }
-          // Sync GoalManager state to a key meta-planner can see next cycle
-          try {
-            const managedActive = await goalManager.getActiveGoals();
-            if (managedActive.length > 0) {
-              await memory.set(
-                "goal:managed-active",
-                managedActive.map((g) => ({
-                  title: g.title,
-                  description: g.description,
-                  priority: g.priority,
-                  status: g.status,
-                  source: g.source,
-                })),
-              );
-            }
-          } catch {
-            // non-critical
-          }
-          return result;
-        };
-      }
-
-      // Goal executor: dequeue from GoalManager and execute via DesktopExecutor
-      if (this._desktopExecutor && this._goalManager) {
-        const { createGoalExecutorAction } =
-          await import("../autonomous/goal-executor-action.js");
-        heartbeatScheduler.registerAction(
-          createGoalExecutorAction({
-            goalManager: this._goalManager,
-            desktopExecutor: this._desktopExecutor,
-            memory: this._memoryBackend!,
-            logger: this.logger,
-          }),
-        );
-      }
-
-      heartbeatScheduler.start();
-      this._heartbeatScheduler = heartbeatScheduler;
-
-      // --- CronScheduler for long-running research tasks ---
-      const { CronScheduler } = await import("./scheduler.js");
-      const cronScheduler = new CronScheduler({ logger: this.logger });
-
-      // Curiosity research every 2 hours
-      cronScheduler.addJob("curiosity", CRON_SCHEDULES.CURIOSITY, {
-        name: curiosityAction.name,
-        execute: async (ctx) => {
-          if (!curiosityAction.enabled) return;
-          const result = await curiosityAction.execute({
-            logger: ctx.logger,
-            sendToChannels: async () => {},
-          });
-          if (result.hasOutput && !result.quiet) {
-            ctx.logger.info(`[cron:curiosity] ${result.output}`);
-          }
-        },
-      });
-
-      // Self-learning analysis every 6 hours
-      cronScheduler.addJob("self-learning", CRON_SCHEDULES.SELF_LEARNING, {
-        name: selfLearningAction.name,
-        execute: async (ctx) => {
-          if (!selfLearningAction.enabled) return;
-          const result = await selfLearningAction.execute({
-            logger: ctx.logger,
-            sendToChannels: async () => {},
-          });
-          if (result.hasOutput && !result.quiet) {
-            ctx.logger.info(`[cron:self-learning] ${result.output}`);
-          }
-        },
-      });
-
-      cronScheduler.start();
-      this._cronScheduler = cronScheduler;
-
-      this.logger.info(
-        `Autonomous features wired: heartbeat (interval=${intervalMs}ms) + cron (curiosity @2h, self-learning @6h)`,
-      );
-    } catch (err) {
-      this.logger.error("Failed to wire autonomous features:", err);
-    }
+  private async wireAutonomousFeatures(config: GatewayConfig): Promise<void> {
+    const ctx = this._buildFeatureWiringContext();
+    await wireAutonomousFeaturesStandalone(config, ctx);
+    this._applyFeatureWiringContext(ctx);
   }
 
   /**
@@ -4248,503 +3389,22 @@ export class DaemonManager {
     config: GatewayConfig,
     metrics?: UnifiedTelemetryCollector,
   ): Promise<ToolRegistry> {
-    const registry = new ToolRegistry({ logger: this.logger });
-
-    // Security: Only expose a minimal host env to system.bash.
-    // Token-like secrets are intentionally excluded by default.
-    const safeEnv = resolveBashToolEnv(config);
-    const hostShimDir = join(homedir(), ...CHROMIUM_SHIM_DIR_SEGMENTS);
-    safeEnv.PATH = prependPathEntry(safeEnv.PATH, hostShimDir);
-    await ensureChromiumCompatShims(config, safeEnv.PATH, this.logger);
-    await ensureAgencRuntimeShim(config, safeEnv.PATH, this.logger);
-
-    const unrestrictedHostExec = this.yolo;
-    if (unrestrictedHostExec) {
-      this.logger.warn(
-        "YOLO mode enabled: host execution deny lists are disabled for system.bash, system.process*, and system.server* tools.",
-      );
-    }
-
-    // Security: By default, do NOT use unrestricted mode — the default deny
-    // list prevents dangerous commands (rm -rf, curl for exfiltration, etc.)
-    // from being executed via LLM tool calling / prompt injection attacks.
-    //
-    // On macOS desktop agents, allow process management (killall, pkill) and
-    // network tools for closing apps — the security boundary is Telegram user auth.
-    //
-    // On Linux desktop mode, include the minimum developer workflow binaries
-    // required by host health checks and orchestration smoke tests.
-    const bashDenyExclusions = resolveBashDenyExclusions(config);
-    const structuredExecDenyExclusions = resolveStructuredExecDenyExclusions(config);
-
-    const bashToolTimeoutConfig = resolveBashToolTimeoutConfig(config);
-    registry.register(
-      createBashTool({
-        logger: this.logger,
-        env: safeEnv,
-        denyExclusions: bashDenyExclusions,
-        unrestricted: unrestrictedHostExec,
-        timeoutMs: bashToolTimeoutConfig.timeoutMs,
-        maxTimeoutMs: bashToolTimeoutConfig.maxTimeoutMs,
-      }),
-    );
-    registry.registerAll(
-      createProcessTools({
-        logger: this.logger,
-        env: safeEnv,
-        denyExclusions: structuredExecDenyExclusions,
-        unrestricted: unrestrictedHostExec,
-        onLifecycleEvent: async (event) => {
-          if (event.state !== "exited" && event.state !== "failed") {
-            return;
-          }
-          const signalled = await this._backgroundRunSupervisor?.signalManagedProcessExit({
-            processId: event.processId,
-            label: event.label,
-            exitCode: event.exitCode,
-            signal: event.signal,
-            occurredAt: event.occurredAt,
-            source: `system.process:${event.cause}`,
-          });
-          if (signalled) {
-            this.logger.info("Background run signalled from host process lifecycle", {
-              processId: event.processId,
-              label: event.label,
-              state: event.state,
-              cause: event.cause,
-            });
-          }
-        },
-      }),
-    );
-    const callbackPort = config.gateway?.port ?? 3100;
-    const remoteJobManager = new SystemRemoteJobManager({
+    const result = await createDaemonToolRegistry(config, {
       logger: this.logger,
-      callbackBaseUrl: `http://127.0.0.1:${callbackPort}`,
-    });
-    this._remoteJobManager = remoteJobManager;
-    registry.registerAll(
-      createRemoteJobTools(
-        {
-          logger: this.logger,
-          callbackBaseUrl: `http://127.0.0.1:${callbackPort}`,
-        },
-        remoteJobManager,
-      ),
-    );
-    registry.registerAll(
-      createResearchTools({
-        logger: this.logger,
-      }),
-    );
-    registry.registerAll(
-      createSandboxTools({
-        logger: this.logger,
-        workspacePath: resolveHostWorkspacePath({
-          config,
-          configPath: this.configPath,
-          daemonCwd: process.cwd(),
-        }),
-      }),
-    );
-    registry.registerAll(
-      createServerTools({
-        logger: this.logger,
-        env: safeEnv,
-        denyExclusions: structuredExecDenyExclusions,
-        unrestricted: unrestrictedHostExec,
-      }),
-    );
-    registry.registerAll(createHttpTools({}, this.logger));
-
-    // Security: Restrict filesystem access to workspace + project root + Desktop + /tmp.
-    // Excludes ~/.ssh, ~/.gnupg, ~/.config/solana (private keys), etc.
-    const allowedFilesystemPaths = buildAllowedFilesystemPaths({
-      hostWorkspacePath: resolveHostWorkspacePath({
-        config,
-        configPath: this.configPath,
-        daemonCwd: process.cwd(),
-      }),
-      homePath: homedir(),
-    });
-    registry.registerAll(
-      createFilesystemTools({
-        allowedPaths: allowedFilesystemPaths,
-        allowDelete: false,
-      }),
-    );
-    registry.registerAll(
-      createPdfTools({
-        allowedPaths: allowedFilesystemPaths,
-        logger: this.logger,
-      }),
-    );
-    registry.registerAll(
-      createOfficeDocumentTools({
-        allowedPaths: allowedFilesystemPaths,
-        logger: this.logger,
-      }),
-    );
-    registry.registerAll(
-      createEmailMessageTools({
-        allowedPaths: allowedFilesystemPaths,
-        logger: this.logger,
-      }),
-    );
-    registry.registerAll(
-      createCalendarTools({
-        allowedPaths: allowedFilesystemPaths,
-        logger: this.logger,
-      }),
-    );
-    registry.registerAll(
-      createSqliteTools({
-        allowedPaths: allowedFilesystemPaths,
-        logger: this.logger,
-      }),
-    );
-    registry.registerAll(
-      createSpreadsheetTools({
-        allowedPaths: allowedFilesystemPaths,
-        logger: this.logger,
-      }),
-    );
-    const browserToolMode = await resolveBrowserToolMode(this.logger);
-    registry.registerAll(
-      createBrowserTools(
-        {
-          mode: browserToolMode,
-          allowedFileUploadPaths: allowedFilesystemPaths,
-        },
-        this.logger,
-      ),
-    );
-    registry.register(createExecuteWithAgentTool());
-    const walletResult = await loadWallet(config);
-    const marketplaceActorId = walletResult
-      ? Buffer.from(walletResult.agentId).toString("hex")
-      : "gateway-agent";
-
-    if (config.marketplace?.enabled) {
-      try {
-        const { createMarketplaceTools } =
-          await import("../tools/marketplace/index.js");
-        registry.registerAll(
-          createMarketplaceTools({
-            getMarketplace: () => this._marketplace,
-            actorId: marketplaceActorId,
-            logger: this.logger,
-          }),
-        );
-      } catch (error) {
-        this.logger.warn?.("Marketplace tools unavailable:", error);
-      }
-    }
-
-    if (config.social?.enabled) {
-      try {
-        const { createSocialTools } = await import("../tools/social/index.js");
-        registry.registerAll(
-          createSocialTools({
-            getDiscovery: () => this._agentDiscovery,
-            getMessaging: () => this._agentMessaging,
-            getFeed: () => this._agentFeed,
-            getCollaboration: () => this._collaborationProtocol,
-            getPeerDirectory: () => config.social?.peerDirectory ?? null,
-            logger: this.logger,
-          }),
-        );
-      } catch (error) {
-        this.logger.warn?.("Social tools unavailable:", error);
-      }
-    }
-
-    // macOS native automation tools (AppleScript, JXA, open, notifications)
-    if (process.platform === "darwin") {
-      try {
-        const { createMacOSTools } = await import("../tools/system/macos.js");
-        registry.registerAll(createMacOSTools({ logger: this.logger }));
-      } catch (err) {
-        this.logger.warn?.("macOS tools unavailable:", err);
-      }
-    }
-
-    // External MCP server tools (Peekaboo, macos-automator, etc.)
-    if (config.mcp?.servers?.length) {
-      const desktopImage = config.desktop?.image ?? "agenc/desktop:latest";
-      for (const server of config.mcp.servers.filter(
-        (entry) => entry.enabled !== false,
-      )) {
-        const staticViolations = validateMCPServerStaticPolicy(server, {
-          desktopImage,
-        });
-        if (staticViolations.length > 0) {
-          throw new Error(
-            staticViolations.map((violation) => violation.message).join("; "),
-          );
-        }
-        if (!server.container) {
-          const binaryViolations = await validateMCPServerBinaryIntegrity({
-            server,
-          });
-          if (binaryViolations.length > 0) {
-            throw new Error(
-              binaryViolations.map((violation) => violation.message).join("; "),
-            );
-          }
-        }
-      }
-
-      // Split: host servers boot now, container servers are per-session (via desktop router)
-      const hostServers = config.mcp.servers.filter((s) => !s.container);
-      const containerServers = config.mcp.servers.filter(
-        (s) => s.container === "desktop",
-      );
-      this._containerMCPConfigs = containerServers;
-
-      if (hostServers.length > 0) {
-        try {
-          const { MCPManager } = await import("../mcp-client/index.js");
-          this._mcpManager = new MCPManager(hostServers, this.logger);
-          await this._mcpManager.start();
-          registry.registerAll(this._mcpManager.getTools());
-        } catch (err) {
-          this.logger.error("Failed to initialize MCP servers:", err);
-        }
-      }
-
-      if (containerServers.length > 0) {
-        this.logger.info(
-          `${containerServers.length} MCP server(s) configured for desktop container: ${containerServers.map((s) => s.name).join(", ")}`,
-        );
-
-        // Boot container MCP servers on host temporarily to discover tool schemas.
-        // The LLM needs to know the tools exist (names, descriptions, input schemas).
-        // Actual execution is routed through `docker exec` per-session via the desktop router.
-        // Host command availability is best-effort; container-only installs may not
-        // have these MCP binaries on the host PATH.
-        try {
-          const { createMCPConnection } =
-            await import("../mcp-client/connection.js");
-          const { createToolBridge } =
-            await import("../mcp-client/tool-bridge.js");
-
-          const discoveryResults = await Promise.allSettled(
-            containerServers.map(async (serverConfig) => {
-              const client = await createMCPConnection(
-                serverConfig,
-                this.logger,
-              );
-              const bridge = await createToolBridge(
-                client,
-                serverConfig.name,
-                this.logger,
-                {
-                  listToolsTimeoutMs: serverConfig.timeout,
-                  callToolTimeoutMs: serverConfig.timeout,
-                  serverConfig,
-                },
-              );
-              const schemas = bridge.tools.map((t) => ({
-                name: t.name,
-                description: t.description,
-                inputSchema: t.inputSchema,
-              }));
-              await bridge.dispose();
-              return schemas;
-            }),
-          );
-
-          let totalDiscovered = 0;
-          const skippedUnavailable: string[] = [];
-          for (let i = 0; i < discoveryResults.length; i++) {
-            const result = discoveryResults[i];
-            if (result.status === "fulfilled") {
-              // Register stub tools — execute is never called because the desktop router
-              // intercepts mcp.{name}.* calls before the base handler
-              for (const schema of result.value) {
-                registry.register({
-                  name: schema.name,
-                  description: schema.description,
-                  inputSchema: schema.inputSchema,
-                  execute: async () => ({
-                    content: "Container MCP tool — requires desktop session",
-                    isError: true,
-                  }),
-                });
-              }
-              totalDiscovered += result.value.length;
-            } else {
-              const serverName = containerServers[i].name;
-              if (isCommandUnavailableError(result.reason)) {
-                skippedUnavailable.push(serverName);
-              } else {
-                this.logger.warn?.(
-                  `Container MCP "${serverName}" schema discovery failed: ${toErrorMessage(result.reason)}`,
-                );
-              }
-            }
-          }
-
-          // Fallback: discover schemas via `docker run --rm -i <image>` for servers
-          // whose binaries are only installed inside the container image.
-          if (skippedUnavailable.length > 0 && config.desktop?.enabled) {
-            const desktopImage = config.desktop.image ?? "agenc/desktop:latest";
-            this.logger.info(
-              `Retrying schema discovery via container image for: ${skippedUnavailable.join(", ")}`,
-            );
-
-            const containerFallback = await Promise.allSettled(
-              skippedUnavailable.map(async (serverName) => {
-                const serverConfig = containerServers.find(
-                  (s) => s.name === serverName,
-                )!;
-                const dockerArgs = [
-                  "run",
-                  "--rm",
-                  "-i",
-                  desktopImage,
-                  serverConfig.command,
-                  ...serverConfig.args,
-                ];
-                const client = await createMCPConnection(
-                  {
-                    name: serverConfig.name,
-                    command: "docker",
-                    args: dockerArgs,
-                    timeout: serverConfig.timeout ?? 30_000,
-                  },
-                  this.logger,
-                );
-                const bridge = await createToolBridge(
-                  client,
-                  serverConfig.name,
-                  this.logger,
-                  {
-                    listToolsTimeoutMs: serverConfig.timeout ?? 30_000,
-                    callToolTimeoutMs: serverConfig.timeout ?? 30_000,
-                    serverConfig,
-                  },
-                );
-                const schemas = bridge.tools.map((t) => ({
-                  name: t.name,
-                  description: t.description,
-                  inputSchema: t.inputSchema,
-                }));
-                await bridge.dispose();
-                return { serverName, schemas };
-              }),
-            );
-
-            for (const result of containerFallback) {
-              if (result.status === "fulfilled") {
-                for (const schema of result.value.schemas) {
-                  registry.register({
-                    name: schema.name,
-                    description: schema.description,
-                    inputSchema: schema.inputSchema,
-                    execute: async () => ({
-                      content: "Container MCP tool — requires desktop session",
-                      isError: true,
-                    }),
-                  });
-                }
-                totalDiscovered += result.value.schemas.length;
-                this.logger.info(
-                  `Discovered ${result.value.schemas.length} tool(s) from container image for "${result.value.serverName}"`,
-                );
-              } else {
-                this.logger.warn?.(
-                  `Container image schema discovery also failed for "${skippedUnavailable[containerFallback.indexOf(result)]}": ${toErrorMessage(result.reason)}`,
-                );
-              }
-            }
-          } else if (skippedUnavailable.length > 0) {
-            this.logger.info(
-              `Skipped schema discovery for container MCP server(s): ${skippedUnavailable.join(", ")} (host command unavailable, desktop not enabled).`,
-            );
-          }
-
-          if (totalDiscovered > 0) {
-            this.logger.info(
-              `Discovered ${totalDiscovered} container MCP tool schemas for LLM`,
-            );
-          } else if (skippedUnavailable.length === 0) {
-            this.logger.warn?.(
-              "No container MCP tool schemas discovered at startup; tools will only become visible after successful container bridge initialization.",
-            );
-          }
-        } catch (err) {
-          this.logger.warn?.("Container MCP schema discovery failed:", err);
-        }
-      }
-    }
-
-    if (config.connection?.rpcUrl) {
-      try {
-        const endpoints: string[] = [config.connection.rpcUrl];
-        if (config.connection.endpoints) {
-          for (const endpoint of config.connection.endpoints) {
-            if (endpoint !== config.connection.rpcUrl) {
-              endpoints.push(endpoint);
-            }
-          }
-        }
-        const connMgr = new ConnectionManager({
-          endpoints,
-          logger: this.logger,
-          metrics,
-        });
-        this._connectionManager = connMgr;
-
-        const { createAgencTools } = await import("../tools/agenc/index.js");
-        registry.registerAll(
-          createAgencTools({
-            connection: connMgr.getConnection(),
-            wallet: walletResult?.wallet,
-            logger: this.logger,
-          }),
-        );
-      } catch (error) {
-        this.logger.warn?.("AgenC protocol tools unavailable:", error);
-      }
-    }
-
-    // X (Twitter) tools — registered when config.x credentials are present.
-    const xConfig = (config as unknown as Record<string, unknown>).x as
-      | {
-          consumerKey?: string;
-          consumerSecret?: string;
-          accessToken?: string;
-          accessTokenSecret?: string;
-        }
-      | undefined;
-    if (
-      xConfig?.consumerKey &&
-      xConfig.consumerSecret &&
-      xConfig.accessToken &&
-      xConfig.accessTokenSecret
-    ) {
-      try {
-        const { createXTools } = await import("../tools/x/index.js");
-        registry.registerAll(
-          createXTools(
-            {
-              consumerKey: xConfig.consumerKey,
-              consumerSecret: xConfig.consumerSecret,
-              accessToken: xConfig.accessToken,
-              accessTokenSecret: xConfig.accessTokenSecret,
-            },
-            this.logger,
-          ),
-        );
-        this.logger.info("X (Twitter) tools registered");
-      } catch (error) {
-        this.logger.warn?.("X tools unavailable:", error);
-      }
-    }
-
-    return registry;
+      configPath: this.configPath,
+      yolo: this.yolo,
+      getBackgroundRunSupervisor: () => this._backgroundRunSupervisor,
+      getMarketplace: () => this._marketplace,
+      getAgentDiscovery: () => this._agentDiscovery,
+      getAgentMessaging: () => this._agentMessaging,
+      getAgentFeed: () => this._agentFeed,
+      getCollaborationProtocol: () => this._collaborationProtocol,
+    }, metrics);
+    this._remoteJobManager = result.remoteJobManager;
+    this._containerMCPConfigs = result.containerMCPConfigs;
+    this._mcpManager = result.mcpManager;
+    this._connectionManager = result.connectionManager;
+    return result.registry;
   }
 
   private createSkillInjector(skills: DiscoveredSkill[]): SkillInjector {
@@ -4936,6 +3596,66 @@ export class DaemonManager {
     await hydrateWebSessionRuntimeState(memoryBackend, webSessionId, session);
   }
 
+  private _buildCommandRegistryContext(): CommandRegistryDaemonContext {
+    return {
+      logger: this.logger,
+      configPath: this.configPath,
+      gateway: this.gateway,
+      yolo: this.yolo,
+      resetWebSessionContext: (params) => this.resetWebSessionContext(params),
+      getWebChatChannel: () => this._webChatChannel,
+      getHostWorkspacePath: () => this._hostWorkspacePath,
+      getChatExecutor: () => this._chatExecutor,
+      getResolvedContextWindowTokens: () => this._resolvedContextWindowTokens,
+      getSystemPrompt: () => this._systemPrompt,
+      getMemoryBackendName: () => this._memoryBackend?.name,
+      getPolicyEngineState: () => this._policyEngine?.getState(),
+      isPolicyEngineEnabled: () => !!this._policyEngine,
+      isGovernanceAuditLogEnabled: () => !!this._governanceAuditLog,
+      listSessionCredentialLeases: (sessionId) =>
+        (this._sessionCredentialBroker?.listLeases(sessionId) ?? []) as any,
+      revokeSessionCredentials: async (params) =>
+        (await this._sessionCredentialBroker?.revoke({
+          sessionId: params.sessionId,
+          credentialId: params.credentialId,
+          scope: this.resolvePolicyScopeForSession({
+            sessionId: params.sessionId,
+            runId: params.sessionId,
+            channel: "webchat",
+          }),
+          reason: params.reason as any,
+        })) ?? 0,
+      resolvePolicyScopeForSession: (params) =>
+        this.resolvePolicyScopeForSession(params),
+      buildPolicySimulationPreview: (params) =>
+        this.buildPolicySimulationPreview(params),
+      getSubAgentRuntimeConfig: () => this._subAgentRuntimeConfig,
+      getActiveDelegationAggressiveness: (config) =>
+        this.getActiveDelegationAggressiveness(config),
+      resolveDelegationScoreThreshold: (config) =>
+        this.resolveDelegationScoreThreshold(config),
+      getDelegationAggressivenessOverride: () =>
+        this._delegationAggressivenessOverride,
+      setDelegationAggressivenessOverride: (value) => {
+        this._delegationAggressivenessOverride = value;
+      },
+      configureDelegationRuntimeServices: (config) =>
+        this.configureDelegationRuntimeServices(config),
+      getWebChatInboundHandler: () => this._webChatInboundHandler,
+      getDesktopHandleBySession: (sessionId) =>
+        this._desktopManager?.getHandleBySession(sessionId) as any,
+      getSessionModelInfo: (sessionId) =>
+        this._sessionModelInfo.get(sessionId),
+      handleConfigReload: () => this.handleConfigReload(),
+      getVoiceBridge: () => this._voiceBridge,
+      getDesktopManager: () => this._desktopManager as any,
+      getDesktopBridges: () => this._desktopBridges,
+      getPlaywrightBridges: () => this._playwrightBridges,
+      getContainerMCPBridges: () => this._containerMCPBridges as any,
+      getGoalManager: () => this._goalManager as any,
+    };
+  }
+
   private createCommandRegistry(
     sessionMgr: SessionManager,
     resolveSessionId: (sessionKey: string) => string,
@@ -4950,1355 +3670,21 @@ export class DaemonManager {
     progressTracker?: ProgressTracker,
     pipelineExecutor?: PipelineExecutor,
   ): SlashCommandRegistry {
-    void hooks; void baseToolHandler; void approvalEngine;
-    const commandRegistry = new SlashCommandRegistry({ logger: this.logger });
-    for (const command of createDefaultCommands()) {
-      commandRegistry.register(command);
-    }
-
-    commandRegistry.register({
-      name: "help",
-      description: "Show available commands",
-      global: true,
-      handler: async (ctx) => {
-        const commands = commandRegistry.getCommands();
-        const lines = commands.map(
-          (command) => `  /${command.name} — ${command.description}`,
-        );
-        await ctx.reply("Available commands:\n" + lines.join("\n"));
-      },
-    });
-    commandRegistry.register({
-      name: "new",
-      description: "Start a new session (reset conversation)",
-      global: true,
-      handler: async (ctx) => {
-        await this.resetWebSessionContext({
-          webSessionId: ctx.sessionId,
-          sessionMgr,
-          resolveSessionId,
-          memoryBackend,
-          progressTracker,
-        });
-        await ctx.reply("Session reset. Starting fresh conversation.");
-      },
-    });
-    commandRegistry.register({
-      name: "init",
-      description: "Generate an AGENC.md contributor guide",
-      args: "[--force]",
-      global: true,
-      handler: async (ctx) => {
-        const force = ctx.argv.includes("--force");
-        const workspaceRoot =
-          (typeof this._webChatChannel?.loadSessionWorkspaceRoot === "function"
-            ? await this._webChatChannel.loadSessionWorkspaceRoot(ctx.sessionId)
-            : undefined) ??
-          this._hostWorkspacePath ??
-          process.cwd();
-        const filePath = `${workspaceRoot}/AGENC.md`;
-
-        // Check if file exists and --force not set
-        const { existsSync } = await import("node:fs");
-        if (existsSync(filePath) && !force) {
-          await ctx.reply(`AGENC.md already exists at ${filePath}. Use /init --force to overwrite.`);
-          return;
-        }
-
-        const initPrompt =
-          `List the files in ${workspaceRoot}, read the important ones (package.json, README, Makefile, config files, etc), ` +
-          `then write ${filePath} with these sections: ` +
-          `"# Repository Guidelines", "## Project Structure & Module Organization", ` +
-          `"## Build, Test, and Development Commands", "## Coding Style & Naming Conventions", ` +
-          `"## Testing Guidelines", "## Commit & Pull Request Guidelines". ` +
-          `Base it on what you find. Do NOT build, compile, or run anything — just read and write the guide.`;
-
-        const webChat = this._webChatChannel;
-        if (!webChat) {
-          await ctx.reply("Init unavailable: webchat pipeline is not initialized.");
-          return;
-        }
-        // Inject as a synthetic user message — bypasses planner since it's simple
-        webChat.injectSyntheticUserMessage(ctx.sessionId, ctx.senderId, initPrompt);
-      },
-    });
-    commandRegistry.register({
-      name: "reset",
-      description: "Reset session and clear context",
-      global: true,
-      handler: async (ctx) => {
-        await this.resetWebSessionContext({
-          webSessionId: ctx.sessionId,
-          sessionMgr,
-          resolveSessionId,
-          memoryBackend,
-          progressTracker,
-        });
-        await ctx.reply("Session and context cleared.");
-      },
-    });
-    commandRegistry.register({
-      name: "restart",
-      description: "Restart current chat context (alias for /reset)",
-      global: true,
-      handler: async (ctx) => {
-        await this.resetWebSessionContext({
-          webSessionId: ctx.sessionId,
-          sessionMgr,
-          resolveSessionId,
-          memoryBackend,
-          progressTracker,
-        });
-        await ctx.reply("Session restarted. Context cleared.");
-      },
-    });
-    commandRegistry.register({
-      name: "compact",
-      description: "Force conversation compaction",
-      global: true,
-      handler: async (ctx) => {
-        const sessionId = resolveSessionId(ctx.sessionId);
-        const result = await sessionMgr.compact(sessionId);
-        if (result) {
-          await ctx.reply(
-            `Compacted: removed ${result.messagesRemoved}, retained ${result.messagesRetained}.`,
-          );
-        } else {
-          await ctx.reply("No session to compact.");
-        }
-      },
-    });
-    commandRegistry.register({
-      name: "context",
-      description: "Show current context window usage",
-      global: true,
-      handler: async (ctx) => {
-        const executor = this._chatExecutor;
-        if (!executor) {
-          await ctx.reply(
-            `Session: ${ctx.sessionId}\nContext usage unavailable (LLM not initialized).`,
-          );
-          return;
-        }
-
-        const totalTokens = executor.getSessionTokenUsage(ctx.sessionId);
-        const contextWindowTokens = this._resolvedContextWindowTokens;
-        const sessionTokenBudget = resolveSessionTokenBudget(
-          this.gateway?.config.llm,
-          contextWindowTokens,
-        );
-        const ratio =
-          sessionTokenBudget > 0 ? totalTokens / sessionTokenBudget : 0;
-        const percent = Math.min(100, Math.max(0, ratio * 100));
-
-        // Build breakdown
-        const sessionId = resolveSessionId(ctx.sessionId);
-        const session = sessionMgr.get(sessionId);
-        const historyLen = session?.history.length ?? 0;
-        const systemPromptChars = (this._systemPrompt ?? "").length;
-        const systemPromptTokens = Math.ceil(systemPromptChars / 4);
-        const toolCount = registry.size;
-        const model = normalizeGrokModel(this.gateway?.config.llm?.model) ?? "unknown";
-        const provider = this.gateway?.config.llm?.provider ?? "unknown";
-
-        const overBudget = totalTokens > sessionTokenBudget;
-        const lines = [
-          `Context Window: ${(contextWindowTokens ?? 0).toLocaleString()} tokens (${model} via ${provider})`,
-          `Session Budget: ${sessionTokenBudget.toLocaleString()} tokens`,
-          `Used: ${totalTokens.toLocaleString()} tokens (${percent.toFixed(percent >= 10 ? 0 : 1)}%)` +
-            (overBudget ? " — COMPACTION PENDING (next message will compact)" : ""),
-          `Free: ${overBudget ? "0" : Math.max(0, sessionTokenBudget - totalTokens).toLocaleString()} tokens`,
-          "",
-          "Breakdown:",
-          `  System prompt: ~${systemPromptTokens.toLocaleString()} tokens`,
-          `  Tools: ${toolCount} registered`,
-          `  History: ${historyLen} messages`,
-          `  Memory: ${this._memoryBackend?.name ?? "none"}`,
-          "",
-          "Workspace files loaded:",
-        ];
-
-        // Show which workspace files are loaded
-        const wsFiles: [string, boolean][] = [
-          ["AGENT.md", !!this._systemPrompt?.includes("# Agent")],
-          ["AGENC.md", !!this._systemPrompt?.includes("# Repository Guidelines")],
-          ["SOUL.md", !!this._systemPrompt?.includes("# Soul")],
-          ["TOOLS.md", !!this._systemPrompt?.includes("# Tool")],
-          ["MEMORY.md", !!this._systemPrompt?.includes("# Memory")],
-          ["USER.md", !!this._systemPrompt?.includes("# User")],
-        ];
-        for (const [name, loaded] of wsFiles) {
-          lines.push(`  ${loaded ? "●" : "○"} ${name}`);
-        }
-
-        await ctx.reply(lines.join("\n"));
-      },
-    });
-    commandRegistry.register({
-      name: "status",
-      description: "Show agent status",
-      global: true,
-      handler: async (ctx) => {
-        const sessionId = resolveSessionId(ctx.sessionId);
-        const session = sessionMgr.get(sessionId);
-        const historyLen = session?.history.length ?? 0;
-        const providerNames =
-          providers.map((provider) => provider.name).join(" → ") || "none";
-        await ctx.reply(
-          `Agent is running.\n` +
-            `Session: ${ctx.sessionId}\n` +
-            `History: ${historyLen} messages\n` +
-            `LLM: ${providerNames}\n` +
-            `Memory: ${memoryBackend.name}\n` +
-            `Tools: ${registry.size}\n` +
-            `Skills: ${availableSkills.length}`,
-        );
-      },
-    });
-    commandRegistry.register({
-      name: "policy",
-      description: "Show policy state or simulate a tool policy decision",
-      args: "[status|simulate <toolName> [jsonArgs]|credentials|revoke-credentials [credentialId]]",
-      global: true,
-      handler: async (ctx) => {
-        const subcommand = ctx.argv[0]?.toLowerCase();
-        if (!subcommand || subcommand === "status") {
-          const state = this._policyEngine?.getState();
-          const policy = this.gateway?.config.policy;
-          await ctx.reply(
-            [
-              `Policy engine: ${this._policyEngine ? "enabled" : "disabled"}`,
-              `Simulation mode: ${policy?.simulationMode ?? "off"}`,
-              `Audit log: ${this._governanceAuditLog ? "enabled" : "disabled"}`,
-              state
-                ? `Circuit mode: ${state.mode} (recent violations: ${state.recentViolations})`
-                : "Circuit mode: unavailable",
-            ].join("\n"),
-          );
-          return;
-        }
-        if (subcommand === "credentials") {
-          const leases =
-            this._sessionCredentialBroker?.listLeases(ctx.sessionId) ?? [];
-          if (leases.length === 0) {
-            await ctx.reply("No active session credential leases.");
-            return;
-          }
-          const lines = leases.map(
-            (lease) =>
-              `- ${lease.credentialId}: expires ${new Date(lease.expiresAt).toISOString()} ` +
-              `(domains=${lease.domains.join(", ") || "none"})`,
-          );
-          await ctx.reply(
-            `Active session credential leases:\n${lines.join("\n")}`,
-          );
-          return;
-        }
-        if (subcommand === "revoke-credentials") {
-          const credentialId = ctx.argv[1]?.trim();
-          const revoked =
-            (await this._sessionCredentialBroker?.revoke({
-              sessionId: ctx.sessionId,
-              credentialId:
-                credentialId && credentialId.length > 0
-                  ? credentialId
-                  : undefined,
-              scope: this.resolvePolicyScopeForSession({
-                sessionId: ctx.sessionId,
-                runId: ctx.sessionId,
-                channel: "webchat",
-              }),
-              reason: "manual",
-            })) ?? 0;
-          await ctx.reply(
-            revoked > 0
-              ? `Revoked ${revoked} session credential lease${revoked === 1 ? "" : "s"}.`
-              : credentialId
-                ? `No active lease found for credential ${credentialId}.`
-                : "No active session credential leases to revoke.",
-          );
-          return;
-        }
-        if (subcommand !== "simulate") {
-          await ctx.reply(
-            "Usage: /policy [status|simulate <toolName> [jsonArgs]|credentials|revoke-credentials [credentialId]]",
-          );
-          return;
-        }
-        const toolName = ctx.argv[1]?.trim();
-        if (!toolName) {
-          await ctx.reply("Usage: /policy simulate <toolName> [jsonArgs]");
-          return;
-        }
-        const argsText = ctx.args.replace(/^simulate\s+\S+\s*/i, "").trim();
-        let parsedArgs: Record<string, unknown> = {};
-        if (argsText.length > 0) {
-          try {
-            const candidate = JSON.parse(argsText);
-            if (
-              !candidate ||
-              typeof candidate !== "object" ||
-              Array.isArray(candidate)
-            ) {
-              await ctx.reply("Policy simulate JSON args must be an object.");
-              return;
-            }
-            parsedArgs = candidate as Record<string, unknown>;
-          } catch (error) {
-            await ctx.reply(
-              `Policy simulate JSON parse failed: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            );
-            return;
-          }
-        }
-        const preview = await this.buildPolicySimulationPreview({
-          sessionId: ctx.sessionId,
-          toolName,
-          args: parsedArgs,
-        });
-        const violationLines =
-          preview.policy.violations.length > 0
-            ? preview.policy.violations
-                .map((violation) => `- ${violation.code}: ${violation.message}`)
-                .join("\n")
-            : "- none";
-        const approvalPreview = preview.approval.requestPreview;
-        await ctx.reply(
-          [
-            `Policy simulation for ${preview.toolName}`,
-            `Session: ${preview.sessionId}`,
-            `Policy: ${preview.policy.allowed ? "allow" : "deny"} (${preview.policy.mode})`,
-            `Violations:\n${violationLines}`,
-            `Approval: required=${preview.approval.required} elevated=${preview.approval.elevated} denied=${preview.approval.denied}`,
-            approvalPreview
-              ? `Approval preview: ${approvalPreview.message}`
-              : "Approval preview: none",
-          ].join("\n"),
-        );
-      },
-    });
-    commandRegistry.register({
-      name: "delegation",
-      description: "Show or set delegation aggressiveness",
-      args: "[status|conservative|balanced|aggressive|adaptive|default]",
-      global: true,
-      handler: async (ctx) => {
-        const resolved = this._subAgentRuntimeConfig;
-        if (!resolved?.enabled) {
-          await ctx.reply(
-            "Delegation is disabled. Enable llm.subagents.enabled in config first.",
-          );
-          return;
-        }
-
-        const renderStatus = (): string => {
-          const activeProfile =
-            this.getActiveDelegationAggressiveness(resolved);
-          const effectiveThreshold =
-            this.resolveDelegationScoreThreshold(resolved);
-          const override = this._delegationAggressivenessOverride;
-          const hardBlocked =
-            resolved.hardBlockedTaskClasses.length > 0
-              ? resolved.hardBlockedTaskClasses.join(", ")
-              : "none";
-          return (
-            `Delegation profile: ${activeProfile}` +
-            `${override ? " (runtime override)" : " (config)"}\n` +
-            `Threshold: effective=${effectiveThreshold.toFixed(3)} base=${resolved.baseSpawnDecisionThreshold.toFixed(3)}\n` +
-            `Mode: ${resolved.mode} (handoff min confidence ${resolved.handoffMinPlannerConfidence.toFixed(2)})\n` +
-            `Child provider strategy: ${resolved.childProviderStrategy}\n` +
-            `Hard-blocked task classes: ${hardBlocked}`
-          );
-        };
-
-        const arg = ctx.argv[0]?.toLowerCase();
-        if (!arg || arg === "status") {
-          await ctx.reply(renderStatus());
-          return;
-        }
-
-        if (arg === "default" || arg === "clear" || arg === "reset") {
-          this._delegationAggressivenessOverride = null;
-          this.configureDelegationRuntimeServices(resolved);
-          await ctx.reply(
-            `Delegation aggressiveness reset to config default.\n${renderStatus()}`,
-          );
-          return;
-        }
-
-        if (
-          arg !== "conservative" &&
-          arg !== "balanced" &&
-          arg !== "aggressive" &&
-          arg !== "adaptive"
-        ) {
-          await ctx.reply(
-            "Usage: /delegation [status|conservative|balanced|aggressive|adaptive|default]",
-          );
-          return;
-        }
-
-        this._delegationAggressivenessOverride = arg;
-        this.configureDelegationRuntimeServices(resolved);
-        await ctx.reply(
-          `Delegation aggressiveness set to ${arg}.\n${renderStatus()}`,
-        );
-      },
-    });
-    commandRegistry.register({
-      name: "eval",
-      description:
-        "Evaluate model output or run tool harness in current session",
-      args: "[prompt] | full [prompt] | script [args]",
-      global: true,
-      handler: async (ctx) => {
-        const mode = ctx.argv[0]?.toLowerCase();
-        const scriptHarness = mode === "script";
-        const fullHarness =
-          mode === "full" || mode === "tools" || scriptHarness;
-
-        if (!fullHarness) {
-          const provider = providers[0];
-          if (!provider) {
-            await ctx.reply("No configured LLM provider available for /eval.");
-            return;
-          }
-
-          const prompt =
-            ctx.args && ctx.args.trim().length > 0
-              ? ctx.args.trim()
-              : 'Respond with strict JSON only: {"ok":true,"test":"model-eval"}';
-
-          const started = Date.now();
-          const traceConfig = resolveTraceLoggingConfig(
-            this.gateway?.config.logging,
-          );
-          const evalProviderTrace =
-            traceConfig.enabled && traceConfig.includeProviderPayloads
-              ? {
-                  trace: {
-                    includeProviderPayloads: true as const,
-                    onProviderTraceEvent: (event: LLMProviderTraceEvent) => {
-                      logProviderPayloadTraceEvent({
-                        logger: this.logger,
-                        channelName: "webchat.eval",
-                        traceConfig,
-                        traceId: `eval:${ctx.sessionId ?? "unknown"}:${started}`,
-                        sessionId: ctx.sessionId,
-                        event,
-                      });
-                    },
-                  },
-                }
-              : undefined;
-          try {
-            const response = await provider.chat(
-              [
-                {
-                  role: "system",
-                  content:
-                    "You are a model evaluation probe. Follow user formatting instructions exactly.",
-                },
-                { role: "user", content: prompt },
-              ],
-              evalProviderTrace,
-            );
-            const durationMs = Date.now() - started;
-            if (response.finishReason === "error" || response.error) {
-              await ctx.reply(
-                `Model eval failed (${provider.name}) in ${durationMs}ms: ` +
-                  `${response.error?.message ?? "unknown provider error"}`,
-              );
-              return;
-            }
-
-            await ctx.reply(
-              `Model eval (${provider.name}) completed in ${durationMs}ms.\n` +
-                `Model: ${response.model}\n` +
-                `Finish: ${response.finishReason}\n` +
-                `Usage: prompt=${response.usage.promptTokens}, completion=${response.usage.completionTokens}, total=${response.usage.totalTokens}\n` +
-                `Response:\n${truncateToolLogText(response.content, EVAL_REPLY_MAX_CHARS)}\n` +
-                `Mode: model-only (no tools). Use /eval full to run tools in this chat session.`,
-            );
-          } catch (err) {
-            await ctx.reply(
-              `Model eval error: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-          return;
-        }
-
-        if (!scriptHarness) {
-          const inboundHandler = this._webChatInboundHandler;
-          if (!inboundHandler) {
-            await ctx.reply(
-              "Full eval unavailable: webchat pipeline is not initialized.",
-            );
-            return;
-          }
-
-          const desktopHandle = this._desktopManager?.getHandleBySession(
-            ctx.sessionId,
-          );
-          const customPrompt = ctx.args.replace(/^(full|tools)\s*/i, "").trim();
-          const defaultPrompt = desktopHandle
-            ? [
-                "You are running /eval full inside a desktop-assigned chat session.",
-                "Use desktop tools only for execution.",
-                "Do not use system.bash or other system.* tools.",
-                "Steps:",
-                "1) Use desktop.bash to create /tmp/agenc-eval/index.html containing exactly: <h1>agent-ok</h1>.",
-                '2) Use desktop.bash to start a local HTTP server on 127.0.0.1 with a free port, and write /tmp/agenc-eval/state.txt with "port=<port> pid=<pid>".',
-                "3) Use desktop.bash to curl the server and verify response includes agent-ok.",
-                "4) Use desktop.bash to stop the exact pid and verify the port is closed.",
-                'Return strict JSON: {"overall":"pass|fail","steps":[{"name":"...","status":"pass|fail","evidence":"..."}]}',
-              ].join("\n")
-            : [
-                "You are running /eval full in a host-tools session (no desktop assigned).",
-                "Use system.bash for all execution steps.",
-                "Steps:",
-                "1) Create /tmp/agenc-eval/index.html containing exactly: <h1>agent-ok</h1>.",
-                '2) Start a local HTTP server on 127.0.0.1 with a free port, and write /tmp/agenc-eval/state.txt with "port=<port> pid=<pid>".',
-                "3) curl the server and verify response includes agent-ok.",
-                "4) Stop the exact pid and verify the port is closed.",
-                'Return strict JSON: {"overall":"pass|fail","steps":[{"name":"...","status":"pass|fail","evidence":"..."}]}',
-              ].join("\n");
-
-          const evalPrompt =
-            customPrompt.length > 0 ? customPrompt : defaultPrompt;
-          const evalMessage = createGatewayMessage({
-            channel: "webchat",
-            senderId: ctx.senderId,
-            senderName: `WebClient(${ctx.senderId})`,
-            sessionId: ctx.sessionId,
-            content: evalPrompt,
-            scope: "dm",
-            metadata: {
-              source: "slash-eval",
-              mode: "full",
-              target: desktopHandle ? "desktop" : "host",
-              desktopContainerId: desktopHandle?.containerId,
-            },
-          });
-
-          await ctx.reply(
-            desktopHandle
-              ? `Starting full eval in this chat session on assigned desktop ${desktopHandle.containerId}. Live tool events will stream below.`
-              : "Starting full eval in this chat session using host tools (no desktop assigned). Live tool events will stream below.",
-          );
-          void inboundHandler(evalMessage).catch((error) => {
-            void ctx.reply(
-              `Full eval failed to start: ${toErrorMessage(error)}`,
-            );
-          });
-          return;
-        }
-
-        const harnessArgs = ctx.argv.slice(1);
-        const scriptPath = await resolveEvalScriptPathCandidates();
-        if (!scriptPath) {
-          await ctx.reply(
-            `Could not find ${EVAL_SCRIPT_NAME}. ` +
-              `Expected it in ${process.cwd()} or ${getDefaultWorkspacePath()}.\n` +
-              "Use `/eval` for model testing or `/eval full` for in-session tool evaluation.",
-          );
-          return;
-        }
-
-        await ctx.reply(
-          `Running ${EVAL_SCRIPT_NAME} (live tool trace enabled)...`,
-        );
-        let streamedLines = 0;
-        let droppedLines = 0;
-        const maxStreamedLines = 60;
-        const shouldStreamEvalLine = (line: string): boolean =>
-          line.startsWith("[TEST]") ||
-          line.startsWith("[TOOL]") ||
-          line.includes("AGENT RESPONSE") ||
-          line.startsWith("Overall:");
-
-        const result = await runEvalScript(
-          scriptPath,
-          harnessArgs,
-          (progress) => {
-            const line = progress.line.trim();
-            if (!shouldStreamEvalLine(line)) return;
-
-            if (streamedLines >= maxStreamedLines) {
-              droppedLines += 1;
-              return;
-            }
-            streamedLines += 1;
-            const prefix =
-              progress.stream === "stderr" ? "[eval stderr]" : "[eval]";
-            void ctx.reply(`${prefix} ${truncateToolLogText(line, 500)}`);
-          },
-        );
-        if (droppedLines > 0) {
-          await ctx.reply(
-            `[eval] Suppressed ${droppedLines} additional progress line(s).`,
-          );
-        }
-        if (result.exitCode === 0 && !didEvalScriptPass(result)) {
-          await ctx.reply(
-            formatEvalScriptReply({
-              ...result,
-              exitCode: 1,
-              stderr: result.stderr
-                ? `${result.stderr}\nEval output did not report Overall: pass.`
-                : "Eval output did not report Overall: pass.",
-            }),
-          );
-          return;
-        }
-        await ctx.reply(formatEvalScriptReply(result));
-      },
-    });
-    commandRegistry.register({
-      name: "skills",
-      description: "List available skills",
-      global: true,
-      handler: async (ctx) => {
-        if (skillList.length === 0) {
-          await ctx.reply("No skills available.");
-          return;
-        }
-        const lines = skillList.map(
-          (skill) =>
-            `  ${skill.enabled ? "●" : "○"} ${skill.name} — ${skill.description}`,
-        );
-        await ctx.reply("Skills:\n" + lines.join("\n"));
-      },
-    });
-    commandRegistry.register({
-      name: "model",
-      description: "Show or switch the current LLM model",
-      args: "[model-name | current | list]",
-      global: true,
-      handler: async (ctx) => {
-        const sessionId = ctx.sessionId;
-        const last = this._sessionModelInfo.get(sessionId);
-        const arg = ctx.args.trim();
-        const argLower = arg.toLowerCase();
-        const configuredPrimaryProvider = this.gateway?.config.llm?.provider ?? "none";
-        const configuredPrimaryModel =
-          configuredPrimaryProvider === "grok"
-            ? normalizeGrokModel(this.gateway?.config.llm?.model) ??
-              DEFAULT_GROK_MODEL
-            : this.gateway?.config.llm?.model ?? "unknown";
-        const configuredFallbacks =
-          this.gateway?.config.llm?.fallback?.map((entry) => (
-            `${entry.provider}:${
-              entry.provider === "grok"
-                ? normalizeGrokModel(entry.model) ?? DEFAULT_GROK_MODEL
-                : entry.model ?? "unknown"
-            }`
-          )) ?? [];
-
-        const knownGrokModels = listKnownGrokModels();
-        const chatModels = knownGrokModels.filter((entry) => !entry.modality);
-
-        // /model (no args) or /model current — show current routing
-        if (!arg || argLower === "current") {
-          const lines = [
-            "Model routing:",
-            last
-              ? `  Last completion: ${last.model} (provider: ${last.provider}${last.usedFallback ? ", fallback used" : ""})`
-              : "  Last completion: none recorded for this session",
-            `  Primary: ${configuredPrimaryProvider}:${configuredPrimaryModel}`,
-            `  Fallbacks: ${configuredFallbacks.length > 0 ? configuredFallbacks.join(", ") : "none"}`,
-            "",
-            `Available chat models: ${chatModels.map((m) => m.id).join(", ")}`,
-            "",
-            "Switch with: /model <model-name>",
-          ];
-          await ctx.reply(lines.join("\n"));
-          return;
-        }
-
-        // /model list — show full catalog
-        if (argLower === "list") {
-          const lines = ["Known xAI models:"];
-          for (const entry of knownGrokModels) {
-            if (entry.modality) {
-              lines.push(`  ${entry.id} [${entry.modality}]`);
-            } else {
-              const active = entry.id === configuredPrimaryModel ? " (active)" : "";
-              lines.push(
-                `  ${entry.id} (${entry.contextWindowTokens.toLocaleString("en-US")} ctx)${active}` +
-                  (entry.aliases.length > 0 ? ` aliases: ${entry.aliases.join(", ")}` : ""),
-              );
-            }
-          }
-          await ctx.reply(lines.join("\n"));
-          return;
-        }
-
-        // /model <name> — switch model
-        if (configuredPrimaryProvider !== "grok") {
-          await ctx.reply(
-            `Model switching is only supported for the grok provider (current: ${configuredPrimaryProvider}).`,
-          );
-          return;
-        }
-
-        const normalized = normalizeGrokModel(arg) ?? arg;
-        let match = chatModels.find((m) => m.id === normalized);
-        if (!match) {
-          // Try fuzzy: check if any model contains the input
-          const fuzzy = chatModels.filter((m) =>
-            m.id.toLowerCase().includes(argLower) ||
-            m.aliases.some((a) => a.toLowerCase().includes(argLower)),
-          );
-          if (fuzzy.length === 1) {
-            match = fuzzy[0];
-          } else if (fuzzy.length > 1) {
-            await ctx.reply(
-              `Multiple models match "${arg}":\n${fuzzy.map((m) => `  ${m.id}`).join("\n")}\n\nBe more specific.`,
-            );
-            return;
-          } else {
-            await ctx.reply(
-              `Unknown model "${arg}". Available chat models:\n${chatModels.map((m) => `  ${m.id}`).join("\n")}`,
-            );
-            return;
-          }
-        }
-
-        if (match.id === configuredPrimaryModel) {
-          await ctx.reply(`Already using ${match.id}.`);
-          return;
-        }
-
-        // Write updated model to config file and explicitly trigger reload
-        try {
-          const raw = await readFile(this.configPath, "utf-8");
-          const config = JSON.parse(raw) as Record<string, unknown>;
-          const llm = (config.llm ?? {}) as Record<string, unknown>;
-          llm.model = match.id;
-          config.llm = llm;
-          await writeFile(this.configPath, JSON.stringify(config, null, 2) + "\n");
-          this.logger.info(`Model switched to ${match.id} via /model command`);
-          // Trigger config reload explicitly — filesystem watchers can be unreliable
-          await this.handleConfigReload();
-          await ctx.reply(
-            `Model switched: ${configuredPrimaryModel} → ${match.id} (${match.contextWindowTokens.toLocaleString("en-US")} ctx)`,
-          );
-        } catch (err) {
-          this.logger.error("Failed to update model config", { error: toErrorMessage(err) });
-          await ctx.reply(`Failed to switch model: ${toErrorMessage(err)}`);
-        }
-      },
-    });
-
-    // Voice command
-    const XAI_VOICES = ["Ara", "Rex", "Sal", "Eve", "Leo"] as const;
-    commandRegistry.register({
-      name: "voice",
-      description: "Show voice config or change voice persona",
-      args: "[Ara|Rex|Sal|Eve|Leo|status|enable|disable]",
-      global: true,
-      handler: async (ctx) => {
-        const arg = ctx.args.trim();
-        const voiceConfig = this.gateway?.config.voice;
-        const bridge = this._voiceBridge;
-
-        // /voice status — show active sessions
-        if (arg.toLowerCase() === "status") {
-          const count = bridge?.activeSessionCount ?? 0;
-          const lines = [
-            `Voice sessions: ${count} active`,
-            `Enabled: ${voiceConfig?.enabled !== false && bridge ? "yes" : "no"}`,
-            `Voice: ${voiceConfig?.voice ?? "Ara"} (default)`,
-            `Mode: ${voiceConfig?.mode ?? "vad"}`,
-            `Model: ${voiceConfig?.model ?? DEFAULT_GROK_MODEL}`,
-            `VAD threshold: ${voiceConfig?.vadThreshold ?? 0.5}`,
-            `VAD silence: ${voiceConfig?.vadSilenceDurationMs ?? 800}ms`,
-          ];
-          await ctx.reply(lines.join("\n"));
-          return;
-        }
-
-        // /voice enable / disable
-        if (arg.toLowerCase() === "enable" || arg.toLowerCase() === "disable") {
-          const enable = arg.toLowerCase() === "enable";
-          if (this.gateway?.config.voice) {
-            this.gateway.config.voice.enabled = enable;
-          }
-          await ctx.reply(`Voice ${enable ? "enabled" : "disabled"}.`);
-          return;
-        }
-
-        // /voice <VoiceName> — change voice persona
-        const matchedVoice = XAI_VOICES.find(
-          (v) => v.toLowerCase() === arg.toLowerCase(),
-        );
-        if (matchedVoice) {
-          if (this.gateway?.config.voice) {
-            this.gateway.config.voice.voice = matchedVoice;
-          } else if (this.gateway?.config) {
-            (this.gateway.config as any).voice = { voice: matchedVoice };
-          }
-          await ctx.reply(
-            `Voice set to ${matchedVoice}. New voice sessions will use this persona.`,
-          );
-          return;
-        }
-
-        // /voice (no args) — show config + available voices
-        const currentVoice = voiceConfig?.voice ?? "Ara";
-        const lines = [
-          `Voice: ${bridge ? "available" : "not configured"}`,
-          `Current persona: ${currentVoice}`,
-          `Mode: ${voiceConfig?.mode ?? "vad"}`,
-          `Sessions: ${bridge?.activeSessionCount ?? 0} active`,
-          "",
-          "Available voices:",
-        ];
-        for (const v of XAI_VOICES) {
-          lines.push(`  ${v === currentVoice ? "●" : "○"} ${v}`);
-        }
-        lines.push(
-          "",
-          "Usage: /voice <name> to switch, /voice status for details",
-        );
-        await ctx.reply(lines.join("\n"));
-      },
-    });
-
-    // Progress tracker command
-    if (progressTracker) {
-      commandRegistry.register({
-        name: "progress",
-        description: "Show recent task progress",
-        global: true,
-        handler: async (ctx) => {
-          const sessionId = ctx.sessionId;
-          const summary = await progressTracker.getSummary(sessionId);
-          await ctx.reply(summary || "No progress entries yet.");
-        },
-      });
-    }
-
-    // Pipeline commands
-    if (pipelineExecutor) {
-      commandRegistry.register({
-        name: "pipeline",
-        description: "Run a pipeline from JSON steps",
-        args: "<json>",
-        global: true,
-        handler: async (ctx) => {
-          if (!ctx.args) {
-            await ctx.reply(
-              'Usage: /pipeline [{"name":"step1","tool":"system.bash","args":{"command":"ls"}}]',
-            );
-            return;
-          }
-          try {
-            const steps: PipelineStep[] = JSON.parse(ctx.args);
-            if (!Array.isArray(steps) || steps.length === 0) {
-              await ctx.reply("Pipeline steps must be a non-empty JSON array.");
-              return;
-            }
-            const pipeline: Pipeline = {
-              id: `pipeline-${Date.now()}`,
-              steps,
-              context: { results: {} },
-              createdAt: Date.now(),
-            };
-            await ctx.reply(
-              `Starting pipeline "${pipeline.id}" with ${steps.length} step(s)...`,
-            );
-            const result = await pipelineExecutor.execute(pipeline);
-            if (result.status === "completed") {
-              await ctx.reply(
-                `Pipeline completed (${result.completedSteps}/${result.totalSteps} steps).`,
-              );
-            } else if (result.status === "halted") {
-              await ctx.reply(
-                `Pipeline halted at step ${result.resumeFrom}/${result.totalSteps}. ` +
-                  `Use /resume ${pipeline.id} to continue.`,
-              );
-            } else {
-              await ctx.reply(
-                `Pipeline failed: ${result.error ?? "unknown error"}`,
-              );
-            }
-          } catch (err) {
-            await ctx.reply(
-              `Invalid pipeline JSON: ${err instanceof Error ? err.message : err}`,
-            );
-          }
-        },
-      });
-      commandRegistry.register({
-        name: "resume",
-        description: "Resume a halted pipeline",
-        args: "[pipeline-id]",
-        global: true,
-        handler: async (ctx) => {
-          if (!ctx.args) {
-            const active = await pipelineExecutor.listActive();
-            if (active.length === 0) {
-              await ctx.reply("No active pipelines.");
-              return;
-            }
-            const lines = active.map(
-              (cp) =>
-                `  ${cp.pipelineId} — step ${cp.stepIndex}/${cp.pipeline.steps.length} (${cp.status})`,
-            );
-            await ctx.reply("Active pipelines:\n" + lines.join("\n"));
-            return;
-          }
-          try {
-            const result = await pipelineExecutor.resume(ctx.args.trim());
-            if (result.status === "completed") {
-              await ctx.reply(
-                `Pipeline resumed and completed (${result.completedSteps}/${result.totalSteps} steps).`,
-              );
-            } else if (result.status === "halted") {
-              await ctx.reply(
-                `Pipeline halted again at step ${result.resumeFrom}/${result.totalSteps}.`,
-              );
-            } else {
-              await ctx.reply(
-                `Pipeline resume failed: ${result.error ?? "unknown error"}`,
-              );
-            }
-          } catch (err) {
-            await ctx.reply(
-              `Resume failed: ${err instanceof Error ? err.message : err}`,
-            );
-          }
-        },
-      });
-    }
-
-    // Desktop sandbox commands (only when desktop is enabled)
-    if (this._desktopManager) {
-      const desktopMgr = this._desktopManager;
-      commandRegistry.register({
-        name: "desktop",
-        description:
-          "Manage desktop sandbox (start|stop|status|vnc|list|attach)",
-        args: "<subcommand>",
-        global: true,
-        handler: async (ctx) => {
-          const sub = ctx.argv[0]?.toLowerCase();
-          const sessionId = ctx.sessionId;
-          const listOrderedSandboxes = () =>
-            desktopMgr
-              .listAll()
-              .slice()
-              .sort((a, b) => a.createdAt - b.createdAt);
-          const listActiveSandboxes = () =>
-            listOrderedSandboxes().filter(
-              (entry) =>
-                entry.status !== "stopped" && entry.status !== "failed",
-            );
-          const desktopLabel = (index: number) => `desktop-${index + 1}`;
-          const findDesktopLabel = (
-            containerId: string,
-          ): string | undefined => {
-            const index = listOrderedSandboxes().findIndex(
-              (entry) => entry.containerId === containerId,
-            );
-            return index >= 0 ? desktopLabel(index) : undefined;
-          };
-          const resolveAttachTarget = (
-            rawTarget: string | undefined,
-          ): { containerId?: string; label?: string; error?: string } => {
-            const running = listActiveSandboxes();
-            if (running.length === 0) {
-              return {
-                error: "No active desktop sandboxes. Use /desktop start first.",
-              };
-            }
-
-            const target = rawTarget?.trim();
-            if (!target) {
-              if (running.length === 1) {
-                return {
-                  containerId: running[0].containerId,
-                  label: findDesktopLabel(running[0].containerId),
-                };
-              }
-              return {
-                error:
-                  "Usage: /desktop attach <number|name|containerId>\nTip: run /desktop list first.",
-              };
-            }
-
-            if (/^\d+$/.test(target)) {
-              const index = Number.parseInt(target, 10) - 1;
-              if (index >= 0 && index < running.length) {
-                return {
-                  containerId: running[index].containerId,
-                  label: findDesktopLabel(running[index].containerId),
-                };
-              }
-              return {
-                error: `Desktop index out of range: ${target}. Run /desktop list first.`,
-              };
-            }
-
-            const labelMatch = target.toLowerCase().match(/^desktop-(\d+)$/);
-            if (labelMatch) {
-              const index = Number.parseInt(labelMatch[1], 10) - 1;
-              if (index >= 0 && index < running.length) {
-                return {
-                  containerId: running[index].containerId,
-                  label: desktopLabel(index),
-                };
-              }
-              return {
-                error: `Unknown desktop name: ${target}. Run /desktop list first.`,
-              };
-            }
-
-            const exact = running.find((entry) => entry.containerId === target);
-            if (exact) {
-              return {
-                containerId: exact.containerId,
-                label: findDesktopLabel(exact.containerId),
-              };
-            }
-
-            const prefixMatches = running.filter((entry) =>
-              entry.containerId.startsWith(target),
-            );
-            if (prefixMatches.length === 1) {
-              return {
-                containerId: prefixMatches[0].containerId,
-                label: findDesktopLabel(prefixMatches[0].containerId),
-              };
-            }
-            if (prefixMatches.length > 1) {
-              return {
-                error:
-                  `Container id prefix "${target}" is ambiguous (${prefixMatches.length} matches). ` +
-                  "Use /desktop list and pick the desktop number.",
-              };
-            }
-
-            return {
-              error:
-                `Desktop not found: ${target}\n` +
-                "Use /desktop list and attach by number (for example, /desktop attach 1).",
-            };
-          };
-          const resolveActiveSessionHandle = (): {
-            handle?: ReturnType<typeof desktopMgr.getHandleBySession>;
-            sourceSessionId?: string;
-          } => {
-            const direct = desktopMgr.getHandleBySession(sessionId);
-            if (direct) {
-              return { handle: direct, sourceSessionId: sessionId };
-            }
-
-            // Voice/session routing previously used senderId as the desktop
-            // router key. Keep /desktop stop/status/vnc compatible with those
-            // existing sandboxes while newer sessions converge on sessionId.
-            const senderSessionId = ctx.senderId?.trim();
-            if (senderSessionId && senderSessionId !== sessionId) {
-              const senderHandle =
-                desktopMgr.getHandleBySession(senderSessionId);
-              if (senderHandle) {
-                return {
-                  handle: senderHandle,
-                  sourceSessionId: senderSessionId,
-                };
-              }
-            }
-
-            return {};
-          };
-
-          if (sub === "start") {
-            const parseStartResourceOverrides = (): {
-              maxMemory?: string;
-              maxCpu?: string;
-              error?: string;
-            } => {
-              let maxMemory: string | undefined;
-              let maxCpu: string | undefined;
-              for (let i = 1; i < ctx.argv.length; i++) {
-                const token = ctx.argv[i];
-                if (token === "--memory" || token === "--ram") {
-                  const value = ctx.argv[i + 1];
-                  if (!value) return { error: "Missing value for --memory" };
-                  maxMemory = value;
-                  i += 1;
-                  continue;
-                }
-                if (
-                  token.startsWith("--memory=") ||
-                  token.startsWith("--ram=")
-                ) {
-                  maxMemory = token.slice(token.indexOf("=") + 1);
-                  continue;
-                }
-                if (token === "--cpu" || token === "--cpus") {
-                  const value = ctx.argv[i + 1];
-                  if (!value) return { error: "Missing value for --cpu" };
-                  maxCpu = value;
-                  i += 1;
-                  continue;
-                }
-                if (token.startsWith("--cpu=") || token.startsWith("--cpus=")) {
-                  maxCpu = token.slice(token.indexOf("=") + 1);
-                  continue;
-                }
-                return { error: `Unknown /desktop start option: ${token}` };
-              }
-              return { maxMemory, maxCpu };
-            };
-
-            const overrides = parseStartResourceOverrides();
-            if (overrides.error) {
-              await ctx.reply(
-                `${overrides.error}\nUsage: /desktop start [--memory 4g] [--cpu 2.0]`,
-              );
-              return;
-            }
-
-            const existing = desktopMgr.getHandleBySession(sessionId);
-            if (existing && (overrides.maxMemory || overrides.maxCpu)) {
-              await ctx.reply(
-                `Desktop already running for this session (RAM ${existing.maxMemory}, CPU ${existing.maxCpu}). ` +
-                  "Stop it first to change resources.",
-              );
-              return;
-            }
-
-            try {
-              const handle = await desktopMgr.getOrCreate(sessionId, {
-                maxMemory: overrides.maxMemory,
-                maxCpu: overrides.maxCpu,
-              });
-              const label = findDesktopLabel(handle.containerId) ?? "desktop";
-              await ctx.reply(
-                `Desktop sandbox started (${label}).\nVNC: http://localhost:${handle.vncHostPort}/vnc.html\n` +
-                  `Resolution: ${handle.resolution.width}x${handle.resolution.height}\n` +
-                  `Resources: RAM ${handle.maxMemory}, CPU ${handle.maxCpu}`,
-              );
-            } catch (err) {
-              await ctx.reply(
-                `Failed to start desktop: ${err instanceof Error ? err.message : err}`,
-              );
-            }
-          } else if (sub === "stop") {
-            const stopTarget = ctx.argv[1]?.trim();
-            const { destroySessionBridge } =
-              await import("../desktop/session-router.js");
-
-            if (stopTarget && stopTarget.length > 0) {
-              const resolved = resolveAttachTarget(stopTarget);
-              if (!resolved.containerId) {
-                await ctx.reply(
-                  resolved.error ?? "Failed to resolve desktop target.",
-                );
-                return;
-              }
-
-              const targetHandle = desktopMgr.getHandle(resolved.containerId);
-              await desktopMgr.destroy(resolved.containerId);
-
-              const sessionsToReset = new Set<string>([sessionId]);
-              if (targetHandle?.sessionId) {
-                sessionsToReset.add(targetHandle.sessionId);
-              }
-              for (const targetSessionId of sessionsToReset) {
-                destroySessionBridge(
-                  targetSessionId,
-                  this._desktopBridges,
-                  this._playwrightBridges,
-                  this._containerMCPBridges,
-                  this.logger,
-                );
-              }
-
-              await ctx.reply(
-                `Desktop sandbox stopped (${resolved.label ?? resolved.containerId}).`,
-              );
-              return;
-            }
-
-            const activeResolution = resolveActiveSessionHandle();
-            const active = activeResolution.handle;
-            if (!active) {
-              await ctx.reply(
-                "No active desktop sandbox for this session.\n" +
-                  "Use /desktop list and stop by number (for example, /desktop stop 1).",
-              );
-              return;
-            }
-
-            await desktopMgr.destroy(active.containerId);
-            const sessionsToReset = new Set<string>([sessionId]);
-            if (activeResolution.sourceSessionId) {
-              sessionsToReset.add(activeResolution.sourceSessionId);
-            }
-            for (const targetSessionId of sessionsToReset) {
-              destroySessionBridge(
-                targetSessionId,
-                this._desktopBridges,
-                this._playwrightBridges,
-                this._containerMCPBridges,
-                this.logger,
-              );
-            }
-            await ctx.reply("Desktop sandbox stopped.");
-          } else if (sub === "status") {
-            const handle = resolveActiveSessionHandle().handle;
-            if (!handle) {
-              await ctx.reply("No active desktop sandbox for this session.");
-            } else {
-              const uptimeS = Math.round(
-                (Date.now() - handle.createdAt) / 1000,
-              );
-              const label = findDesktopLabel(handle.containerId) ?? "desktop";
-              await ctx.reply(
-                `Desktop sandbox: ${label} [${handle.status}]\n` +
-                  `Container: ${handle.containerId}\n` +
-                  `Uptime: ${uptimeS}s\n` +
-                  `VNC: http://localhost:${handle.vncHostPort}/vnc.html\n` +
-                  `Resolution: ${handle.resolution.width}x${handle.resolution.height}\n` +
-                  `Resources: RAM ${handle.maxMemory}, CPU ${handle.maxCpu}`,
-              );
-            }
-          } else if (sub === "vnc") {
-            const handle = resolveActiveSessionHandle().handle;
-            if (!handle) {
-              await ctx.reply(
-                "No active desktop sandbox. Use /desktop start first.",
-              );
-            } else {
-              await ctx.reply(
-                `http://localhost:${handle.vncHostPort}/vnc.html`,
-              );
-            }
-          } else if (sub === "list") {
-            const all = listOrderedSandboxes();
-            if (all.length === 0) {
-              await ctx.reply("No desktop sandboxes running.");
-            } else {
-              const lines = all.map((entry, index) => {
-                const label = desktopLabel(index);
-                const session =
-                  entry.sessionId.length > 48
-                    ? `${entry.sessionId.slice(0, 48)}...`
-                    : entry.sessionId;
-                return (
-                  `${index + 1}) ${label} [${entry.status}] id=${entry.containerId}\n` +
-                  `   session=${session} ram=${entry.maxMemory} cpu=${entry.maxCpu}\n` +
-                  `   vnc=${entry.vncUrl}`
-                );
-              });
-              await ctx.reply(
-                `Desktop sandboxes (${all.length}):\n${lines.join("\n")}\n` +
-                  "Attach with: /desktop attach <number|name|containerId>",
-              );
-            }
-          } else if (sub === "attach") {
-            const targetArg = ctx.argv[1];
-            const resolved = resolveAttachTarget(
-              typeof targetArg === "string" ? targetArg : undefined,
-            );
-            if (!resolved.containerId) {
-              await ctx.reply(
-                resolved.error ?? "Failed to resolve desktop target.",
-              );
-              return;
-            }
-
-            try {
-              const { destroySessionBridge } =
-                await import("../desktop/session-router.js");
-              // Reset any existing bridge for this session so follow-up desktop tool
-              // calls reconnect against the newly attached container.
-              destroySessionBridge(
-                sessionId,
-                this._desktopBridges,
-                this._playwrightBridges,
-                this._containerMCPBridges,
-                this.logger,
-              );
-              const handle = desktopMgr.assignSession(
-                resolved.containerId,
-                sessionId,
-              );
-              const label =
-                resolved.label ??
-                findDesktopLabel(handle.containerId) ??
-                "desktop";
-              await ctx.reply(
-                `Attached ${label} (${handle.containerId}) to this chat session.\n` +
-                  `VNC: http://localhost:${handle.vncHostPort}/vnc.html`,
-              );
-            } catch (err) {
-              await ctx.reply(
-                `Failed to attach desktop: ${err instanceof Error ? err.message : err}`,
-              );
-            }
-          } else {
-            await ctx.reply(
-              "Usage: /desktop <start|stop|status|vnc|list|attach>\n" +
-                "/desktop start flags: [--memory 4g] [--cpu 2.0]\n" +
-                "/desktop attach: <number|name|containerId>",
-            );
-          }
-        },
-      });
-    }
-
-    // /goal — create or list goals (lazy access to goalManager via getter)
-    const daemon = this;
-    commandRegistry.register({
-      name: "goal",
-      description: "Create or list goals",
-      args: "[description]",
-      global: true,
-      handler: async (ctx) => {
-        const gm = daemon.goalManager;
-        if (!gm) {
-          await ctx.reply(
-            "Goal manager not available. Autonomous features may be disabled.",
-          );
-          return;
-        }
-        if (ctx.args) {
-          const goal = await gm.addGoal({
-            title: ctx.args.slice(0, 60),
-            description: ctx.args,
-            priority: "medium",
-            source: "user",
-            maxAttempts: 2,
-          });
-          await ctx.reply(
-            `Goal created [${goal.id.slice(0, 8)}]: ${goal.title}`,
-          );
-        } else {
-          const active = await gm.getActiveGoals();
-          if (active.length === 0) {
-            await ctx.reply(
-              "No active goals. Use /goal <description> to create one.",
-            );
-            return;
-          }
-          const lines = active.map(
-            (g) => `  [${g.priority}/${g.status}] ${g.title}`,
-          );
-          await ctx.reply(
-            `Active goals (${active.length}):\n${lines.join("\n")}`,
-          );
-        }
-      },
-    });
-
-    return commandRegistry;
+    return createDaemonCommandRegistry(
+      this._buildCommandRegistryContext(),
+      sessionMgr,
+      resolveSessionId,
+      providers,
+      memoryBackend,
+      registry,
+      availableSkills,
+      skillList,
+      hooks,
+      baseToolHandler,
+      approvalEngine,
+      progressTracker,
+      pipelineExecutor,
+    );
   }
 
   private async runProjectInitOperation(params: {
@@ -8435,8 +5821,6 @@ export class DaemonManager {
       return [];
     }
   }
-
-
   async stop(): Promise<void> {
     if (this.shutdownInProgress) {
       return;
