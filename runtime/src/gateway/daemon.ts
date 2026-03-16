@@ -116,9 +116,6 @@ import {
   DEFAULT_GROK_MODEL,
   type LLMProviderConfigCatalogEntry,
 } from "./llm-provider-manager.js";
-import {
-  summarizeLLMFailureForSurface,
-} from "./daemon-llm-failure.js";
 import type {
   ChatExecutorResult,
   DeterministicPipelineExecutor,
@@ -2055,13 +2052,13 @@ export class DaemonManager {
           containerMCPConfigs: this._containerMCPConfigs,
           containerMCPBridges: this._containerMCPBridges,
           logger: this.logger,
-          broadcastDesktopEvent: (sessionId, eventType, payload) => {
+          broadcastDesktopEvent: (_sessionId, eventType, payload) => {
             this._webChatChannel?.broadcastEvent(eventType, payload);
           },
-          signalBackgroundRun: async (sessionId, signal) => {
+          signalBackgroundRun: async (_sessionId, signal) => {
             const signalled = await this._backgroundRunSupervisor?.signalRun({
-              sessionId,
-              type: signal.type,
+              sessionId: _sessionId,
+              type: signal.type as any,
               content: signal.content,
               data: signal.data,
             });
