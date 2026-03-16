@@ -16,7 +16,8 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { createProgram } from "../runtime/src/index.js";
+import idlJson from "../runtime/idl/agenc_coordination.json";
+import type { AgencCoordination } from "../runtime/src/types/agenc_coordination";
 
 const DEFAULT_RPC_URL =
   process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";
@@ -38,7 +39,7 @@ type CliContext = {
   options: CliOptions;
   authority: Keypair;
   connection: Connection;
-  program: ReturnType<typeof createProgram>;
+  program: anchor.Program<AgencCoordination>;
   protocolPda: PublicKey;
   zkConfigPda: PublicKey;
 };
@@ -66,7 +67,7 @@ Options:
 Examples:
   npx tsx scripts/zk-config-admin.ts show
   npx tsx scripts/zk-config-admin.ts init --image-id "234, 105, ..."
-  npx tsx scripts/zk-config-admin.ts rotate --image-id "0xea693a9a8b2b774161852dfec9b2af4749e61211f30316c12fad6badd7d00152"
+  npx tsx scripts/zk-config-admin.ts rotate --image-id "0xa3a2eb3cdea028b8b65f873527ef2a5834ab15820fdb8f11d81ab94d5e224414"
 `);
 }
 
@@ -276,7 +277,14 @@ async function createCliContext(options: CliOptions): Promise<CliContext> {
     new anchor.Wallet(authority),
     { commitment: "confirmed" },
   );
-  const program = createProgram(provider, programId);
+  const programIdl = {
+    ...(idlJson as anchor.Idl),
+    address: programId.toBase58(),
+  } as anchor.Idl;
+  const program = new anchor.Program<AgencCoordination>(
+    programIdl as AgencCoordination,
+    provider,
+  );
   return {
     options,
     authority,

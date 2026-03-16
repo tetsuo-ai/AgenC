@@ -29,7 +29,10 @@ export type { AgencCoordination };
  * Typed as Anchor's generic `Idl` which correctly represents the snake_case
  * JSON structure. Use `Program<AgencCoordination>` for type-safe method access.
  */
-export const IDL: Idl = idlJson as Idl;
+export const IDL: Idl = {
+  ...(idlJson as Idl),
+  address: PROGRAM_ID.toBase58(),
+};
 
 /**
  * Placeholder public key for read-only providers.

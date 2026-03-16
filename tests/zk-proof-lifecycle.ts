@@ -60,6 +60,7 @@ describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
   let ctx: LiteSVMContext;
   let program: Program<AgencCoordination>;
   let protocolPda: PublicKey;
+  let zkConfigPda: PublicKey;
   let routerPda: PublicKey;
   let verifierEntryPda: PublicKey;
 
@@ -113,6 +114,7 @@ describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
         creator: taskCreatorKey,
         worker: workerAgent,
         protocolConfig: protocolPda,
+        zkConfig: zkConfigPda,
         bindingSpend: params.bindingSpendPda,
         nullifierSpend: params.nullifierSpendPda,
         treasury: treasury.publicKey,
@@ -254,6 +256,10 @@ describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
     injectMockVerifierRouter(ctx.svm);
     program = ctx.program;
     protocolPda = deriveProtocolPda(program.programId);
+    zkConfigPda = PublicKey.findProgramAddressSync(
+      [Buffer.from("zk_config")],
+      program.programId,
+    )[0];
     routerPda = deriveRouterPda();
     verifierEntryPda = deriveVerifierEntryPda();
 

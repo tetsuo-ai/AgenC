@@ -110,6 +110,9 @@ async function callRemoteProver(input: {
   output_commitment: number[];
   binding: number[];
   nullifier: number[];
+  output: number[][];
+  salt: number[];
+  agent_secret: number[];
 }): Promise<{ seal_bytes: number[]; journal: number[]; image_id: number[] }> {
   const endpoint = process.env.AGENC_PROVER_ENDPOINT;
   if (!endpoint) {
@@ -191,6 +194,9 @@ async function main() {
     output_commitment: Array.from(bigintToBytes32(outputCommitment)),
     binding: Array.from(bigintToBytes32(binding)),
     nullifier: Array.from(bigintToBytes32(nullifier)),
+    output: output.map((value) => Array.from(bigintToBytes32(value))),
+    salt: Array.from(bigintToBytes32(salt)),
+    agent_secret: Array.from(bigintToBytes32(agentSecret)),
   };
 
   // 6. Generate proof

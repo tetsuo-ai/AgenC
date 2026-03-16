@@ -74,7 +74,7 @@ These files exist only on the local machine and are not meant to be committed.
 
 - `zk_config` PDA: `iGP89zNzFpLYAyu12FR4nFj71PfRejVZ8k9NrVKqcvy`
 - `zk_config` bootstrap signature: `55D5y89RbUFXGzAw1r4RjbZSyi5E5Ft41gxL73vsBypwy2fEqHru8z3opwaGMch2XQ6LAPpSRZUedyu3seMJANNM`
-- Active image ID hex: `0xea693a9a8b2b774161852dfec9b2af4749e61211f30316c12fad6badd7d00152`
+- Active image ID hex: query live state before use with `npx tsx scripts/zk-config-admin.ts show --rpc-url <devnet-url>`
 
 ## Runtime-trusted IDs now wired in repo
 

@@ -287,6 +287,11 @@ else
 fi
 echo ""
 
+# macOS can inject AppleDouble metadata files like `._genesis.bin` into archive
+# creation paths unless these copyfile behaviors are disabled.
+export COPYFILE_DISABLE=1
+export COPY_EXTENDED_ATTRIBUTES_DISABLE=1
+
 if [ "${MODE}" = "real" ]; then
   exec solana-test-validator \
     --upgradeable-program "${AGENC_PROGRAM_ID}" "${AGENC_SO}" "${DEPLOYER_PUBKEY}" \

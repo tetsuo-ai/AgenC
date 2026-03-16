@@ -30,8 +30,8 @@ npx tsx examples/simple-usage/index.ts
 ```ts
 await program.methods
   .completeTaskPrivate(taskIdU64, {
-    sealBytes: Array.from(proof.sealBytes),
-    journal: Array.from(proof.journal),
+    sealBytes: Buffer.from(proof.sealBytes),
+    journal: Buffer.from(proof.journal),
     imageId: Array.from(proof.imageId),
     bindingSeed: Array.from(proof.bindingSeed),
     nullifierSeed: Array.from(proof.nullifierSeed),

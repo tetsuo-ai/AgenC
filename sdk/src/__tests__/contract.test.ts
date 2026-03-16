@@ -218,9 +218,11 @@ describe("SDK contract tests", () => {
       .completeTaskPrivate as ReturnType<typeof vi.fn>;
     expect(completeTaskPrivateMock).toHaveBeenCalledTimes(1);
     const proofArg = completeTaskPrivateMock.mock.calls[0][1];
+    expect(Buffer.isBuffer(proofArg.sealBytes)).toBe(true);
+    expect(Buffer.isBuffer(proofArg.journal)).toBe(true);
     expect(proofArg).toMatchObject({
-      sealBytes: expect.any(Array),
-      journal: expect.any(Array),
+      sealBytes: expect.any(Buffer),
+      journal: expect.any(Buffer),
       imageId: expect.any(Array),
       bindingSeed: expect.any(Array),
       nullifierSeed: expect.any(Array),

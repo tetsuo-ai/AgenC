@@ -707,6 +707,8 @@ describe("TaskOperations", () => {
       expect(mocks.completeTaskPrivateMethod).toHaveBeenCalledTimes(1);
       const proofArg = mocks.completeTaskPrivateMethod.mock
         .calls[0][1] as Record<string, unknown>;
+      expect(Buffer.isBuffer(proofArg.sealBytes)).toBe(true);
+      expect(Buffer.isBuffer(proofArg.journal)).toBe(true);
       expect(Object.keys(proofArg).sort()).toEqual([
         "bindingSeed",
         "imageId",

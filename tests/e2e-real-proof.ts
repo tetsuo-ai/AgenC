@@ -18,7 +18,7 @@
  */
 
 import * as anchor from "@coral-xyz/anchor";
-import { Program, Idl } from "@coral-xyz/anchor";
+import type { Idl } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
 import {
@@ -31,14 +31,9 @@ import {
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { AgencCoordination } from "../target/types/agenc_coordination";
-import {
-  CAPABILITY_COMPUTE,
-  TASK_TYPE_EXCLUSIVE,
-  deriveProgramDataPda,
-} from "./test-utils";
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "node:url";
 import {
   GROTH16_SELECTOR as TRUSTED_SELECTOR,
   ROUTER_PROGRAM_ID as TRUSTED_ROUTER_PROGRAM_ID,
@@ -48,7 +43,7 @@ import {
   deriveVerifierProgramDataPda,
   hasExpectedProgramDataAuthority,
   isExpectedVerifierEntryData,
-} from "../scripts/verifier-localnet";
+} from "../scripts/verifier-localnet.ts";
 
 interface ProofFixture {
   sealBytes: number[];
@@ -64,12 +59,32 @@ interface ProofFixture {
   salt: string;
 }
 
+const CAPABILITY_COMPUTE = 1;
+const TASK_TYPE_EXCLUSIVE = 0;
+const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
+  "BPFLoaderUpgradeab1e11111111111111111111111",
+);
+
+function deriveProgramDataPda(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [programId.toBuffer()],
+    BPF_LOADER_UPGRADEABLE_ID,
+  )[0];
+}
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function imageIdsEqual(left: number[], right: number[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
 describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
   const program = anchor.workspace
-    .AgencCoordination as Program<AgencCoordination>;
+    .AgencCoordination as anchor.Program<Idl>;
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
@@ -86,6 +101,7 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
   let treasuryPubkey: PublicKey;
   let creatorAgentPda: PublicKey;
   let workerAgentPda: PublicKey;
+  let zkConfigPda: PublicKey;
   let taskPda: PublicKey;
   let escrowPda: PublicKey;
   let claimPda: PublicKey;
@@ -118,7 +134,7 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
       "verifier_router.json",
     );
     const routerIdl = JSON.parse(fs.readFileSync(routerIdlPath, "utf8")) as Idl;
-    const routerProgram = new Program(routerIdl, provider);
+    const routerProgram = new anchor.Program(routerIdl, provider);
     const routerAccounts = routerProgram.account as unknown as {
       verifierRouter: { fetch(address: PublicKey): Promise<unknown> };
       verifierEntry: { fetch(address: PublicKey): Promise<unknown> };
@@ -289,6 +305,42 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
     } catch (_e) {
       const config = await program.account.protocolConfig.fetch(protocolPda);
       treasuryPubkey = config.treasury;
+    }
+
+    zkConfigPda = PublicKey.findProgramAddressSync(
+      [Buffer.from("zk_config")],
+      program.programId,
+    )[0];
+    try {
+      const zkConfig = await (
+        program.account.zkConfig as {
+          fetch: (
+            pubkey: PublicKey,
+          ) => Promise<{ activeImageId?: number[]; active_image_id?: number[] }>;
+        }
+      ).fetch(zkConfigPda);
+      const currentImageId =
+        zkConfig.activeImageId ?? zkConfig.active_image_id ?? [];
+      if (!imageIdsEqual(currentImageId, fixture.imageId)) {
+        await program.methods
+          .updateZkImageId(fixture.imageId)
+          .accountsPartial({
+            protocolConfig: protocolPda,
+            zkConfig: zkConfigPda,
+            authority: provider.wallet.publicKey,
+          })
+          .rpc();
+      }
+    } catch {
+      await program.methods
+        .initializeZkConfig(fixture.imageId)
+        .accountsPartial({
+          protocolConfig: protocolPda,
+          zkConfig: zkConfigPda,
+          authority: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
     }
 
     // Register agents
@@ -464,6 +516,7 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
       creator.publicKey,
       workerAgentPda,
       protocolPda,
+      zkConfigPda,
       bindingSpendPda,
       nullifierSpendPda,
       treasuryPubkey,
@@ -513,6 +566,7 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
         creator: creator.publicKey,
         worker: workerAgentPda,
         protocolConfig: protocolPda,
+        zkConfig: zkConfigPda,
         bindingSpend: bindingSpendPda,
         nullifierSpend: nullifierSpendPda,
         treasury: treasuryPubkey,

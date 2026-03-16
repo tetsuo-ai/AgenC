@@ -8,7 +8,7 @@ export ANCHOR_PROVIDER_URL="${ANCHOR_PROVIDER_URL:-http://127.0.0.1:8899}"
 export ANCHOR_WALLET="${ANCHOR_WALLET:-${HOME}/.config/solana/id.json}"
 
 VALIDATOR_LOG="${ROOT_DIR}/target/verifier-validator.log"
-VALIDATOR_READY_TIMEOUT_SECONDS="${VALIDATOR_READY_TIMEOUT_SECONDS:-90}"
+VALIDATOR_READY_TIMEOUT_SECONDS="${VALIDATOR_READY_TIMEOUT_SECONDS:-300}"
 
 if pgrep -af "solana-test-validator" >/dev/null 2>&1; then
   echo "Stopping existing solana-test-validator processes..."
@@ -45,4 +45,4 @@ if [ "${READY}" -ne 1 ]; then
 fi
 
 npx tsx scripts/setup-verifier-localnet.ts
-ts-mocha -p ./tsconfig.json -t 60000 tests/e2e-real-proof.ts
+npx ts-mocha -p ./tsconfig.json -t 60000 tests/e2e-real-proof.ts
