@@ -4,7 +4,7 @@
  */
 
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID } from "../../../sdk/src/constants.ts";
+import { PROGRAM_ID } from "@agenc/sdk";
 
 /**
  * PDA with its bump seed for account creation.

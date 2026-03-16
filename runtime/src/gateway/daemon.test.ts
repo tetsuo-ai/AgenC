@@ -3078,7 +3078,14 @@ describe("DaemonManager", () => {
       ["subagent:child-1", [{ dispose: mcpDispose }]],
     ]);
 
-    await (dm as any).cleanupDesktopSessionResources("subagent:child-1");
+    const { cleanupDesktopSessionResources } = await import("./desktop-routing-config.js");
+    await cleanupDesktopSessionResources("subagent:child-1", {
+      desktopManager: (dm as any)._desktopManager,
+      desktopBridges: (dm as any)._desktopBridges,
+      playwrightBridges: (dm as any)._playwrightBridges,
+      containerMCPBridges: (dm as any)._containerMCPBridges,
+      logger: (dm as any).logger,
+    } as any);
 
     expect(destroyBySession).toHaveBeenCalledWith("subagent:child-1");
     expect(bridgeDisconnect).toHaveBeenCalledTimes(1);

@@ -54,12 +54,10 @@
   },
   "overrides": {
     "bn.js": "^5.2.3",
-    "bigint-buffer": "file:../patches/npm/bigint-buffer",
     "rollup": "^4.59.0"
   },
   "resolutions": {
     "bn.js": "^5.2.3",
-    "bigint-buffer": "file:../patches/npm/bigint-buffer",
     "rollup": "^4.59.0"
   },
   "devDependencies": {

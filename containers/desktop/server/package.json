@@ -10,7 +10,7 @@
     "test": "npm run build && node --test dist/*.test.js"
   },
   "dependencies": {
-    "@agenc/sdk": "file:../../../sdk"
+    "@agenc/sdk": "1.3.0"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

@@ -7,10 +7,8 @@
  * @module
  */
 
-import { mkdir } from "node:fs/promises";
 import {
   SessionIsolationManager,
-  type SubAgentSessionIdentity,
 } from "./session-isolation.js";
 import {
   SubAgentManager,
@@ -30,7 +28,6 @@ import {
 import type { LLMProvider } from "../llm/types.js";
 import type { Tool } from "../tools/types.js";
 import { WorkspaceManager, WorkspaceValidationError } from "./workspace.js";
-import { getDefaultWorkspacePath } from "./workspace-files.js";
 import {
   filterNamedToolsByEnvironment,
   type ToolEnvironmentMode,
