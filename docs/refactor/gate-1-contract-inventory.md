@@ -321,6 +321,23 @@ Per Gate 1 requirement: inventory dominant blockers for decomposition planning.
 
 ---
 
+## 8b. Per-Example Contract Classification Inventory
+
+| Example | Package | Import Surface | Contract | Verification |
+|---------|---------|---------------|----------|-------------|
+| `autonomous-agent/` | No | Standalone script | SDK types inline | Manual run |
+| `dispute-arbiter/` | No | Standalone script | SDK types inline | Manual run |
+| `event-dashboard/` | No | Standalone script | SDK types inline | Manual run |
+| `helius-webhook/` | Yes (knip) | `@solana/web3.js`, `ws`, `express` | No `@agenc/*` deps | `tsx index.ts` |
+| `llm-agent/` | No | Standalone script | Runtime types inline | Manual run |
+| `memory-agent/` | No | Standalone script | Runtime types inline | Manual run |
+| `risc0-proof-demo/` | No | Standalone script | SDK proof types inline | Manual run |
+| `simple-usage/` | Yes (knip) | `@agenc/sdk` via `file:../../sdk` | SDK public API | `npx tsx index.ts` |
+| `skill-jupiter/` | No | Standalone script | Runtime/skills inline | Manual run |
+| `tetsuo-integration/` | Yes (knip) | `@agenc/sdk` via `file:../../sdk` | SDK public API | `npx tsx index.ts` |
+
+**Validation strategy:** Packaged examples (`simple-usage`, `tetsuo-integration`, `helius-webhook`) have explicit entry points. Non-packaged examples are standalone scripts verified by manual execution. Gate 10 will convert `file:` deps to published packages.
+
 ## 9. Package-Local Doc and Changelog Inventory
 
 | Package | README.md | CHANGELOG.md |

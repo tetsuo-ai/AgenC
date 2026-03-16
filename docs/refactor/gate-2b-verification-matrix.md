@@ -25,7 +25,15 @@
 | Mobile | N/A (Expo) | `cd mobile && npm run typecheck` | N/A (minimum gate) | Mobile |
 | Demo-App | `cd demo-app && npm run build` | via `tsc` in build | N/A | Demo-App |
 
-### 1.3 Platform Verification (MUST be green when touched)
+### 1.3 Packaged Example Verification (SHOULD be green when touched)
+
+| Example | Build/Run | Deps | Gate Owner |
+|---------|----------|------|------------|
+| `simple-usage` | `cd examples/simple-usage && npx tsx index.ts` | `@agenc/sdk` (file:) | Examples |
+| `tetsuo-integration` | `cd examples/tetsuo-integration && npx tsx index.ts` | `@agenc/sdk` (file:) | Examples |
+| `helius-webhook` | `cd examples/helius-webhook && npx tsx index.ts server` | No @agenc deps | Examples |
+
+### 1.4 Platform Verification (MUST be green when touched)
 
 | Surface | Build | Test | Gate Owner |
 |---------|-------|------|------------|
@@ -191,20 +199,19 @@ Current enforcement is entirely through local scripts and package commands. `.gi
 
 ### 4.5 Docs-MCP Scope
 
-**Current indexed corpus:**
-- `docs/` architecture docs
-- `README.md`, `AGENTS.md`, `CODEX.md`, `REFACTOR-MASTER-PROGRAM.md`
-- `docs/architecture/issue-map.json` (legacy runtime roadmap #1051-#1110)
+**Indexed corpus (confirmed in `docs-mcp/src/server.ts` scope manifest):**
+- `docs/**/*.md` and `docs/**/*.json` (architecture docs, API baselines)
+- `runtime/docs/**/*.md` (runtime-specific docs)
+- `runtime/idl/**/*.json` (IDL artifacts)
+- `runtime/benchmarks/**/*.json` (benchmark manifests)
+- `scripts/idl/**/*.json` (verifier IDL)
+- Package-local docs and changelogs under top-level packages, apps, platforms, programs, migrations, and `examples/**`
+- Root docs: `README.md`, `AGENTS.md`, `CODEX.md`, `REFACTOR-MASTER-PROGRAM.md`
 
-**Scope expansion needed (Gate 8):**
-- Runtime docs (`runtime/docs/`)
-- API baselines (`docs/api-baseline/`)
-- Package-local docs and changelogs
-- Benchmark manifests
-- Master refactor plan (this program)
+**Scope expansion: DELIVERED.** All items are already indexed by docs-mcp loader (verified in `server.ts` lines 51-60).
 
-**Legacy surfaces to label:**
-- Issue/phase helpers still bound to runtime-roadmap-only semantics
+**Legacy surfaces labeled:**
+- Issue/phase helpers explicitly labeled "legacy runtime-roadmap" in tool descriptions and scope manifest caveat (lines 65-66)
 - Module helpers still runtime-specific
 
 ### 4.6 Fuzz, Mock-Router, Real-Proof Gates
