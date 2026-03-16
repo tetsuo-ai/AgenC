@@ -58,16 +58,33 @@ Thumbs.db
 node_modules/
 
 # Build artifacts (all packages)
-/dist/
-sdk/dist/
-runtime/dist/
-mcp/dist/
-docs-mcp/dist/
-demo-app/dist/
+**/dist/
+!patches/**/dist/
+
+# Logs
+logs/
 
 # Local/generated root artifacts
 .codebase-index-cache.pkl
+*.pkl
 /ansi_girl.png
+
+# Stray root media (never commit at root)
+/image
+/image.jpg
+/img2
+/ansi2png.py
+
+# Stray C/binary artifacts in runtime
+runtime/snake*
+runtime/src/main.c
+runtime/src/ncurses.*
+runtime/CMakeLists.txt
+runtime/Makefile
+runtime/tests/test_*[^.]*
+runtime/tests/*.c
+runtime/tests/*.h
+runtime/TODO-*.md
 
 
 # Codex (local AI assistant config)

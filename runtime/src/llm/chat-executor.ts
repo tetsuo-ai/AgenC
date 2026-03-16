@@ -10,37 +10,25 @@
  */
 
 import type {
-  LLMChatOptions,
   LLMProvider,
   LLMProviderEvidence,
   LLMMessage,
-  LLMProviderTraceEvent,
   LLMStatefulResumeAnchor,
   LLMToolChoice,
-  LLMToolCall,
   LLMResponse,
   LLMUsage,
   StreamProgressCallback,
   ToolHandler,
 } from "./types.js";
 import type { DelegationOutputValidationCode } from "../utils/delegation-validation.js";
-import {
-  LLMProviderError,
-  LLMRateLimitError,
-  classifyLLMFailure,
-} from "./errors.js";
-import {
-  applyPromptBudget,
-  type PromptBudgetConfig,
-  type PromptBudgetDiagnostics,
-  type PromptBudgetSection,
-} from "./prompt-budget.js";
-import { toPipelineStopReason } from "./policy.js";
 import type {
-  LLMFailureClass,
+  PromptBudgetConfig,
+  PromptBudgetDiagnostics,
+  PromptBudgetSection,
+} from "./prompt-budget.js";
+import type {
   LLMPipelineStopReason,
   LLMRetryPolicyMatrix,
-  LLMRetryPolicyRule,
 } from "./policy.js";
 import type {
   Pipeline,
@@ -56,7 +44,6 @@ import {
   computeDelegationFinalReward,
   computeUsefulDelegationProxy,
   DELEGATION_USEFULNESS_PROXY_VERSION,
-  deriveDelegationContextClusterId,
   type DelegationBanditPolicyTuner,
   type DelegationTrajectorySink,
 } from "./delegation-learning.js";
@@ -64,6 +51,9 @@ import {
 // Imports from extracted sibling modules
 // ---------------------------------------------------------------------------
 
+import {
+  annotateFailureError,
+} from "./chat-executor-provider-retry.js";
 import {
   ChatBudgetExceededError,
   buildDefaultExecutionContext,
@@ -82,34 +72,22 @@ import type {
   ChatExecutorConfig,
   EvaluatorConfig,
   CooldownEntry,
-  SessionToolFailurePattern,
-  SessionToolFailureCircuitState,
   FallbackResult,
-  PlannerDeterministicToolStepIntent,
-  PlannerSubAgentTaskStepIntent,
   ResolvedSubagentVerifierConfig,
-  ToolLoopState,
-  ToolCallAction,
   ExecutionContext,
-  PlannerDiagnostic,
 } from "./chat-executor-types.js";
 import {
   MAX_EVAL_USER_CHARS,
   MAX_EVAL_RESPONSE_CHARS,
   MAX_CONTEXT_INJECTION_CHARS,
   MAX_PROMPT_CHARS_BUDGET,
-  MAX_TOOL_IMAGE_CHARS_BUDGET,
   DEFAULT_MAX_RUNTIME_SYSTEM_HINTS,
   DEFAULT_PLANNER_MAX_TOKENS,
-  DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS,
-  DEFAULT_PLANNER_MAX_STEP_CONTRACT_RETRIES,
-  DEFAULT_PLANNER_MAX_RUNTIME_REPAIR_RETRIES,
   DEFAULT_TOOL_BUDGET_PER_REQUEST,
   DEFAULT_MODEL_RECALLS_PER_REQUEST,
   DEFAULT_FAILURE_BUDGET_PER_REQUEST,
   DEFAULT_TOOL_CALL_TIMEOUT_MS,
   DEFAULT_REQUEST_TIMEOUT_MS,
-  MAX_ADAPTIVE_TOOL_ROUNDS,
   DEFAULT_SUBAGENT_VERIFIER_MIN_CONFIDENCE,
   DEFAULT_SUBAGENT_VERIFIER_MAX_ROUNDS,
   DEFAULT_TOOL_FAILURE_BREAKER_THRESHOLD,
@@ -130,77 +108,17 @@ import type { ToolContractGuidance } from "./chat-executor-contract-guidance.js"
 import {
   didToolCallFail,
   resolveRetryPolicyMatrix,
-  enrichToolResultMetadata,
-  checkToolCallPermission,
-  normalizeToolCallArguments,
-  repairToolCallArgumentsFromMessageText,
-  parseToolCallArguments,
-  executeToolWithRetry,
-  summarizeToolArgumentChanges,
-  trackToolCallFailureState,
-  checkToolLoopStuckDetection,
-  buildToolLoopRecoveryMessages,
-  buildRoutingExpansionMessage,
-  summarizeToolRoundProgress,
 } from "./chat-executor-tool-utils.js";
-import { inferDoomTurnContract } from "./chat-executor-doom.js";
 import {
   applyActiveRoutedToolNames,
-  buildActiveRoutedToolSet,
   resolveEffectiveRoutedToolNames,
 } from "./chat-executor-routing-state.js";
-
-function shouldBypassStreamingForForcedSingleToolTurn(
-  options: LLMChatOptions | undefined,
-): boolean {
-  if (!options?.toolRouting?.allowedToolNames) {
-    return false;
-  }
-  if (options.toolRouting.allowedToolNames.length !== 1) {
-    return false;
-  }
-  if (options.toolChoice === "required") {
-    return true;
-  }
-  return typeof options.toolChoice === "object" &&
-    options.toolChoice !== null &&
-    options.toolChoice.type === "function";
-}
+import { ToolFailureCircuitBreaker } from "./tool-failure-circuit-breaker.js";
 
 function shouldUseSessionStatefulContinuationForPhase(
   phase: ChatCallUsageRecord["phase"],
 ): boolean {
   return phase === "initial" || phase === "tool_followup";
-}
-
-function buildPlannerDiagnosticSignature(
-  diagnostics: readonly PlannerDiagnostic[],
-): string {
-  return diagnostics
-    .map((diagnostic) => {
-      const stepName =
-        typeof diagnostic.details?.stepName === "string"
-          ? diagnostic.details.stepName
-          : "";
-      const installSteps =
-        typeof diagnostic.details?.installSteps === "string"
-          ? diagnostic.details.installSteps
-          : "";
-      const phases =
-        typeof diagnostic.details?.phases === "string"
-          ? diagnostic.details.phases
-          : "";
-      return [
-        diagnostic.category,
-        diagnostic.code,
-        stepName,
-        installSteps,
-        phases,
-        diagnostic.message,
-      ].join("::");
-    })
-    .sort()
-    .join("||");
 }
 
 interface DetailedMemoryTraceEntry {
@@ -232,20 +150,6 @@ function isDetailedMemoryRetriever(
     "retrieveDetailed" in provider &&
     typeof provider.retrieveDetailed === "function"
   );
-}
-
-function buildPipelineFailureSignature(result: PipelineResult): string {
-  const normalizedError =
-    typeof result.error === "string"
-      ? truncateText(result.error.replace(/\s+/g, " ").trim(), 320)
-      : "";
-  return [
-    result.status,
-    result.stopReasonHint ?? "",
-    String(result.completedSteps),
-    String(result.totalSteps),
-    normalizedError,
-  ].join("::");
 }
 
 function mergeProviderEvidence(
@@ -325,7 +229,6 @@ function buildPlanOnlyExecutionRetryInstruction(
   );
 }
 import type {
-  RoundStuckState,
   ToolRoundProgressSummary,
 } from "./chat-executor-tool-utils.js";
 import {
@@ -337,72 +240,39 @@ import {
   reconcileVerifiedFileWorkflowContent,
   reconcileStructuredToolOutcome,
   reconcileTerminalFailureContent,
-  estimatePromptShape,
   normalizeHistory,
   normalizeHistoryForStatefulReconciliation,
-  sanitizeToolCallsForReplay,
   toStatefulReconciliationMessage,
-  buildPromptToolContent,
   appendUserMessage,
-  generateFallbackContent,
-  summarizeToolCalls,
   buildToolExecutionGroundingMessage,
   isPlanOnlyExecutionResponse,
 } from "./chat-executor-text.js";
 import {
-  buildSemanticToolCallKey,
   summarizeStateful,
-  buildRecoveryHints,
   computeQualityProxy,
   buildDelegationTrajectoryEntry,
   buildPlannerSummary,
 } from "./chat-executor-recovery.js";
 import {
   assessPlannerDecision,
-  buildPlannerMessages,
-  buildPlannerExecutionContext,
-  buildPlannerVerificationRequirementsFailureMessage,
-  buildPlannerVerificationRequirementsRefinementHint,
-  validatePlannerGraph,
-  validatePlannerVerificationRequirements,
-  validatePlannerStepContracts,
-  extractPlannerVerificationCommandRequirements,
-  extractPlannerVerificationRequirements,
   extractExplicitDeterministicToolRequirements,
-  extractExplicitSubagentOrchestrationRequirements,
-  validateExplicitDeterministicToolRequirements,
-  validateExplicitSubagentOrchestrationRequirements,
-  extractPlannerDecompositionDiagnostics,
-  extractPlannerStructuralDiagnostics,
-  buildExplicitDeterministicToolRefinementHint,
-  buildExplicitDeterministicToolFailureMessage,
-  buildPlannerParseRefinementHint,
-  buildPlannerStructuralRefinementHint,
-  buildPlannerValidationFailureMessage,
-  buildPipelineDecompositionRefinementHint,
-  buildPipelineFailureRepairRefinementHint,
-  buildPlannerStepContractRefinementHint,
-  buildSalvagedPlannerToolCallRefinementHint,
-  buildExplicitSubagentOrchestrationRefinementHint,
-  buildExplicitSubagentOrchestrationFailureMessage,
-  extractRecoverablePlannerParseDiagnostics,
-  isHighRiskSubagentPlan,
-  computePlannerGraphDepth,
-  isPipelineStopReasonHint,
-  buildPlannerSynthesisMessages,
-  buildPlannerSynthesisFallbackContent,
-  ensureSubagentProvenanceCitations,
-  resolveDelegationBanditArm,
-  assessAndRecordDelegationDecision,
-  mapPlannerStepsToPipelineSteps,
   requestRequiresToolGroundedExecution,
-  validateSalvagedPlannerToolPlan,
 } from "./chat-executor-planner.js";
-import { normalizePlannerResponse } from "./chat-executor-planner-normalization.js";
 import {
-  executePlannerPipelineWithVerifierLoop,
-  runSubagentVerifierRound,
-} from "./chat-executor-planner-verifier-loop.js";
+  evaluateToolRoundBudgetExtension as evaluateToolRoundBudgetExtensionFn,
+} from "./chat-executor-budget-extension.js";
+import {
+  callWithFallback as callWithFallbackFn,
+} from "./chat-executor-fallback.js";
+import {
+  executePlannerPath as executePlannerPathFn,
+} from "./chat-executor-planner-execution.js";
+import {
+  executeToolCallLoop as executeToolCallLoopFn,
+} from "./chat-executor-tool-loop.js";
+export type {
+  ToolRoundBudgetExtensionResult,
+} from "./chat-executor-budget-extension.js";
 // ---------------------------------------------------------------------------
 // Re-exports — preserve backward-compatible import paths for consumers
 // ---------------------------------------------------------------------------
@@ -471,18 +341,11 @@ export class ChatExecutor {
   private readonly toolCallTimeoutMs: number;
   private readonly requestTimeoutMs: number;
   private readonly retryPolicyMatrix: LLMRetryPolicyMatrix;
-  private readonly toolFailureBreakerEnabled: boolean;
-  private readonly toolFailureBreakerThreshold: number;
-  private readonly toolFailureBreakerWindowMs: number;
-  private readonly toolFailureBreakerCooldownMs: number;
+  private readonly toolFailureBreaker: ToolFailureCircuitBreaker;
   private readonly resolveHostToolingProfile?: () => HostToolingProfile | null;
 
   private readonly cooldowns = new Map<string, CooldownEntry>();
   private readonly sessionTokens = new Map<string, number>();
-  private readonly sessionToolFailureCircuits = new Map<
-    string,
-    SessionToolFailureCircuitState
-  >();
 
   private static normalizeRequestTimeoutMs(timeoutMs: number | undefined): number {
     if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) {
@@ -573,29 +436,31 @@ export class ChatExecutor {
       config.requestTimeoutMs,
     );
     this.retryPolicyMatrix = resolveRetryPolicyMatrix(config.retryPolicyMatrix);
-    this.toolFailureBreakerEnabled =
-      config.toolFailureCircuitBreaker?.enabled ?? true;
-    this.toolFailureBreakerThreshold = Math.max(
-      2,
-      Math.floor(
-        config.toolFailureCircuitBreaker?.threshold ??
-          DEFAULT_TOOL_FAILURE_BREAKER_THRESHOLD,
+    this.toolFailureBreaker = new ToolFailureCircuitBreaker({
+      enabled: config.toolFailureCircuitBreaker?.enabled ?? true,
+      windowMs: Math.max(
+        1_000,
+        Math.floor(
+          config.toolFailureCircuitBreaker?.windowMs ??
+            DEFAULT_TOOL_FAILURE_BREAKER_WINDOW_MS,
+        ),
       ),
-    );
-    this.toolFailureBreakerWindowMs = Math.max(
-      1_000,
-      Math.floor(
-        config.toolFailureCircuitBreaker?.windowMs ??
-          DEFAULT_TOOL_FAILURE_BREAKER_WINDOW_MS,
+      threshold: Math.max(
+        2,
+        Math.floor(
+          config.toolFailureCircuitBreaker?.threshold ??
+            DEFAULT_TOOL_FAILURE_BREAKER_THRESHOLD,
+        ),
       ),
-    );
-    this.toolFailureBreakerCooldownMs = Math.max(
-      1_000,
-      Math.floor(
-        config.toolFailureCircuitBreaker?.cooldownMs ??
-          DEFAULT_TOOL_FAILURE_BREAKER_COOLDOWN_MS,
+      cooldownMs: Math.max(
+        1_000,
+        Math.floor(
+          config.toolFailureCircuitBreaker?.cooldownMs ??
+            DEFAULT_TOOL_FAILURE_BREAKER_COOLDOWN_MS,
+        ),
       ),
-    );
+      maxTrackedSessions: this.maxTrackedSessions,
+    });
   }
 
   private static resolveSubagentVerifierConfig(
@@ -798,307 +663,11 @@ export class ChatExecutor {
     readonly ctx: ExecutionContext;
     readonly currentLimit: number;
     readonly recentRounds: readonly ToolRoundProgressSummary[];
-  }): {
-    readonly decision:
-      | "extended"
-      | "ceiling_reached"
-      | "no_recent_rounds"
-      | "insufficient_recent_progress"
-      | "request_time_exhausted"
-      | "time_bound_exhausted"
-      | "tool_budget_exhausted"
-      | "extension_budget_exhausted";
-    readonly recentProgressRate: number;
-    readonly recentTotalNewSuccessfulSemanticKeys: number;
-    readonly recentTotalNewVerificationFailureDiagnosticKeys: number;
-    readonly weightedAverageNewSuccessfulSemanticKeys: number;
-    readonly latestRoundHadMaterialProgress: boolean;
-    readonly newLimit: number;
-    readonly extensionRounds: number;
-    readonly remainingToolBudget: number;
-    readonly remainingRequestMs: number;
-    readonly recentAverageRoundMs: number;
-    readonly latestRoundNewSuccessfulSemanticKeys: number;
-    readonly latestRoundNewVerificationFailureDiagnosticKeys: number;
-    readonly extensionReason:
-      | "none"
-      | "repair_episode"
-      | "sustained_progress";
-    readonly repairCycleOpen: boolean;
-    readonly repairCycleNeedsMutation: boolean;
-    readonly repairCycleNeedsVerification: boolean;
-  } {
-    const remainingToolBudget = Math.max(
-      0,
-      params.ctx.effectiveToolBudget - params.ctx.allToolCalls.length,
+  }) {
+    return evaluateToolRoundBudgetExtensionFn(
+      params,
+      (ctx) => this.getRemainingRequestMs(ctx),
     );
-    const effectiveRoundCeiling = Math.min(
-      MAX_ADAPTIVE_TOOL_ROUNDS,
-      params.ctx.effectiveToolBudget,
-    );
-    if (params.currentLimit >= effectiveRoundCeiling) {
-      return {
-        decision: "ceiling_reached",
-        recentProgressRate: 0,
-        recentTotalNewSuccessfulSemanticKeys: 0,
-        recentTotalNewVerificationFailureDiagnosticKeys: 0,
-        weightedAverageNewSuccessfulSemanticKeys: 0,
-        latestRoundHadMaterialProgress: false,
-        newLimit: params.currentLimit,
-        extensionRounds: 0,
-        remainingToolBudget,
-        remainingRequestMs: 0,
-        recentAverageRoundMs: 0,
-        latestRoundNewSuccessfulSemanticKeys: 0,
-        latestRoundNewVerificationFailureDiagnosticKeys: 0,
-        extensionReason: "none",
-        repairCycleOpen: false,
-        repairCycleNeedsMutation: false,
-        repairCycleNeedsVerification: false,
-      };
-    }
-    const latestRound = params.recentRounds[params.recentRounds.length - 1];
-    if (!latestRound) {
-      return {
-        decision: "no_recent_rounds",
-        recentProgressRate: 0,
-        recentTotalNewSuccessfulSemanticKeys: 0,
-        recentTotalNewVerificationFailureDiagnosticKeys: 0,
-        weightedAverageNewSuccessfulSemanticKeys: 0,
-        latestRoundHadMaterialProgress: false,
-        newLimit: params.currentLimit,
-        extensionRounds: 0,
-        remainingToolBudget,
-        remainingRequestMs: 0,
-        recentAverageRoundMs: 0,
-        latestRoundNewSuccessfulSemanticKeys: 0,
-        latestRoundNewVerificationFailureDiagnosticKeys: 0,
-        extensionReason: "none",
-        repairCycleOpen: false,
-        repairCycleNeedsMutation: false,
-        repairCycleNeedsVerification: false,
-      };
-    }
-    const recentProgressRounds = params.recentRounds.filter((round) =>
-      round.hadMaterialProgress
-    ).length;
-    const recentProgressRate =
-      recentProgressRounds / Math.max(1, params.recentRounds.length);
-    const recentTotalNewSuccessfulSemanticKeys = params.recentRounds.reduce(
-      (sum, round) => sum + round.newSuccessfulSemanticKeys,
-      0,
-    );
-    const recentTotalNewVerificationFailureDiagnosticKeys = params.recentRounds
-      .reduce(
-        (sum, round) => sum + round.newVerificationFailureDiagnosticKeys,
-        0,
-      );
-    const weightedAverageNewSuccessfulSemanticKeys = params.recentRounds.reduce(
-      (sum, round, index) => sum + round.newSuccessfulSemanticKeys * (index + 1),
-      0,
-    ) /
-      params.recentRounds.reduce(
-        (sum, _round, index) => sum + index + 1,
-        0,
-      );
-    let latestVerificationFailureRoundIndex = -1;
-    for (let index = params.recentRounds.length - 1; index >= 0; index--) {
-      if (params.recentRounds[index]?.newVerificationFailureDiagnosticKeys > 0) {
-        latestVerificationFailureRoundIndex = index;
-        break;
-      }
-    }
-    let latestMutationRoundIndex = -1;
-    if (latestVerificationFailureRoundIndex >= 0) {
-      for (
-        let index = latestVerificationFailureRoundIndex + 1;
-        index < params.recentRounds.length;
-        index++
-      ) {
-        if (params.recentRounds[index]?.hadSuccessfulMutation) {
-          latestMutationRoundIndex = index;
-        }
-      }
-    }
-    const repairCycleNeedsMutation =
-      latestVerificationFailureRoundIndex >= 0 && latestMutationRoundIndex < 0;
-    const repairCycleNeedsVerification =
-      latestVerificationFailureRoundIndex >= 0 &&
-      (
-        latestMutationRoundIndex < 0 ||
-        !params.recentRounds
-          .slice(latestMutationRoundIndex + 1)
-          .some((round) => round.hadVerificationCall)
-      );
-    const repairCycleOpen =
-      repairCycleNeedsMutation || repairCycleNeedsVerification;
-    const repairCycleExtensionRounds =
-      (repairCycleNeedsMutation ? 1 : 0) +
-      (repairCycleNeedsVerification ? 1 : 0);
-    // Historical progress can size an extension, but absent an open repair cycle
-    // only the latest round can authorize additional rounds.
-    const extendForSustainedProgress =
-      latestRound.newSuccessfulSemanticKeys > 0 &&
-      recentTotalNewSuccessfulSemanticKeys > 0;
-    if (!extendForSustainedProgress && !repairCycleOpen) {
-      return {
-        decision: "insufficient_recent_progress",
-        recentProgressRate,
-        recentTotalNewSuccessfulSemanticKeys,
-        recentTotalNewVerificationFailureDiagnosticKeys,
-        weightedAverageNewSuccessfulSemanticKeys,
-        latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
-        newLimit: params.currentLimit,
-        extensionRounds: 0,
-        remainingToolBudget,
-        remainingRequestMs: this.getRemainingRequestMs(params.ctx),
-        recentAverageRoundMs: 0,
-        latestRoundNewSuccessfulSemanticKeys:
-          latestRound.newSuccessfulSemanticKeys,
-        latestRoundNewVerificationFailureDiagnosticKeys:
-          latestRound.newVerificationFailureDiagnosticKeys,
-        extensionReason: "none",
-        repairCycleOpen,
-        repairCycleNeedsMutation,
-        repairCycleNeedsVerification,
-      };
-    }
-    const remainingRequestMs = this.getRemainingRequestMs(params.ctx);
-    if (remainingRequestMs <= 0) {
-      return {
-        decision: "request_time_exhausted",
-        recentProgressRate,
-        recentTotalNewSuccessfulSemanticKeys,
-        recentTotalNewVerificationFailureDiagnosticKeys,
-        weightedAverageNewSuccessfulSemanticKeys,
-        latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
-        newLimit: params.currentLimit,
-        extensionRounds: 0,
-        remainingToolBudget,
-        remainingRequestMs,
-        recentAverageRoundMs: 0,
-        latestRoundNewSuccessfulSemanticKeys:
-          latestRound.newSuccessfulSemanticKeys,
-        latestRoundNewVerificationFailureDiagnosticKeys:
-          latestRound.newVerificationFailureDiagnosticKeys,
-        extensionReason: "none",
-        repairCycleOpen,
-        repairCycleNeedsMutation,
-        repairCycleNeedsVerification,
-      };
-    }
-    const recentAverageRoundMs = Math.max(
-      1_000,
-      Math.round(
-        params.recentRounds.reduce((sum, round) => sum + round.durationMs, 0) /
-          params.recentRounds.length,
-      ),
-    );
-    const timeBoundExtension = Math.floor(remainingRequestMs / recentAverageRoundMs);
-    if (timeBoundExtension <= 0) {
-      return {
-        decision: "time_bound_exhausted",
-        recentProgressRate,
-        recentTotalNewSuccessfulSemanticKeys,
-        recentTotalNewVerificationFailureDiagnosticKeys,
-        weightedAverageNewSuccessfulSemanticKeys,
-        latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
-        newLimit: params.currentLimit,
-        extensionRounds: 0,
-        remainingToolBudget,
-        remainingRequestMs,
-        recentAverageRoundMs,
-        latestRoundNewSuccessfulSemanticKeys:
-          latestRound.newSuccessfulSemanticKeys,
-        latestRoundNewVerificationFailureDiagnosticKeys:
-          latestRound.newVerificationFailureDiagnosticKeys,
-        extensionReason: "none",
-        repairCycleOpen,
-        repairCycleNeedsMutation,
-        repairCycleNeedsVerification,
-      };
-    }
-    const expectedMarginalRounds = repairCycleOpen
-      ? repairCycleExtensionRounds
-      : Math.max(
-        latestRound.newSuccessfulSemanticKeys,
-        Math.ceil(weightedAverageNewSuccessfulSemanticKeys),
-      );
-    if (remainingToolBudget <= 0) {
-      return {
-        decision: "tool_budget_exhausted",
-        recentProgressRate,
-        recentTotalNewSuccessfulSemanticKeys,
-        recentTotalNewVerificationFailureDiagnosticKeys,
-        weightedAverageNewSuccessfulSemanticKeys,
-        latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
-        newLimit: params.currentLimit,
-        extensionRounds: 0,
-        remainingToolBudget,
-        remainingRequestMs,
-        recentAverageRoundMs,
-        latestRoundNewSuccessfulSemanticKeys:
-          latestRound.newSuccessfulSemanticKeys,
-        latestRoundNewVerificationFailureDiagnosticKeys:
-          latestRound.newVerificationFailureDiagnosticKeys,
-        extensionReason: "none",
-        repairCycleOpen,
-        repairCycleNeedsMutation,
-        repairCycleNeedsVerification,
-      };
-    }
-    const extensionRounds = Math.min(
-      expectedMarginalRounds,
-      timeBoundExtension,
-      effectiveRoundCeiling - params.currentLimit,
-      remainingToolBudget,
-    );
-    if (extensionRounds <= 0) {
-      return {
-        decision: "extension_budget_exhausted",
-        recentProgressRate,
-        recentTotalNewSuccessfulSemanticKeys,
-        recentTotalNewVerificationFailureDiagnosticKeys,
-        weightedAverageNewSuccessfulSemanticKeys,
-        latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
-        newLimit: params.currentLimit,
-        extensionRounds: 0,
-        remainingToolBudget,
-        remainingRequestMs,
-        recentAverageRoundMs,
-        latestRoundNewSuccessfulSemanticKeys:
-          latestRound.newSuccessfulSemanticKeys,
-        latestRoundNewVerificationFailureDiagnosticKeys:
-          latestRound.newVerificationFailureDiagnosticKeys,
-        extensionReason: "none",
-        repairCycleOpen,
-        repairCycleNeedsMutation,
-        repairCycleNeedsVerification,
-      };
-    }
-    return {
-      decision: "extended",
-      recentProgressRate,
-      recentTotalNewSuccessfulSemanticKeys,
-      recentTotalNewVerificationFailureDiagnosticKeys,
-      weightedAverageNewSuccessfulSemanticKeys,
-      latestRoundHadMaterialProgress: latestRound.hadMaterialProgress,
-      newLimit: params.currentLimit + extensionRounds,
-      extensionRounds,
-      remainingToolBudget,
-      remainingRequestMs,
-      recentAverageRoundMs,
-      latestRoundNewSuccessfulSemanticKeys:
-        latestRound.newSuccessfulSemanticKeys,
-      latestRoundNewVerificationFailureDiagnosticKeys:
-        latestRound.newVerificationFailureDiagnosticKeys,
-      extensionReason: repairCycleOpen
-        ? "repair_episode"
-        : "sustained_progress",
-      repairCycleOpen,
-      repairCycleNeedsMutation,
-      repairCycleNeedsVerification,
-    };
   }
 
   private emitExecutionTrace(
@@ -1806,7 +1375,7 @@ export class ChatExecutor {
         },
       );
     } catch (error) {
-      const annotated = this.annotateFailureError(
+      const annotated = annotateFailureError(
         error,
         `${input.phase} model call`,
       );
@@ -1892,7 +1461,7 @@ export class ChatExecutor {
         );
         return undefined;
       }
-      const annotated = this.annotateFailureError(
+      const annotated = annotateFailureError(
         error,
         "planner pipeline execution",
       );
@@ -2285,7 +1854,7 @@ export class ChatExecutor {
           },
         );
       } catch (error) {
-        const annotated = this.annotateFailureError(
+        const annotated = annotateFailureError(
           error,
           "evaluator retry",
         );
@@ -2313,1904 +1882,68 @@ export class ChatExecutor {
     }
   }
 
-  private async executeToolCallLoop(ctx: ExecutionContext): Promise<void> {
-    const suppressToolsForDialogueTurn =
-      !ctx.plannerDecision.shouldPlan &&
-      (ctx.plannerDecision.reason === "exact_response_turn" ||
-        ctx.plannerDecision.reason === "dialogue_memory_turn" ||
-        ctx.plannerDecision.reason === "dialogue_recall_turn");
-    const initialContractGuidance = this.resolveActiveToolContractGuidance(ctx, {
-      phase: "initial",
-    });
-    const dialogueToolSuppressed =
-      suppressToolsForDialogueTurn &&
-      initialContractGuidance?.routedToolNames === undefined &&
-      ctx.initialRoutedToolNames.length > 0;
-    if (initialContractGuidance) {
-      this.emitExecutionTrace(ctx, {
-        type: "contract_guidance_resolved",
-        phase: "initial",
-        callIndex: ctx.callIndex + 1,
-        payload: {
-          source: initialContractGuidance.source,
-          routedToolNames: initialContractGuidance.routedToolNames ?? [],
-          toolChoice:
-            typeof initialContractGuidance.toolChoice === "string"
-              ? initialContractGuidance.toolChoice
-              : initialContractGuidance.toolChoice.name,
-          hasRuntimeInstruction: Boolean(initialContractGuidance.runtimeInstruction),
-        },
-      });
-    }
-    if (initialContractGuidance?.runtimeInstruction) {
-      this.maybePushRuntimeInstruction(
-        ctx,
-        initialContractGuidance.runtimeInstruction,
-      );
-    }
-    const initialToolChoice =
-      initialContractGuidance?.toolChoice ??
-      (ctx.requiredToolEvidence
-        ? "required"
-        : suppressToolsForDialogueTurn
-          ? "none"
-          : undefined);
-    const initialRoutedToolNames =
-      initialContractGuidance?.routedToolNames ??
-      (suppressToolsForDialogueTurn ? [] : undefined);
-    ctx.response = await this.callModelForPhase(ctx, {
-      phase: "initial",
-      callMessages: ctx.messages,
-      callSections: ctx.messageSections,
-      onStreamChunk: ctx.activeStreamCallback,
-      statefulSessionId: ctx.sessionId,
-      statefulResumeAnchor: ctx.stateful?.resumeAnchor,
-      statefulHistoryCompacted: ctx.stateful?.historyCompacted,
-      preparationDiagnostics: {
-        plannerReason: ctx.plannerDecision.reason,
-        plannerShouldPlan: ctx.plannerDecision.shouldPlan,
-        dialogueToolSuppressed,
-        ...(dialogueToolSuppressed
-          ? { preSuppressionRoutedToolNames: ctx.initialRoutedToolNames }
-          : {}),
-      },
-      ...((initialToolChoice !== undefined || initialRoutedToolNames !== undefined)
-        ? {
-          ...(initialToolChoice !== undefined
-            ? { toolChoice: initialToolChoice }
-            : {}),
-          ...(initialRoutedToolNames !== undefined
-            ? { routedToolNames: initialRoutedToolNames }
-            : {}),
-          ...(initialContractGuidance?.persistRoutedToolNames === false
-            ? { persistRoutedToolNames: false }
-            : {}),
-        }
-        : {}),
-      budgetReason:
-        "Initial completion blocked by max model recalls per request budget",
-    });
-    const initialPlanOnlyAction =
-      await this.enforcePlanOnlyExecutionBeforeCompletion(ctx, "initial");
-    if (initialPlanOnlyAction === "failed" && !ctx.finalContent) {
-      ctx.finalContent = ctx.response?.content ?? ctx.finalContent;
-    }
-    if (initialPlanOnlyAction === "failed") {
-      return;
-    }
-
-    const initialEvidenceAction =
-      await this.enforceRequiredToolEvidenceBeforeCompletion(ctx, "initial");
-    if (initialEvidenceAction === "failed" && !ctx.finalContent) {
-      ctx.finalContent = ctx.response?.content ?? ctx.finalContent;
-    }
-
-    let rounds = 0;
-    let effectiveMaxToolRounds = ctx.effectiveMaxToolRounds;
-    const successfulSemanticToolKeys = new Set<string>();
-    const verificationFailureDiagnosticKeys = new Set<string>();
-    const recentRoundProgress: ToolRoundProgressSummary[] = [];
-    const stuckState: RoundStuckState = {
-      consecutiveAllFailedRounds: 0,
-      lastRoundSemanticKey: "",
-      consecutiveSemanticDuplicateRounds: 0,
+  private buildToolLoopCallbacks() {
+    return {
+      pushMessage: (c: ExecutionContext, msg: LLMMessage, section: PromptBudgetSection, reconciliation?: LLMMessage) =>
+        this.pushMessage(c, msg, section, reconciliation),
+      setStopReason: (c: ExecutionContext, reason: LLMPipelineStopReason, detail?: string) =>
+        this.setStopReason(c, reason, detail),
+      checkRequestTimeout: (c: ExecutionContext, stage: string) =>
+        this.checkRequestTimeout(c, stage),
+      appendToolRecord: (c: ExecutionContext, record: ToolCallRecord) =>
+        this.appendToolRecord(c, record),
+      emitExecutionTrace: (c: ExecutionContext, event: ChatExecutionTraceEvent) =>
+        this.emitExecutionTrace(c, event),
+      replaceRuntimeRecoveryHintMessages: (c: ExecutionContext, hints: readonly { key: string }[]) =>
+        this.replaceRuntimeRecoveryHintMessages(c, hints),
+      maybePushRuntimeInstruction: (c: ExecutionContext, content: string) =>
+        this.maybePushRuntimeInstruction(c, content),
+      resolveActiveToolContractGuidance: (c: ExecutionContext, input?: Parameters<ChatExecutor["resolveActiveToolContractGuidance"]>[1]) =>
+        this.resolveActiveToolContractGuidance(c, input),
+      enforceRequiredToolEvidenceBeforeCompletion: (c: ExecutionContext, phase: "initial" | "tool_followup") =>
+        this.enforceRequiredToolEvidenceBeforeCompletion(c, phase),
+      enforcePlanOnlyExecutionBeforeCompletion: (c: ExecutionContext, phase: "initial" | "tool_followup") =>
+        this.enforcePlanOnlyExecutionBeforeCompletion(c, phase),
+      finalizeDelegatedTurnAfterToolBudgetExhaustion: (c: ExecutionContext, maxRounds: number) =>
+        this.finalizeDelegatedTurnAfterToolBudgetExhaustion(c, maxRounds),
+      callModelForPhase: (c: ExecutionContext, input: Parameters<ChatExecutor["callModelForPhase"]>[1]) =>
+        this.callModelForPhase(c, input),
+      evaluateToolRoundBudgetExtension: (params: Parameters<ChatExecutor["evaluateToolRoundBudgetExtension"]>[0]) =>
+        this.evaluateToolRoundBudgetExtension(params),
+      serializeRemainingRequestMs: (ms: number) =>
+        this.serializeRemainingRequestMs(ms),
     };
-    const loopState: ToolLoopState = {
-      remainingToolImageChars: MAX_TOOL_IMAGE_CHARS_BUDGET,
-      activeRoutedToolSet: null,
-      expandAfterRound: false,
-      lastFailKey: "",
-      consecutiveFailCount: 0,
-    };
-
-    while (
-      ctx.response &&
-      ctx.response.finishReason === "tool_calls" &&
-      ctx.response.toolCalls.length > 0 &&
-      ctx.activeToolHandler &&
-      rounds < effectiveMaxToolRounds
-    ) {
-      if (ctx.signal?.aborted) {
-        this.setStopReason(ctx, "cancelled", "Execution cancelled by caller");
-        break;
-      }
-      if (this.checkRequestTimeout(ctx, "tool loop")) break;
-      const activeCircuit = this.getActiveToolFailureCircuit(ctx.sessionId);
-      if (activeCircuit) {
-        this.setStopReason(ctx, "no_progress", activeCircuit.reason);
-        break;
-      }
-
-      rounds++;
-      const roundToolCallStart = ctx.allToolCalls.length;
-      const roundStartedAt = Date.now();
-      const roundRoutedToolNames =
-        ctx.transientRoutedToolNames ?? ctx.activeRoutedToolNames;
-      loopState.activeRoutedToolSet = buildActiveRoutedToolSet(
-        roundRoutedToolNames,
-      );
-      ctx.transientRoutedToolNames = undefined;
-      loopState.expandAfterRound = false;
-
-      this.pushMessage(
-        ctx,
-        {
-          role: "assistant",
-          content: ctx.response.content,
-          phase: "commentary",
-          toolCalls: sanitizeToolCallsForReplay(ctx.response.toolCalls),
-        },
-        "assistant_runtime",
-      );
-
-      let abortRound = false;
-      for (const toolCall of ctx.response.toolCalls) {
-        const action = await this.executeSingleToolCall(ctx, toolCall, loopState);
-        if (action === "end_round") {
-          break;
-        }
-        if (action === "abort_loop" || action === "abort_round") {
-          abortRound = true;
-          break;
-        }
-      }
-
-      if (ctx.signal?.aborted) {
-        this.setStopReason(ctx, "cancelled", "Execution cancelled by caller");
-        break;
-      }
-      if (this.checkRequestTimeout(ctx, "tool follow-up")) break;
-
-      const roundCalls = ctx.allToolCalls.slice(roundToolCallStart);
-      if (abortRound) break;
-
-      // Stuck-loop detection (consecutive failures, semantic duplicates).
-      const stuckResult = checkToolLoopStuckDetection(roundCalls, loopState, stuckState);
-      if (stuckResult.shouldBreak) {
-        const roundFailures = roundCalls.filter((call) =>
-          didToolCallFail(call.isError, call.result)
-        ).length;
-        this.emitExecutionTrace(ctx, {
-          type: "tool_loop_stuck_detected",
-          phase: "tool_followup",
-          callIndex: ctx.callIndex,
-          payload: {
-            reason: stuckResult.reason,
-            roundToolCallCount: roundCalls.length,
-            roundFailureCount: roundFailures,
-            consecutiveFailCount: loopState.consecutiveFailCount,
-            consecutiveAllFailedRounds: stuckState.consecutiveAllFailedRounds,
-            consecutiveSemanticDuplicateRounds:
-              stuckState.consecutiveSemanticDuplicateRounds,
-          },
-        });
-        this.setStopReason(ctx, "no_progress", stuckResult.reason);
-        break;
-      }
-
-      // Recovery hints.
-      const recoveryHints = buildRecoveryHints(roundCalls, new Set<string>());
-      this.replaceRuntimeRecoveryHintMessages(ctx, recoveryHints);
-      if (recoveryHints.length > 0) {
-        this.emitExecutionTrace(ctx, {
-          type: "recovery_hints_injected",
-          phase: "tool_followup",
-          callIndex: ctx.callIndex + 1,
-          payload: {
-            count: recoveryHints.length,
-            hints: recoveryHints.map((hint) => ({
-              key: hint.key,
-              message: hint.message,
-            })),
-          },
-        });
-      }
-      const runtimeHintCount = ctx.messageSections.filter(
-        (s) => s === "system_runtime",
-      ).length;
-      for (const msg of buildToolLoopRecoveryMessages(
-        recoveryHints,
-        this.maxRuntimeSystemHints,
-        runtimeHintCount,
-      )) {
-        this.pushMessage(ctx, msg, "system_runtime");
-      }
-
-      // Routing expansion on miss.
-      if (loopState.expandAfterRound && ctx.expandedRoutedToolNames.length > 0) {
-        const previousRoutedToolNames = [...ctx.activeRoutedToolNames];
-        ctx.routedToolsExpanded = true;
-        applyActiveRoutedToolNames(ctx, ctx.expandedRoutedToolNames);
-        this.emitExecutionTrace(ctx, {
-          type: "route_expanded",
-          phase: "tool_followup",
-          callIndex: ctx.callIndex + 1,
-          payload: {
-            previousRoutedToolNames,
-            nextRoutedToolNames: ctx.activeRoutedToolNames,
-            routedToolMisses: ctx.routedToolMisses,
-          },
-        });
-        const updatedHintCount = ctx.messageSections.filter(
-          (s) => s === "system_runtime",
-        ).length;
-        const expansionMsg = buildRoutingExpansionMessage(
-          this.maxRuntimeSystemHints,
-          updatedHintCount,
-        );
-        if (expansionMsg) {
-          this.pushMessage(ctx, expansionMsg, "system_runtime");
-        }
-      }
-
-      const followupContractGuidance = this.resolveActiveToolContractGuidance(
-        ctx,
-        {
-          phase: "tool_followup",
-        },
-      );
-      if (followupContractGuidance) {
-        this.emitExecutionTrace(ctx, {
-          type: "contract_guidance_resolved",
-          phase: "tool_followup",
-          callIndex: ctx.callIndex + 1,
-          payload: {
-            source: followupContractGuidance.source,
-            routedToolNames: followupContractGuidance.routedToolNames ?? [],
-            toolChoice:
-              typeof followupContractGuidance.toolChoice === "string"
-                ? followupContractGuidance.toolChoice
-                : followupContractGuidance.toolChoice.name,
-            hasRuntimeInstruction: Boolean(
-              followupContractGuidance.runtimeInstruction,
-            ),
-          },
-        });
-      }
-      if (followupContractGuidance?.runtimeInstruction) {
-        this.maybePushRuntimeInstruction(
-          ctx,
-          followupContractGuidance.runtimeInstruction,
-        );
-      }
-
-      // Re-call LLM.
-      const nextResponse = await this.callModelForPhase(ctx, {
-        phase: "tool_followup",
-        callMessages: ctx.messages,
-        callSections: ctx.messageSections,
-        onStreamChunk: ctx.activeStreamCallback,
-        statefulSessionId: ctx.sessionId,
-        statefulResumeAnchor: ctx.stateful?.resumeAnchor,
-        statefulHistoryCompacted: ctx.stateful?.historyCompacted,
-        ...(followupContractGuidance
-          ? {
-            toolChoice: followupContractGuidance.toolChoice,
-            ...(followupContractGuidance.routedToolNames
-              ? {
-                routedToolNames: followupContractGuidance.routedToolNames,
-                ...(followupContractGuidance.persistRoutedToolNames === false
-                  ? { persistRoutedToolNames: false }
-                  : {}),
-              }
-              : {}),
-          }
-          : {}),
-        budgetReason:
-          "Max model recalls exceeded while following up after tool calls",
-      });
-      if (!nextResponse) break;
-      ctx.response = nextResponse;
-      const planOnlyAction =
-        await this.enforcePlanOnlyExecutionBeforeCompletion(
-          ctx,
-          "tool_followup",
-        );
-      if (planOnlyAction === "failed") break;
-      const evidenceAction =
-        await this.enforceRequiredToolEvidenceBeforeCompletion(
-          ctx,
-          "tool_followup",
-        );
-      if (evidenceAction === "failed") break;
-
-      const roundProgress = summarizeToolRoundProgress(
-        roundCalls,
-        Date.now() - roundStartedAt,
-        successfulSemanticToolKeys,
-        verificationFailureDiagnosticKeys,
-      );
-      recentRoundProgress.push(roundProgress);
-      if (recentRoundProgress.length > 3) {
-        recentRoundProgress.shift();
-      }
-
-      if (
-        ctx.response.finishReason === "tool_calls" &&
-        rounds >= effectiveMaxToolRounds
-      ) {
-        const extension = this.evaluateToolRoundBudgetExtension({
-          ctx,
-          currentLimit: effectiveMaxToolRounds,
-          recentRounds: recentRoundProgress,
-        });
-        this.emitExecutionTrace(ctx, {
-          type: "tool_round_budget_extension_evaluated",
-          phase: "tool_followup",
-          callIndex: ctx.callIndex + 1,
-          payload: {
-            currentLimit: effectiveMaxToolRounds,
-            decision: extension.decision,
-            recentProgressRate: extension.recentProgressRate,
-            recentTotalNewSuccessfulSemanticKeys:
-              extension.recentTotalNewSuccessfulSemanticKeys,
-            recentTotalNewVerificationFailureDiagnosticKeys:
-              extension.recentTotalNewVerificationFailureDiagnosticKeys,
-            weightedAverageNewSuccessfulSemanticKeys:
-              extension.weightedAverageNewSuccessfulSemanticKeys,
-            latestRoundHadMaterialProgress:
-              extension.latestRoundHadMaterialProgress,
-            latestRoundNewSuccessfulSemanticKeys:
-              extension.latestRoundNewSuccessfulSemanticKeys,
-            latestRoundNewVerificationFailureDiagnosticKeys:
-              extension.latestRoundNewVerificationFailureDiagnosticKeys,
-            extensionReason: extension.extensionReason,
-            repairCycleOpen: extension.repairCycleOpen,
-            repairCycleNeedsMutation:
-              extension.repairCycleNeedsMutation,
-            repairCycleNeedsVerification:
-              extension.repairCycleNeedsVerification,
-            effectiveToolBudget: ctx.effectiveToolBudget,
-            remainingToolBudget: extension.remainingToolBudget,
-            remainingRequestMs: this.serializeRemainingRequestMs(
-              extension.remainingRequestMs,
-            ),
-            recentAverageRoundMs: extension.recentAverageRoundMs,
-            extensionRounds: extension.extensionRounds,
-            newLimit: extension.newLimit,
-          },
-        });
-        if (extension.decision === "extended") {
-          const previousLimit = effectiveMaxToolRounds;
-          effectiveMaxToolRounds = extension.newLimit;
-          this.emitExecutionTrace(ctx, {
-            type: "tool_round_budget_extended",
-            phase: "tool_followup",
-            callIndex: ctx.callIndex + 1,
-            payload: {
-              previousLimit,
-              newLimit: effectiveMaxToolRounds,
-              extensionRounds: extension.extensionRounds,
-              remainingRequestMs: this.serializeRemainingRequestMs(
-                extension.remainingRequestMs,
-              ),
-              recentAverageRoundMs: extension.recentAverageRoundMs,
-              extensionReason: extension.extensionReason,
-              latestRoundNewSuccessfulSemanticKeys:
-                extension.latestRoundNewSuccessfulSemanticKeys,
-              latestRoundNewVerificationFailureDiagnosticKeys:
-                extension.latestRoundNewVerificationFailureDiagnosticKeys,
-              effectiveToolBudget: ctx.effectiveToolBudget,
-              remainingToolBudget: extension.remainingToolBudget,
-              repairCycleOpen: extension.repairCycleOpen,
-              repairCycleNeedsMutation:
-                extension.repairCycleNeedsMutation,
-              repairCycleNeedsVerification:
-                extension.repairCycleNeedsVerification,
-            },
-          });
-        }
-      }
-    }
-
-    if (ctx.signal?.aborted) {
-      this.setStopReason(ctx, "cancelled", "Execution cancelled by caller");
-    } else if (
-      ctx.response &&
-      ctx.response.finishReason === "tool_calls" &&
-      rounds >= effectiveMaxToolRounds
-    ) {
-      const finalized = await this.finalizeDelegatedTurnAfterToolBudgetExhaustion(
-        ctx,
-        effectiveMaxToolRounds,
-      );
-      if (!finalized) {
-        this.setStopReason(
-          ctx,
-          "tool_calls",
-          `Reached max tool rounds (${effectiveMaxToolRounds})`,
-        );
-      }
-    }
-
-    ctx.finalContent = ctx.response?.content ?? "";
-    if (!ctx.finalContent && ctx.allToolCalls.length > 0) {
-      ctx.finalContent =
-        generateFallbackContent(ctx.allToolCalls) ?? ctx.finalContent;
-    }
-    if (!ctx.finalContent && ctx.stopReason !== "completed" && ctx.stopReasonDetail) {
-      ctx.finalContent = ctx.stopReasonDetail;
-    }
   }
 
-  private async executeSingleToolCall(
-    ctx: ExecutionContext,
-    toolCall: LLMToolCall,
-    loopState: ToolLoopState,
-  ): Promise<ToolCallAction> {
-    if (this.checkRequestTimeout(ctx, `tool "${toolCall.name}" dispatch`)) {
-      return "abort_loop";
-    }
-    if (ctx.allToolCalls.length >= ctx.effectiveToolBudget) {
-      this.setStopReason(
-        ctx,
-        "budget_exceeded",
-        `Tool budget exceeded (${ctx.effectiveToolBudget} per request)`,
-      );
-      return "abort_loop";
-    }
-
-    // Permission check (allowlist, routed subset).
-    const permission = checkToolCallPermission(
-      toolCall,
-      this.allowedTools,
-      loopState.activeRoutedToolSet,
-      ctx.canExpandOnRoutingMiss,
-      ctx.routedToolsExpanded,
-    );
-    if (permission.errorResult) {
-      this.emitExecutionTrace(ctx, {
-        type: "tool_rejected",
-        phase: "tool_followup",
-        callIndex: ctx.callIndex,
-        payload: {
-          tool: toolCall.name,
-          routingMiss: permission.routingMiss === true,
-          expandAfterRound: permission.expandAfterRound === true,
-          activeRoutedToolNames: loopState.activeRoutedToolSet
-            ? [...loopState.activeRoutedToolSet]
-            : [],
-          error: permission.errorResult,
-        },
-      });
-      if (permission.routingMiss) ctx.routedToolMisses++;
-      this.pushMessage(
-        ctx,
-        {
-          role: "tool",
-          content: permission.errorResult,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-        },
-        "tools",
-      );
-      this.appendToolRecord(ctx, {
-        name: toolCall.name,
-        args: {},
-        result: permission.errorResult,
-        isError: true,
-        durationMs: 0,
-      });
-      if (permission.expandAfterRound) loopState.expandAfterRound = true;
-      return "skip";
-    }
-    // Parse arguments.
-    const parseResult = parseToolCallArguments(toolCall);
-    if (!parseResult.ok) {
-      this.emitExecutionTrace(ctx, {
-        type: "tool_arguments_invalid",
-        phase: "tool_followup",
-        callIndex: ctx.callIndex,
-        payload: {
-          tool: toolCall.name,
-          error: parseResult.error,
-          rawArguments: toolCall.arguments,
-        },
-      });
-      this.pushMessage(
-        ctx,
-        {
-          role: "tool",
-          content: parseResult.error,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-        },
-        "tools",
-      );
-      this.appendToolRecord(ctx, {
-        name: toolCall.name,
-        args: {},
-        result: parseResult.error,
-        isError: true,
-        durationMs: 0,
-      });
-      return "skip";
-    }
-    const rawArgs = parseResult.args;
-    let args = normalizeToolCallArguments(toolCall.name, rawArgs);
-    const normalizedFields = summarizeToolArgumentChanges(rawArgs, args);
-    const repaired = repairToolCallArgumentsFromMessageText(
-      toolCall.name,
-      args,
-      ctx.messageText,
-    );
-    args = repaired.args;
-    const contractAdjustedFields: string[] = [];
-    if (toolCall.name === "mcp.doom.start_game") {
-      const doomTurnContract = inferDoomTurnContract(ctx.messageText);
-      if (
-        doomTurnContract?.requiresAutonomousPlay &&
-        args.async_player !== true
-      ) {
-        args = { ...args, async_player: true };
-        contractAdjustedFields.push("async_player");
-      }
-    }
-    const argumentDiagnostics: Record<string, unknown> = {};
-    if (normalizedFields.length > 0) {
-      argumentDiagnostics.normalizedFields = normalizedFields;
-    }
-    if (repaired.repairedFields.length > 0) {
-      argumentDiagnostics.repairSource = "message_text";
-      argumentDiagnostics.repairedFields = repaired.repairedFields;
-    }
-    if (contractAdjustedFields.length > 0) {
-      argumentDiagnostics.contractAdjustedFields = contractAdjustedFields;
-    }
-    if (Object.keys(argumentDiagnostics).length > 0) {
-      argumentDiagnostics.rawArgs = rawArgs;
-    }
-    this.emitExecutionTrace(ctx, {
-      type: "tool_dispatch_started",
-      phase: "tool_followup",
-      callIndex: ctx.callIndex,
-      payload: {
-        tool: toolCall.name,
-        args,
-        ...(Object.keys(argumentDiagnostics).length > 0
-          ? { argumentDiagnostics }
-          : {}),
-      },
-    });
-
-    // Execute tool with retry.
-    const exec = await executeToolWithRetry(
-      toolCall,
-      args,
-      ctx.activeToolHandler!,
-      {
-        toolCallTimeoutMs: this.toolCallTimeoutMs,
-        retryPolicyMatrix: this.retryPolicyMatrix,
-        signal: ctx.signal,
-        requestDeadlineAt: ctx.requestDeadlineAt,
-      },
-    );
-
-    let { result } = exec;
-    let abortRound = false;
-    if (exec.timedOut && exec.toolFailed) {
-      this.setStopReason(
-        ctx,
-        "timeout",
-        `Tool "${toolCall.name}" timed out after ${exec.finalToolTimeoutMs}ms`,
-      );
-      abortRound = true;
-    }
-
-    if (this.toolFailureBreakerEnabled && exec.toolFailed) {
-      const failKey = buildSemanticToolCallKey(toolCall.name, args);
-      const circuitReason = this.recordToolFailurePattern(
-        ctx.sessionId,
-        failKey,
-        toolCall.name,
-      );
-      if (circuitReason) {
-        this.setStopReason(ctx, "no_progress", circuitReason);
-        abortRound = true;
-        result = enrichToolResultMetadata(result, {
-          circuitBreaker: "open",
-          circuitBreakerReason: circuitReason,
-        });
-      }
-    }
-
-    this.appendToolRecord(ctx, {
-      name: toolCall.name,
-      args,
-      result,
-      isError: exec.toolFailed,
-      durationMs: exec.durationMs,
-    });
-    this.emitExecutionTrace(ctx, {
-      type: "tool_dispatch_finished",
-      phase: "tool_followup",
-      callIndex: ctx.callIndex,
-      payload: {
-        tool: toolCall.name,
-        args,
-        durationMs: exec.durationMs,
-        isError: exec.toolFailed,
-        timedOut: exec.timedOut,
-        result,
-      },
-    });
-
-    if (ctx.failedToolCalls > ctx.effectiveFailureBudget) {
-      this.setStopReason(
-        ctx,
-        "tool_error",
-        `Failure budget exceeded (${ctx.failedToolCalls}/${ctx.effectiveFailureBudget})`,
-      );
-      abortRound = true;
-    }
-
-    // Track consecutive semantic failures to detect stuck loops.
-    const semanticToolKey = buildSemanticToolCallKey(toolCall.name, args);
-    if (!exec.toolFailed && this.toolFailureBreakerEnabled) {
-      this.clearToolFailurePattern(ctx.sessionId, semanticToolKey);
-    }
-    trackToolCallFailureState(exec.toolFailed, semanticToolKey, loopState);
-
-    const promptToolContent = buildPromptToolContent(
-      result,
-      loopState.remainingToolImageChars,
-    );
-    loopState.remainingToolImageChars = promptToolContent.remainingImageBudget;
-    this.pushMessage(
-      ctx,
-      {
-        role: "tool",
-        content: promptToolContent.content,
-        toolCallId: toolCall.id,
-        toolName: toolCall.name,
-      },
-      "tools",
-    );
-
-    if (abortRound) return "abort_round";
-    if (exec.toolFailed && toolCall.name === "mcp.doom.start_game") {
-      // Downstream Doom setup calls depend on a live game/executor.
-      return "end_round";
-    }
-    return "processed";
+  private async executeToolCallLoop(ctx: ExecutionContext): Promise<void> {
+    return executeToolCallLoopFn(ctx, {
+      maxRuntimeSystemHints: this.maxRuntimeSystemHints,
+      toolCallTimeoutMs: this.toolCallTimeoutMs,
+      retryPolicyMatrix: this.retryPolicyMatrix,
+      allowedTools: this.allowedTools,
+      toolFailureBreaker: this.toolFailureBreaker,
+    }, this.buildToolLoopCallbacks());
   }
 
   private async executePlannerPath(ctx: ExecutionContext): Promise<void> {
-    ctx.plannerSummaryState.used = true;
-    const plannerSections: PromptBudgetSection[] = [
-      "system_anchor",
-      "history",
-      "user",
-    ];
-    const explicitOrchestrationRequirements =
-      extractExplicitSubagentOrchestrationRequirements(ctx.messageText);
-    const explicitDeterministicToolRequirements =
-      explicitOrchestrationRequirements
-        ? undefined
-        : extractExplicitDeterministicToolRequirements(
-            ctx.messageText,
-            mergeExplicitRequirementToolNames(
-              ctx.activeRoutedToolNames,
-              ctx.expandedRoutedToolNames,
-              this.allowedTools ? [...this.allowedTools] : [],
-            ),
-          );
-    const explicitVerificationRequirements =
-      extractPlannerVerificationRequirements(ctx.messageText);
-    const explicitVerificationCommandRequirements =
-      extractPlannerVerificationCommandRequirements(ctx.messageText);
-    const explicitPlannerToolNames =
-      explicitDeterministicToolRequirements?.orderedToolNames;
-    let refinementHint: string | undefined;
-    const maxStructuralPlannerRetries = Math.max(
-      0,
-      DEFAULT_PLANNER_MAX_REFINEMENT_ATTEMPTS - 1,
-    );
-    const maxPlannerStepContractRetries = Math.max(
-      0,
-      DEFAULT_PLANNER_MAX_STEP_CONTRACT_RETRIES,
-    );
-    const maxRuntimeRepairRetries =
-      DEFAULT_PLANNER_MAX_RUNTIME_REPAIR_RETRIES;
-    const maxPlannerDecompositionRetries = 2;
-    const maxPlannerAttempts =
-      1 +
-      maxStructuralPlannerRetries +
-      maxPlannerStepContractRetries +
-      maxRuntimeRepairRetries +
-      maxPlannerDecompositionRetries;
-    let structuralPlannerRetriesUsed = 0;
-    let plannerStepContractRetriesUsed = 0;
-    let decompositionPlannerRetriesUsed = 0;
-    const seenStructuralDiagnosticSignatures = new Set<string>();
-    const seenRuntimeRepairFailureSignatures = new Set<string>();
-    let latestPlannerValidationDiagnostics: readonly PlannerDiagnostic[] = [];
-
-    for (
-      let plannerAttempt = 1;
-      plannerAttempt <= maxPlannerAttempts;
-      plannerAttempt++
-    ) {
-      const plannerMessages = buildPlannerMessages(
-        ctx.messageText,
-        ctx.history,
-        this.plannerMaxTokens,
-        explicitDeterministicToolRequirements,
-        refinementHint,
-        this.resolveHostToolingProfile?.(),
-        {
-          maxSubagentFanout: this.delegationDecisionConfig.maxFanoutPerTurn,
-          currentDelegationDepth: this.delegationNestingDepth,
-          maxDelegationDepth: this.delegationDecisionConfig.maxDepth,
-          childCanDelegate: this.delegationNestingDepth + 1 < this.delegationDecisionConfig.maxDepth,
-        },
-      );
-      const plannerResponse = await this.callModelForPhase(ctx, {
-        phase: "planner",
-        callMessages: plannerMessages,
-        callSections: plannerSections,
-        ...(explicitPlannerToolNames
-          ? { routedToolNames: explicitPlannerToolNames }
-          : {}),
-        budgetReason:
-          "Planner pass blocked by max model recalls per request budget",
-      });
-      if (!plannerResponse) return;
-
-      ctx.plannerSummaryState.plannerCalls = plannerAttempt;
-      ctx.plannerSummaryState.delegationDecision = undefined;
-      ctx.plannedSubagentSteps = 0;
-      ctx.plannedDeterministicSteps = 0;
-      ctx.plannedSynthesisSteps = 0;
-      ctx.plannedFanout = 0;
-      ctx.plannedDependencyDepth = 0;
-
-      const plannerParse = normalizePlannerResponse({
-        content: plannerResponse.content,
-        toolCalls: plannerResponse.toolCalls,
-        repairRequirements: explicitOrchestrationRequirements,
-      });
-      ctx.plannerSummaryState.diagnostics.push(...plannerParse.diagnostics);
-      const plannerPlan = plannerParse.plan;
-      if (!plannerPlan) {
-        if (explicitOrchestrationRequirements) {
-          if (
-            plannerAttempt < maxPlannerAttempts &&
-            structuralPlannerRetriesUsed < maxStructuralPlannerRetries
-          ) {
-            structuralPlannerRetriesUsed++;
-            refinementHint = buildExplicitSubagentOrchestrationRefinementHint(
-              explicitOrchestrationRequirements,
-              plannerParse.diagnostics,
-            );
-            ctx.plannerSummaryState.diagnostics.push({
-              category: "policy",
-              code: "planner_required_orchestration_retry",
-              message:
-                "Planner failed to emit the user-required sub-agent orchestration plan; requesting a refined plan",
-              details: {
-                attempt: plannerAttempt,
-                nextAttempt: plannerAttempt + 1,
-                maxAttempts: maxPlannerAttempts,
-              },
-            });
-            this.emitPlannerTrace(ctx, "planner_refinement_requested", {
-              attempt: plannerAttempt,
-              nextAttempt: plannerAttempt + 1,
-              reason: "planner_required_orchestration_retry",
-              routeReason: "planner_required_orchestration_unmet",
-              diagnostics: plannerParse.diagnostics,
-            });
-            continue;
-          }
-          ctx.plannerSummaryState.routeReason =
-            "planner_required_orchestration_unmet";
-          this.setStopReason(
-            ctx,
-            "validation_error",
-            "Planner could not produce the required sub-agent orchestration plan",
-          );
-          ctx.finalContent = buildExplicitSubagentOrchestrationFailureMessage(
-            explicitOrchestrationRequirements,
-            plannerParse.diagnostics,
-          );
-          this.emitPlannerTrace(ctx, "planner_path_finished", {
-            plannerCalls: plannerAttempt,
-            routeReason: ctx.plannerSummaryState.routeReason,
-            stopReason: ctx.stopReason,
-            stopReasonDetail: ctx.stopReasonDetail,
-            diagnostics: ctx.plannerSummaryState.diagnostics,
-            handled: true,
-          });
-          ctx.plannerHandled = true;
-          return;
-        }
-        if (explicitDeterministicToolRequirements) {
-          if (
-            plannerAttempt < maxPlannerAttempts &&
-            structuralPlannerRetriesUsed < maxStructuralPlannerRetries
-          ) {
-            structuralPlannerRetriesUsed++;
-            refinementHint = buildExplicitDeterministicToolRefinementHint(
-              explicitDeterministicToolRequirements,
-              plannerParse.diagnostics,
-            );
-            ctx.plannerSummaryState.diagnostics.push({
-              category: "policy",
-              code: "planner_explicit_tool_parse_retry",
-              message:
-                "Planner failed to emit the user-required deterministic tool plan; requesting a refined plan",
-              details: {
-                attempt: plannerAttempt,
-                nextAttempt: plannerAttempt + 1,
-                maxAttempts: maxPlannerAttempts,
-              },
-            });
-            this.emitPlannerTrace(ctx, "planner_refinement_requested", {
-              attempt: plannerAttempt,
-              nextAttempt: plannerAttempt + 1,
-              reason: "planner_explicit_tool_parse_retry",
-              routeReason: "planner_explicit_tool_requirements_unmet",
-              diagnostics: plannerParse.diagnostics,
-            });
-            continue;
-          }
-          ctx.plannerSummaryState.routeReason =
-            "planner_explicit_tool_requirements_unmet";
-          this.setStopReason(
-            ctx,
-            "validation_error",
-            "Planner could not produce the required deterministic tool plan",
-          );
-          ctx.finalContent = buildExplicitDeterministicToolFailureMessage(
-            explicitDeterministicToolRequirements,
-            plannerParse.diagnostics,
-          );
-          this.emitPlannerTrace(ctx, "planner_path_finished", {
-            plannerCalls: plannerAttempt,
-            routeReason: ctx.plannerSummaryState.routeReason,
-            stopReason: ctx.stopReason,
-            stopReasonDetail: ctx.stopReasonDetail,
-            diagnostics: ctx.plannerSummaryState.diagnostics,
-            handled: true,
-          });
-          ctx.plannerHandled = true;
-          return;
-        }
-        const recoverablePlannerParseDiagnostics =
-          extractRecoverablePlannerParseDiagnostics(
-            plannerParse.diagnostics,
-          );
-        if (
-          recoverablePlannerParseDiagnostics.length > 0 &&
-          recoverablePlannerParseDiagnostics.length ===
-            plannerParse.diagnostics.length &&
-          plannerAttempt < maxPlannerAttempts &&
-          plannerStepContractRetriesUsed < maxPlannerStepContractRetries
-        ) {
-          plannerStepContractRetriesUsed++;
-          refinementHint = buildPlannerParseRefinementHint(
-            recoverablePlannerParseDiagnostics,
-          );
-          ctx.plannerSummaryState.diagnostics.push({
-            category: "policy",
-            code: "planner_parse_contract_retry",
-            message:
-              "Planner emitted recoverable parse issues; requesting a refined plan",
-            details: {
-              attempt: plannerAttempt,
-              nextAttempt: plannerAttempt + 1,
-              maxAttempts: maxPlannerAttempts,
-            },
-          });
-          this.emitPlannerTrace(ctx, "planner_refinement_requested", {
-            attempt: plannerAttempt,
-            nextAttempt: plannerAttempt + 1,
-            reason: "planner_parse_contract_retry",
-            routeReason: "planner_parse_failed",
-            diagnostics: recoverablePlannerParseDiagnostics,
-          });
-          continue;
-        }
-        ctx.plannerSummaryState.routeReason = "planner_parse_failed";
-        this.emitPlannerTrace(ctx, "planner_path_finished", {
-          plannerCalls: plannerAttempt,
-          routeReason: ctx.plannerSummaryState.routeReason,
-          stopReason: ctx.stopReason,
-          stopReasonDetail: ctx.stopReasonDetail,
-          diagnostics: ctx.plannerSummaryState.diagnostics,
-          handled: false,
-        });
-        return;
-      }
-
-      const salvagedToolPlanDiagnostics = validateSalvagedPlannerToolPlan({
-        plannerPlan,
-        messageText: ctx.messageText,
-        history: ctx.history,
-        explicitDeterministicRequirements: explicitDeterministicToolRequirements,
-      });
-      if (salvagedToolPlanDiagnostics.length > 0) {
-        ctx.plannerSummaryState.diagnostics.push(...salvagedToolPlanDiagnostics);
-        if (
-          plannerAttempt < maxPlannerAttempts &&
-          structuralPlannerRetriesUsed < maxStructuralPlannerRetries
-        ) {
-          structuralPlannerRetriesUsed++;
-          refinementHint = buildSalvagedPlannerToolCallRefinementHint(
-            salvagedToolPlanDiagnostics,
-          );
-          ctx.plannerSummaryState.diagnostics.push({
-            category: "policy",
-            code: "planner_salvaged_tool_call_retry",
-            message:
-              "Planner emitted raw tool calls that under-decomposed the request; requesting a refined JSON plan",
-            details: {
-              attempt: plannerAttempt,
-              nextAttempt: plannerAttempt + 1,
-              maxAttempts: maxPlannerAttempts,
-            },
-          });
-          this.emitPlannerTrace(ctx, "planner_refinement_requested", {
-            attempt: plannerAttempt,
-            nextAttempt: plannerAttempt + 1,
-            reason: "planner_salvaged_tool_call_retry",
-            routeReason: "planner_parse_failed",
-            diagnostics: salvagedToolPlanDiagnostics,
-          });
-          continue;
-        }
-        ctx.plannerSummaryState.routeReason = "planner_parse_failed";
-        this.emitPlannerTrace(ctx, "planner_path_finished", {
-          plannerCalls: plannerAttempt,
-          routeReason: ctx.plannerSummaryState.routeReason,
-          stopReason: ctx.stopReason,
-          stopReasonDetail: ctx.stopReasonDetail,
-          diagnostics: ctx.plannerSummaryState.diagnostics,
-          handled: false,
-        });
-        return;
-      }
-
-      const graphDiagnostics = validatePlannerGraph(
-        plannerPlan,
-        {
-          maxSubagentFanout: this.delegationDecisionConfig.maxFanoutPerTurn,
-          maxSubagentDepth: this.delegationDecisionConfig.maxDepth,
-        },
-      );
-      const plannerStepContractDiagnostics = validatePlannerStepContracts(
-        plannerPlan,
-      );
-      const verificationRequirementDiagnostics =
-        explicitVerificationRequirements.length > 0 ||
-        explicitVerificationCommandRequirements.length > 0
-          ? validatePlannerVerificationRequirements(
-              plannerPlan,
-              explicitVerificationRequirements,
-              explicitVerificationCommandRequirements,
-            )
-          : [];
-      const structuralGraphDiagnostics = extractPlannerStructuralDiagnostics(
-        [
-          ...graphDiagnostics,
-          ...verificationRequirementDiagnostics,
-        ],
-      );
-      const decompositionGraphDiagnostics =
-        extractPlannerDecompositionDiagnostics(structuralGraphDiagnostics);
-      const requiredOrchestrationDiagnostics =
-        explicitOrchestrationRequirements
-          ? validateExplicitSubagentOrchestrationRequirements(
-              plannerPlan,
-              explicitOrchestrationRequirements,
-            )
-          : [];
-      const explicitToolDiagnostics =
-        explicitDeterministicToolRequirements
-          ? validateExplicitDeterministicToolRequirements(
-              plannerPlan,
-              explicitDeterministicToolRequirements,
-            )
-          : [];
-      const hasStructuralDiagnostics =
-        structuralGraphDiagnostics.length > 0 ||
-        requiredOrchestrationDiagnostics.length > 0 ||
-        explicitToolDiagnostics.length > 0;
-      const currentValidationDiagnostics = [
-        ...graphDiagnostics,
-        ...plannerStepContractDiagnostics,
-        ...verificationRequirementDiagnostics,
-        ...requiredOrchestrationDiagnostics,
-        ...explicitToolDiagnostics,
-      ];
-      latestPlannerValidationDiagnostics = currentValidationDiagnostics;
-      const hasOnlyStepContractDiagnostics =
-        !hasStructuralDiagnostics &&
-        plannerStepContractDiagnostics.length > 0;
-      const structuralDiagnosticSignature =
-        hasStructuralDiagnostics
-          ? buildPlannerDiagnosticSignature([
-              ...structuralGraphDiagnostics,
-              ...requiredOrchestrationDiagnostics,
-              ...explicitToolDiagnostics,
-            ])
-          : "";
-      const canUseProgressStructuralRetry =
-        hasStructuralDiagnostics &&
-        structuralPlannerRetriesUsed >= maxStructuralPlannerRetries &&
-        plannerAttempt < maxPlannerAttempts &&
-        structuralDiagnosticSignature.length > 0 &&
-        !seenStructuralDiagnosticSignatures.has(structuralDiagnosticSignature);
-      const hasOnlyDecompositionStructuralDiagnostics =
-        decompositionGraphDiagnostics.length > 0 &&
-        decompositionGraphDiagnostics.length ===
-          structuralGraphDiagnostics.length &&
-        plannerStepContractDiagnostics.length === 0 &&
-        verificationRequirementDiagnostics.length === 0 &&
-        requiredOrchestrationDiagnostics.length === 0 &&
-        explicitToolDiagnostics.length === 0;
-      const canUseDecompositionRetry =
-        hasOnlyDecompositionStructuralDiagnostics &&
-        decompositionPlannerRetriesUsed < maxPlannerDecompositionRetries &&
-        plannerAttempt < maxPlannerAttempts;
-      const shouldRefinePlan =
-        (
-          structuralGraphDiagnostics.length > 0 ||
-          plannerStepContractDiagnostics.length > 0 ||
-          verificationRequirementDiagnostics.length > 0 ||
-          requiredOrchestrationDiagnostics.length > 0 ||
-          explicitToolDiagnostics.length > 0
-        ) &&
-        plannerAttempt < maxPlannerAttempts &&
-        (
-          (
-            hasOnlyStepContractDiagnostics &&
-            plannerStepContractRetriesUsed < maxPlannerStepContractRetries
-          ) ||
-          structuralPlannerRetriesUsed < maxStructuralPlannerRetries ||
-          canUseProgressStructuralRetry ||
-          canUseDecompositionRetry
-        );
-      if (
-        graphDiagnostics.length > 0 ||
-        plannerStepContractDiagnostics.length > 0 ||
-        verificationRequirementDiagnostics.length > 0 ||
-        requiredOrchestrationDiagnostics.length > 0 ||
-        explicitToolDiagnostics.length > 0
-      ) {
-        ctx.plannerSummaryState.diagnostics.push(...graphDiagnostics);
-        ctx.plannerSummaryState.diagnostics.push(
-          ...plannerStepContractDiagnostics,
-        );
-        ctx.plannerSummaryState.diagnostics.push(
-          ...verificationRequirementDiagnostics,
-        );
-        ctx.plannerSummaryState.diagnostics.push(
-          ...requiredOrchestrationDiagnostics,
-        );
-        ctx.plannerSummaryState.diagnostics.push(...explicitToolDiagnostics);
-        if (shouldRefinePlan) {
-          if (
-            hasOnlyStepContractDiagnostics &&
-            plannerStepContractRetriesUsed < maxPlannerStepContractRetries
-          ) {
-            plannerStepContractRetriesUsed++;
-          } else if (structuralPlannerRetriesUsed < maxStructuralPlannerRetries) {
-            structuralPlannerRetriesUsed++;
-          } else if (canUseDecompositionRetry) {
-            decompositionPlannerRetriesUsed++;
-          }
-          if (structuralDiagnosticSignature.length > 0) {
-            seenStructuralDiagnosticSignatures.add(
-              structuralDiagnosticSignature,
-            );
-          }
-          const refinementHints: string[] = [];
-          if (structuralGraphDiagnostics.length > 0) {
-            refinementHints.push(
-              buildPlannerStructuralRefinementHint(
-                structuralGraphDiagnostics,
-              ),
-            );
-          }
-          if (plannerStepContractDiagnostics.length > 0) {
-            refinementHints.push(
-              buildPlannerStepContractRefinementHint(
-                plannerStepContractDiagnostics,
-              ),
-            );
-          }
-          if (verificationRequirementDiagnostics.length > 0) {
-            refinementHints.push(
-              buildPlannerVerificationRequirementsRefinementHint(
-                explicitVerificationRequirements,
-                verificationRequirementDiagnostics,
-              ),
-            );
-          }
-          if (requiredOrchestrationDiagnostics.length > 0) {
-            refinementHints.push(
-              buildExplicitSubagentOrchestrationRefinementHint(
-                explicitOrchestrationRequirements!,
-                requiredOrchestrationDiagnostics,
-              ),
-            );
-          }
-          if (explicitToolDiagnostics.length > 0) {
-            refinementHints.push(
-              buildExplicitDeterministicToolRefinementHint(
-                explicitDeterministicToolRequirements!,
-                explicitToolDiagnostics,
-              ),
-            );
-          }
-          refinementHint = refinementHints.join(" ");
-          const plannerRetryCode =
-            requiredOrchestrationDiagnostics.length > 0
-              ? "planner_required_orchestration_retry"
-              : explicitToolDiagnostics.length > 0
-                ? "planner_explicit_tool_retry"
-                : verificationRequirementDiagnostics.length > 0
-                  ? "planner_verification_requirements_retry"
-                : plannerStepContractDiagnostics.length > 0
-                  ? "planner_step_contract_retry"
-                : "planner_refinement_retry";
-          const plannerRetryMessage =
-            requiredOrchestrationDiagnostics.length > 0
-              ? "Planner did not satisfy the user-required sub-agent orchestration plan; requesting a refined plan"
-              : explicitToolDiagnostics.length > 0
-                ? "Planner drifted outside the explicitly requested deterministic tool contract; requesting a refined plan"
-                : verificationRequirementDiagnostics.length > 0
-                  ? "Planner dropped one or more user-requested verification modes; requesting a refined plan"
-                : plannerStepContractDiagnostics.length > 0
-                  ? "Planner emitted steps that violate runtime tool contracts; requesting a refined plan"
-                : "Planner emitted structural delegation violations; requesting a refined plan";
-          ctx.plannerSummaryState.diagnostics.push({
-            category: "policy",
-            code: plannerRetryCode,
-            message: plannerRetryMessage,
-            details: {
-              attempt: plannerAttempt,
-              nextAttempt: plannerAttempt + 1,
-                maxAttempts: maxPlannerAttempts,
-                progressRetry: canUseProgressStructuralRetry ? "true" : "false",
-                decompositionRetry: canUseDecompositionRetry ? "true" : "false",
-              },
-            });
-          this.emitPlannerTrace(ctx, "planner_refinement_requested", {
-            attempt: plannerAttempt,
-            nextAttempt: plannerAttempt + 1,
-            reason: plannerRetryCode,
-            graphDiagnostics,
-            decompositionGraphDiagnostics,
-            plannerStepContractDiagnostics,
-            verificationRequirementDiagnostics,
-            requestedVerificationCategories: explicitVerificationRequirements,
-            requestedVerificationCommands: explicitVerificationCommandRequirements,
-            requiredOrchestrationDiagnostics,
-            explicitToolDiagnostics,
-            decompositionRetry: canUseDecompositionRetry,
-          });
-          continue;
-        }
-        if (requiredOrchestrationDiagnostics.length > 0) {
-          ctx.plannerSummaryState.routeReason =
-            "planner_required_orchestration_unmet";
-          this.setStopReason(
-            ctx,
-            "validation_error",
-            "Planner did not satisfy the user-required sub-agent orchestration plan",
-          );
-          ctx.finalContent = buildExplicitSubagentOrchestrationFailureMessage(
-            explicitOrchestrationRequirements!,
-            requiredOrchestrationDiagnostics,
-          );
-          this.emitPlannerTrace(ctx, "planner_path_finished", {
-            plannerCalls: plannerAttempt,
-            routeReason: ctx.plannerSummaryState.routeReason,
-            stopReason: ctx.stopReason,
-            stopReasonDetail: ctx.stopReasonDetail,
-            diagnostics: ctx.plannerSummaryState.diagnostics,
-            handled: true,
-          });
-          ctx.plannerHandled = true;
-          return;
-        }
-        if (verificationRequirementDiagnostics.length > 0) {
-          ctx.plannerSummaryState.routeReason =
-            "planner_verification_requirements_unmet";
-          this.setStopReason(
-            ctx,
-            "validation_error",
-            "Planner did not preserve the user-requested verification coverage",
-          );
-          ctx.finalContent =
-            buildPlannerVerificationRequirementsFailureMessage(
-              explicitVerificationRequirements,
-              verificationRequirementDiagnostics,
-            );
-          this.emitPlannerTrace(ctx, "planner_path_finished", {
-            plannerCalls: plannerAttempt,
-            routeReason: ctx.plannerSummaryState.routeReason,
-            stopReason: ctx.stopReason,
-            stopReasonDetail: ctx.stopReasonDetail,
-            diagnostics: ctx.plannerSummaryState.diagnostics,
-            handled: true,
-          });
-          ctx.plannerHandled = true;
-          return;
-        }
-        if (explicitToolDiagnostics.length > 0) {
-          ctx.plannerSummaryState.routeReason =
-            "planner_explicit_tool_requirements_unmet";
-          this.setStopReason(
-            ctx,
-            "validation_error",
-            "Planner did not satisfy the user-required deterministic tool plan",
-          );
-          ctx.finalContent = buildExplicitDeterministicToolFailureMessage(
-            explicitDeterministicToolRequirements!,
-            explicitToolDiagnostics,
-          );
-          this.emitPlannerTrace(ctx, "planner_path_finished", {
-            plannerCalls: plannerAttempt,
-            routeReason: ctx.plannerSummaryState.routeReason,
-            stopReason: ctx.stopReason,
-            stopReasonDetail: ctx.stopReasonDetail,
-            diagnostics: ctx.plannerSummaryState.diagnostics,
-            handled: true,
-          });
-          ctx.plannerHandled = true;
-          return;
-        }
-        ctx.plannerSummaryState.routeReason =
-          explicitToolDiagnostics.length > 0
-            ? "planner_explicit_tool_requirements_unmet"
-            : "planner_validation_failed";
-      } else if (plannerPlan.reason) {
-        ctx.plannerSummaryState.routeReason = plannerPlan.reason;
-      }
-
-      this.emitPlannerTrace(ctx, "planner_plan_parsed", {
-        attempt: plannerAttempt,
-        routeReason: ctx.plannerSummaryState.routeReason,
-        requiresSynthesis: plannerPlan.requiresSynthesis === true,
-        totalSteps: plannerPlan.steps.length,
-        deterministicSteps: plannerPlan.steps.filter((step) =>
-          step.stepType === "deterministic_tool"
-        ).length,
-        subagentSteps: plannerPlan.steps.filter((step) =>
-          step.stepType === "subagent_task"
-        ).length,
-        synthesisSteps: plannerPlan.steps.filter((step) =>
-          step.stepType === "synthesis"
-        ).length,
-        graphDiagnostics,
-        plannerStepContractDiagnostics,
-        verificationRequirementDiagnostics,
-        requestedVerificationCategories: explicitVerificationRequirements,
-        requiredOrchestrationDiagnostics,
-        explicitToolDiagnostics,
-        steps: plannerPlan.steps.map((step) => ({ ...step })),
-        edges: plannerPlan.edges.map((edge) => ({ ...edge })),
-      });
-
-      ctx.plannerSummaryState.plannedSteps = plannerPlan.steps.length;
-      ctx.plannedSubagentSteps = plannerPlan.steps.filter(
-        (step) => step.stepType === "subagent_task",
-      ).length;
-      ctx.plannedDeterministicSteps = plannerPlan.steps.filter(
-        (step) => step.stepType === "deterministic_tool",
-      ).length;
-      ctx.plannedSynthesisSteps = plannerPlan.steps.filter(
-        (step) => step.stepType === "synthesis",
-      ).length;
-      ctx.plannedFanout = ctx.plannedSubagentSteps;
-      ctx.plannedDependencyDepth = computePlannerGraphDepth(
-        plannerPlan.steps.map((step) => step.name),
-        plannerPlan.edges,
-      ).maxDepth;
-
-      const subagentSteps = plannerPlan.steps.filter(
-        (step): step is PlannerSubAgentTaskStepIntent =>
-          step.stepType === "subagent_task",
-      );
-      let delegationDecision: ReturnType<
-        typeof assessAndRecordDelegationDecision
-      > | undefined;
-      if (subagentSteps.length > 0) {
-        const highRiskPlan = isHighRiskSubagentPlan(subagentSteps);
-        ctx.trajectoryContextClusterId = deriveDelegationContextClusterId({
-          complexityScore: ctx.plannerDecision.score,
-          subagentStepCount: subagentSteps.length,
-          hasHistory: ctx.hasHistory,
-          highRiskPlan,
-        });
-
-        const banditResult = resolveDelegationBanditArm(
-          this.delegationBanditTuner,
-          ctx.trajectoryContextClusterId,
-          this.delegationDefaultStrategyArmId,
-          ctx.baseDelegationThreshold,
-        );
-        ctx.selectedBanditArm = banditResult.selectedArm;
-        ctx.tunedDelegationThreshold = banditResult.tunedThreshold;
-        ctx.plannerSummaryState.delegationPolicyTuning = banditResult.policyTuning;
-
-        delegationDecision = assessAndRecordDelegationDecision(
-          {
-            messageText: ctx.messageText,
-            plannerPlan,
-            subagentSteps,
-            complexityScore: ctx.plannerDecision.score,
-            tunedThreshold: ctx.tunedDelegationThreshold,
-            delegationConfig: this.delegationDecisionConfig,
-          },
-          ctx.plannerSummaryState,
-        );
-        if (
-          explicitOrchestrationRequirements &&
-          delegationDecision &&
-          !delegationDecision.shouldDelegate
-        ) {
-          delegationDecision = {
-            ...delegationDecision,
-            shouldDelegate: true,
-            reason: "approved",
-          };
-          ctx.plannerSummaryState.diagnostics.push({
-            category: "policy",
-            code: "delegation_required_by_user",
-            message:
-              "User explicitly required sub-agent orchestration; bypassing delegation utility veto",
-            details: {
-              requiredSteps:
-                explicitOrchestrationRequirements.stepNames.join(","),
-            },
-          });
-        }
-      }
-      const deterministicSteps = plannerPlan.steps.filter(
-        (step): step is PlannerDeterministicToolStepIntent =>
-          step.stepType === "deterministic_tool",
-      );
-      const hasSynthesisStep = plannerPlan.steps.some(
-        (step) => step.stepType === "synthesis",
-      );
-      const plannerPipelineSteps = mapPlannerStepsToPipelineSteps(
-        plannerPlan.steps,
-      );
-      const plannerExecutionContext = buildPlannerExecutionContext(
-        ctx.messageText,
-        ctx.history,
-        ctx.messages,
-        ctx.messageSections,
-        ctx.expandedRoutedToolNames.length > 0
-          ? ctx.expandedRoutedToolNames
-          : ctx.activeRoutedToolNames.length > 0
-          ? ctx.activeRoutedToolNames
-          : (this.allowedTools ? [...this.allowedTools] : undefined),
-      );
-      const hasExecutablePlannerSteps =
-        (
-          deterministicSteps.length > 0 &&
-          (
-            subagentSteps.length === 0 ||
-            delegationDecision?.shouldDelegate === true
-          )
-        ) ||
-        (
-          subagentSteps.length > 0 &&
-          delegationDecision?.shouldDelegate === true
-        );
-
-      if (
-        hasExecutablePlannerSteps &&
-        ctx.plannerSummaryState.routeReason !== "planner_validation_failed" &&
-        ctx.plannerSummaryState.routeReason !==
-          "planner_explicit_tool_requirements_unmet"
-      ) {
-        if (deterministicSteps.length > ctx.effectiveToolBudget) {
-          this.setStopReason(
-            ctx,
-            "budget_exceeded",
-            `Planner produced ${deterministicSteps.length} deterministic steps but tool budget is ${ctx.effectiveToolBudget}`,
-          );
-          ctx.finalContent =
-            `Planned ${deterministicSteps.length} deterministic steps, ` +
-            `but request tool budget is ${ctx.effectiveToolBudget}.`;
-          this.emitPlannerTrace(ctx, "planner_path_finished", {
-            plannerCalls: plannerAttempt,
-            routeReason: ctx.plannerSummaryState.routeReason,
-            stopReason: ctx.stopReason,
-            stopReasonDetail: ctx.stopReasonDetail,
-            diagnostics: ctx.plannerSummaryState.diagnostics,
-            handled: true,
-          });
-          ctx.plannerHandled = true;
-          return;
-        }
-
-        const pipeline: Pipeline = {
-          id: `planner:${ctx.sessionId}:${Date.now()}`,
-          createdAt: Date.now(),
-          context: { results: {} },
-          steps: deterministicSteps.map((step) => ({
-            name: step.name,
-            tool: step.tool,
-            args: step.args,
-            onError: step.onError,
-            maxRetries: step.maxRetries,
-          })),
-          plannerSteps: plannerPipelineSteps,
-          edges: plannerPlan.edges,
-          maxParallelism: this.delegationDecisionConfig.maxFanoutPerTurn,
-          plannerContext: plannerExecutionContext,
-        };
-
-        this.emitPlannerTrace(ctx, "planner_pipeline_started", {
-          attempt: plannerAttempt,
-          pipelineId: pipeline.id,
-          routeReason: ctx.plannerSummaryState.routeReason,
-          deterministicSteps: deterministicSteps.map((step) => ({
-            name: step.name,
-            tool: step.tool,
-            onError: step.onError ?? "abort",
-            maxRetries: step.maxRetries ?? 0,
-          })),
-          delegatedSteps: subagentSteps.map((step) => step.name),
-        });
-
-        const shouldRunSubagentVerifier =
-          subagentSteps.length > 0 &&
-          delegationDecision?.shouldDelegate === true &&
-          (
-            this.subagentVerifierConfig.enabled ||
-            this.subagentVerifierConfig.force
-          );
-        const {
-          verifierRounds,
-          verificationDecision,
-          pipelineResult,
-        } = await executePlannerPipelineWithVerifierLoop({
-          pipeline,
-          plannerPlan,
-          subagentSteps,
-          deterministicSteps,
-          plannerExecutionContext,
-          shouldRunSubagentVerifier,
-          verifierConfig: this.subagentVerifierConfig,
-          plannerSummaryState: ctx.plannerSummaryState,
-          checkRequestTimeout: (stage: string) => this.checkRequestTimeout(ctx, stage),
-          runPipelineWithGlobalTimeout: (p: Pipeline) => this.runPipelineWithTimeout(ctx, p),
-          runSubagentVerifierRound: (input) =>
-            runSubagentVerifierRound({
-              systemPrompt: ctx.systemPrompt,
-              messageText: ctx.messageText,
-              sessionId: ctx.sessionId,
-              stateful: ctx.stateful,
-              plannerDiagnostics: ctx.plannerSummaryState.diagnostics,
-              plannerPlan: input.plannerPlan,
-              subagentSteps: input.subagentSteps,
-              pipelineResult: input.pipelineResult,
-              plannerContext: input.plannerContext,
-              round: input.round,
-              callModelForPhase: (phaseInput) => this.callModelForPhase(ctx, phaseInput),
-            }),
-          onVerifierRoundFinished: (payload) =>
-            this.emitPlannerTrace(
-              ctx,
-              "planner_verifier_round_finished",
-              payload,
-            ),
-          onVerifierRetryScheduled: (payload) =>
-            this.emitPlannerTrace(
-              ctx,
-              "planner_verifier_retry_scheduled",
-              payload,
-            ),
-          appendToolRecord: (record: ToolCallRecord) => this.appendToolRecord(ctx, record),
-          setStopReason: (reason: LLMPipelineStopReason, detail?: string) => this.setStopReason(ctx, reason, detail),
-        });
-
-        if (
-          shouldRunSubagentVerifier &&
-          verifierRounds === 0 &&
-          !ctx.plannerSummaryState.subagentVerification.performed
-        ) {
-          ctx.plannerSummaryState.subagentVerification = {
-            enabled: true,
-            performed: false,
-            rounds: 0,
-            overall: "skipped",
-            confidence: 1,
-            unresolvedItems: [],
-          };
-        }
-
-        if (
-          pipelineResult?.decomposition &&
-          plannerAttempt < maxPlannerAttempts &&
-          structuralPlannerRetriesUsed < maxStructuralPlannerRetries
-        ) {
-          structuralPlannerRetriesUsed++;
-          refinementHint = buildPipelineDecompositionRefinementHint(
-            pipelineResult.decomposition,
-          );
-          ctx.plannerSummaryState.diagnostics.push({
-            category: "policy",
-            code: "planner_runtime_refinement_retry",
-            message:
-              "Delegated execution requested parent-side decomposition; replanning with smaller steps",
-            details: {
-              attempt: plannerAttempt,
-              nextAttempt: plannerAttempt + 1,
-              maxAttempts: maxPlannerAttempts,
-            },
-          });
-          this.emitPlannerTrace(ctx, "planner_pipeline_finished", {
-            attempt: plannerAttempt,
-            pipelineId: pipeline.id,
-            status: pipelineResult.status,
-            completedSteps: pipelineResult.completedSteps,
-            totalSteps: pipelineResult.totalSteps,
-            decomposition: pipelineResult.decomposition,
-            verificationDecision,
-          });
-          this.emitPlannerTrace(ctx, "planner_refinement_requested", {
-            attempt: plannerAttempt,
-            nextAttempt: plannerAttempt + 1,
-            reason: "planner_runtime_refinement_retry",
-            decomposition: pipelineResult.decomposition,
-          });
-          continue;
-        }
-
-        const runtimeRepairFailureSignature = pipelineResult
-          ? buildPipelineFailureSignature(pipelineResult)
-          : undefined;
-        const runtimeRepairSignatureSeen =
-          runtimeRepairFailureSignature !== undefined &&
-          seenRuntimeRepairFailureSignatures.has(runtimeRepairFailureSignature);
-        const shouldRetryFailedPipelineWithRepairPlan =
-          pipelineResult?.status === "failed" &&
-          plannerAttempt < maxPlannerAttempts &&
-          pipelineResult.completedSteps > 0 &&
-          !runtimeRepairSignatureSeen &&
-          (
-            pipelineResult.stopReasonHint === "tool_error" ||
-            pipelineResult.stopReasonHint === "validation_error" ||
-            pipelineResult.stopReasonHint === "no_progress" ||
-            pipelineResult.stopReasonHint === undefined
-          );
-
-        if (
-          pipelineResult &&
-          shouldRetryFailedPipelineWithRepairPlan
-        ) {
-          if (runtimeRepairFailureSignature) {
-            seenRuntimeRepairFailureSignatures.add(runtimeRepairFailureSignature);
-          }
-          refinementHint = buildPipelineFailureRepairRefinementHint({
-            pipelineResult,
-            plannerPlan,
-          });
-          ctx.plannerSummaryState.diagnostics.push({
-            category: "policy",
-            code: "planner_runtime_repair_retry",
-            message:
-              "Deterministic verification failed after partial planner execution; requesting a repair-focused replan",
-            details: {
-              attempt: plannerAttempt,
-              nextAttempt: plannerAttempt + 1,
-              maxAttempts: maxPlannerAttempts,
-              completedSteps: pipelineResult.completedSteps,
-              totalSteps: pipelineResult.totalSteps,
-              stopReasonHint: pipelineResult.stopReasonHint ?? "tool_error",
-            },
-          });
-          this.emitPlannerTrace(ctx, "planner_pipeline_finished", {
-            attempt: plannerAttempt,
-            pipelineId: pipeline.id,
-            status: pipelineResult.status,
-            completedSteps: pipelineResult.completedSteps,
-            totalSteps: pipelineResult.totalSteps,
-            error: pipelineResult.error,
-            stopReasonHint: pipelineResult.stopReasonHint,
-            decomposition: pipelineResult.decomposition,
-            verificationDecision,
-          });
-          this.emitPlannerTrace(ctx, "planner_refinement_requested", {
-            attempt: plannerAttempt,
-            nextAttempt: plannerAttempt + 1,
-            reason: "planner_runtime_repair_retry",
-            stopReasonHint: pipelineResult.stopReasonHint,
-            error: pipelineResult.error,
-            completedSteps: pipelineResult.completedSteps,
-            totalSteps: pipelineResult.totalSteps,
-          });
-          continue;
-        }
-
-        if (pipelineResult && runtimeRepairSignatureSeen) {
-          ctx.plannerSummaryState.diagnostics.push({
-            category: "policy",
-            code: "planner_runtime_repair_stalled",
-            message:
-              "Deterministic verification repeated the same failure signature after a repair-focused replan; stopping additional repair retries",
-            details: {
-              attempt: plannerAttempt,
-              completedSteps: pipelineResult.completedSteps,
-              totalSteps: pipelineResult.totalSteps,
-              stopReasonHint: pipelineResult.stopReasonHint ?? "tool_error",
-            },
-          });
-        }
-
-        if (pipelineResult) {
-          this.emitPlannerTrace(ctx, "planner_pipeline_finished", {
-            attempt: plannerAttempt,
-            pipelineId: pipeline.id,
-            status: pipelineResult.status,
-            completedSteps: pipelineResult.completedSteps,
-            totalSteps: pipelineResult.totalSteps,
-            error: pipelineResult.error,
-            stopReasonHint: pipelineResult.stopReasonHint,
-            decomposition: pipelineResult.decomposition,
-            verificationDecision,
-          });
-        } else {
-          this.emitPlannerTrace(ctx, "planner_pipeline_finished", {
-            attempt: plannerAttempt,
-            pipelineId: pipeline.id,
-            status: "timeout",
-            stopReason: ctx.stopReason,
-            stopReasonDetail: ctx.stopReasonDetail,
-            verificationDecision,
-          });
-        }
-
-        if (pipelineResult) {
-          if (pipelineResult.status === "failed") {
-            const hintedStopReason = isPipelineStopReasonHint(
-              pipelineResult.stopReasonHint,
-            )
-              ? pipelineResult.stopReasonHint
-              : "tool_error";
-            this.setStopReason(
-              ctx,
-              hintedStopReason,
-              pipelineResult.error ??
-                "Deterministic pipeline execution failed",
-            );
-          } else if (pipelineResult.status === "halted") {
-            this.setStopReason(
-              ctx,
-              "tool_calls",
-              `Deterministic pipeline halted at step ${
-                (pipelineResult.resumeFrom ?? 0) + 1
-              } awaiting approval`,
-            );
-          }
-        } else if (ctx.stopReason === "completed") {
-          this.setStopReason(
-            ctx,
-            "timeout",
-            this.timeoutDetail("planner pipeline execution", ctx.effectiveRequestTimeoutMs),
-          );
-        }
-
-        if (ctx.failedToolCalls > ctx.effectiveFailureBudget) {
-          this.setStopReason(
-            ctx,
-            "tool_error",
-            `Failure budget exceeded (${ctx.failedToolCalls}/${ctx.effectiveFailureBudget}) during deterministic pipeline execution`,
-          );
-        }
-
-        let plannerFinalizationStrategy: string | undefined;
-        if (
-          pipelineResult &&
-          !pipelineResult.decomposition &&
-          ctx.stopReason === "completed" &&
-          explicitDeterministicToolRequirements?.exactResponseLiteral
-        ) {
-          ctx.finalContent =
-            explicitDeterministicToolRequirements.exactResponseLiteral;
-          plannerFinalizationStrategy = "exact_response_literal";
-          ctx.plannerSummaryState.diagnostics.push({
-            category: "policy",
-            code: "planner_exact_response_literal_applied",
-            message:
-              "Completed deterministic plan satisfied the explicit exact-response contract without planner synthesis",
-            details: {
-              literal:
-                explicitDeterministicToolRequirements.exactResponseLiteral,
-            },
-          });
-        }
-
-        if (
-          pipelineResult &&
-          !pipelineResult.decomposition &&
-          !ctx.finalContent &&
-          (
-            plannerPlan.requiresSynthesis ||
-            hasSynthesisStep ||
-            explicitOrchestrationRequirements?.requiresSynthesis === true ||
-            ctx.stopReason !== "completed"
-          )
-        ) {
-          const synthesisMessages = buildPlannerSynthesisMessages(
-            ctx.systemPrompt,
-            ctx.messageText,
-            plannerPlan,
-            pipelineResult,
-            verificationDecision,
-          );
-          const synthesisSections: PromptBudgetSection[] = [
-            "system_anchor",
-            "system_runtime",
-            "user",
-          ];
-          const stopReasonBeforeSynthesis = ctx.stopReason;
-          const stopReasonDetailBeforeSynthesis = ctx.stopReasonDetail;
-          try {
-            const synthesisResponse = await this.callModelForPhase(ctx, {
-              phase: "planner_synthesis",
-              callMessages: synthesisMessages,
-              callSections: synthesisSections,
-              onStreamChunk: ctx.activeStreamCallback,
-              statefulSessionId: ctx.sessionId,
-              statefulResumeAnchor: ctx.stateful?.resumeAnchor,
-              statefulHistoryCompacted: ctx.stateful?.historyCompacted,
-              routedToolNames: [],
-              toolChoice: "none",
-              budgetReason:
-                "Planner synthesis blocked by max model recalls per request budget",
-            });
-            if (synthesisResponse) {
-              ctx.response = synthesisResponse;
-              ctx.finalContent = ensureSubagentProvenanceCitations(
-                synthesisResponse.content,
-                plannerPlan,
-                pipelineResult,
-              );
-            }
-          } catch (error) {
-            if (
-              pipelineResult.status === "completed" &&
-              stopReasonBeforeSynthesis === "completed"
-            ) {
-              const failureDetail =
-                typeof (error as { stopReasonDetail?: unknown })?.stopReasonDetail === "string"
-                  ? String((error as { stopReasonDetail: string }).stopReasonDetail)
-                  : error instanceof Error
-                    ? error.message
-                    : String(error);
-              ctx.stopReason = stopReasonBeforeSynthesis;
-              ctx.stopReasonDetail = stopReasonDetailBeforeSynthesis;
-              ctx.plannerSummaryState.diagnostics.push({
-                category: "runtime",
-                code: "planner_synthesis_fallback_applied",
-                message:
-                  "Planner synthesis failed after the pipeline completed; returning a deterministic fallback summary",
-                details: {
-                  failureDetail,
-                },
-              });
-              this.emitPlannerTrace(ctx, "planner_synthesis_fallback_applied", {
-                failureDetail,
-                completedSteps: pipelineResult.completedSteps,
-                totalSteps: pipelineResult.totalSteps,
-              });
-              ctx.finalContent = buildPlannerSynthesisFallbackContent(
-                plannerPlan,
-                pipelineResult,
-                verificationDecision,
-                verifierRounds,
-                failureDetail,
-              );
-            } else {
-              throw error;
-            }
-          }
-        } else if (pipelineResult?.decomposition && !ctx.finalContent) {
-          ctx.finalContent =
-            pipelineResult.error ??
-            pipelineResult.decomposition.reason;
-        }
-
-        if (!ctx.finalContent) {
-          ctx.finalContent =
-            generateFallbackContent(ctx.allToolCalls) ??
-            summarizeToolCalls(
-              ctx.allToolCalls.filter((call) => !call.isError),
-            );
-        }
-        this.emitPlannerTrace(ctx, "planner_path_finished", {
-          plannerCalls: plannerAttempt,
-          routeReason: ctx.plannerSummaryState.routeReason,
-          stopReason: ctx.stopReason,
-          stopReasonDetail: ctx.stopReasonDetail,
-          diagnostics: ctx.plannerSummaryState.diagnostics,
-          handled: true,
-          ...(plannerFinalizationStrategy
-            ? { finalizationStrategy: plannerFinalizationStrategy }
-            : {}),
-          deterministicStepsExecuted:
-            ctx.plannerSummaryState.deterministicStepsExecuted,
-        });
-        ctx.plannerHandled = true;
-        return;
-      }
-
-      if (
-        !delegationDecision ||
-        delegationDecision.shouldDelegate
-      ) {
-        if (
-          ctx.plannerSummaryState.routeReason !== "planner_validation_failed" &&
-          ctx.plannerSummaryState.routeReason !==
-            "planner_explicit_tool_requirements_unmet"
-        ) {
-          ctx.plannerSummaryState.routeReason = "planner_no_deterministic_steps";
-        }
-      }
-      if (ctx.plannerSummaryState.routeReason === "planner_validation_failed") {
-        this.setStopReason(
-          ctx,
-          "validation_error",
-          "Planner emitted a structured plan that failed local validation",
-        );
-        ctx.finalContent = buildPlannerValidationFailureMessage(
-          latestPlannerValidationDiagnostics.length > 0
-            ? latestPlannerValidationDiagnostics
-            : ctx.plannerSummaryState.diagnostics,
-        );
-        this.emitPlannerTrace(ctx, "planner_path_finished", {
-          plannerCalls: plannerAttempt,
-          routeReason: ctx.plannerSummaryState.routeReason,
-          stopReason: ctx.stopReason,
-          stopReasonDetail: ctx.stopReasonDetail,
-          diagnostics: ctx.plannerSummaryState.diagnostics,
-          latestDiagnostics: latestPlannerValidationDiagnostics,
-          handled: true,
-        });
-        ctx.plannerHandled = true;
-        return;
-      }
-      this.emitPlannerTrace(ctx, "planner_path_finished", {
-        plannerCalls: plannerAttempt,
-        routeReason: ctx.plannerSummaryState.routeReason,
-        stopReason: ctx.stopReason,
-        stopReasonDetail: ctx.stopReasonDetail,
-        diagnostics: ctx.plannerSummaryState.diagnostics,
-        handled: false,
-      });
-      return;
-    }
+    return executePlannerPathFn(ctx, {
+      plannerMaxTokens: this.plannerMaxTokens,
+      delegationNestingDepth: this.delegationNestingDepth,
+      delegationDecisionConfig: this.delegationDecisionConfig,
+      subagentVerifierConfig: this.subagentVerifierConfig,
+      delegationDefaultStrategyArmId: this.delegationDefaultStrategyArmId,
+      allowedTools: this.allowedTools,
+      delegationBanditTuner: this.delegationBanditTuner,
+      resolveHostToolingProfile: this.resolveHostToolingProfile,
+    }, {
+      emitPlannerTrace: (c, type, payload) => this.emitPlannerTrace(c, type, payload),
+      setStopReason: (c, reason, detail) => this.setStopReason(c, reason, detail),
+      checkRequestTimeout: (c, stage) => this.checkRequestTimeout(c, stage),
+      callModelForPhase: (c, input) => this.callModelForPhase(c, input),
+      appendToolRecord: (c, record) => this.appendToolRecord(c, record),
+      runPipelineWithTimeout: (c, pipeline) => this.runPipelineWithTimeout(c, pipeline),
+      timeoutDetail: (stage, timeoutMs) => this.timeoutDetail(stage, timeoutMs),
+    });
   }
 
   /** Get accumulated token usage for a session. */
@@ -4221,7 +1954,7 @@ export class ChatExecutor {
   /** Reset token usage for a specific session. */
   resetSessionTokens(sessionId: string): void {
     this.sessionTokens.delete(sessionId);
-    this.sessionToolFailureCircuits.delete(sessionId);
+    this.toolFailureBreaker.clearSession(sessionId);
     for (const provider of this.providers) {
       provider.resetSessionState?.(sessionId);
     }
@@ -4230,7 +1963,7 @@ export class ChatExecutor {
   /** Clear all session token tracking. */
   clearAllSessionTokens(): void {
     this.sessionTokens.clear();
-    this.sessionToolFailureCircuits.clear();
+    this.toolFailureBreaker.clearAll();
     for (const provider of this.providers) {
       provider.clearSessionState?.();
     }
@@ -4263,467 +1996,22 @@ export class ChatExecutor {
       callPhase?: ChatCallUsageRecord["phase"];
     },
   ): Promise<FallbackResult> {
-    const beforeBudget = estimatePromptShape(messages);
-    const budgeted = applyPromptBudget(
-      messages.map((message, index) => ({
-        message,
-        section: messageSections?.[index],
-      })),
-      this.promptBudget,
-    );
-    const boundedMessages = budgeted.messages;
-    const afterBudget = estimatePromptShape(boundedMessages);
-    const budgetDiagnostics = budgeted.diagnostics;
-    const hasStatefulSessionId = Boolean(options?.statefulSessionId);
-    const hasStatefulResumeAnchor =
-      hasStatefulSessionId && options?.statefulResumeAnchor !== undefined;
-    const hasStatefulHistoryCompacted =
-      hasStatefulSessionId && options?.statefulHistoryCompacted === true;
-    const hasRoutedToolNames = options?.routedToolNames !== undefined;
-    const hasToolChoice = options?.toolChoice !== undefined;
-    const hasAbortSignal = options?.signal !== undefined;
-    const hasProviderTrace =
-      options?.trace?.includeProviderPayloads === true ||
-      options?.trace?.onProviderTraceEvent !== undefined;
-    const baseChatOptions: LLMChatOptions | undefined =
-      hasStatefulSessionId ||
-        hasRoutedToolNames ||
-        hasToolChoice ||
-        hasAbortSignal ||
-        hasProviderTrace
-        ? {
-          ...(hasStatefulSessionId
-            ? {
-              stateful: {
-                sessionId: String(options?.statefulSessionId),
-                reconciliationMessages:
-                  options?.reconciliationMessages ?? messages,
-                ...(hasStatefulHistoryCompacted
-                  ? { historyCompacted: true }
-                  : {}),
-                ...(hasStatefulResumeAnchor
-                  ? { resumeAnchor: options?.statefulResumeAnchor }
-                  : {}),
-              },
-            }
-            : {}),
-          ...(hasRoutedToolNames
-            ? { toolRouting: { allowedToolNames: options?.routedToolNames } }
-            : {}),
-          ...(hasToolChoice ? { toolChoice: options?.toolChoice } : {}),
-          ...(hasAbortSignal ? { signal: options?.signal } : {}),
-          ...(hasProviderTrace
-            ? {
-              trace: {
-                includeProviderPayloads:
-                  options?.trace?.includeProviderPayloads === true,
-                ...(options?.trace?.onProviderTraceEvent
-                  ? {
-                    onProviderTraceEvent: (event) =>
-                      this.emitProviderTraceEvent(options, event),
-                  }
-                  : {}),
-              },
-            }
-            : {}),
-        }
-        : undefined;
-    let lastError: Error | undefined;
-    const transport =
-      onStreamChunk !== undefined &&
-      !shouldBypassStreamingForForcedSingleToolTurn(baseChatOptions)
-        ? "chat_stream"
-        : "chat";
-
-    for (let i = 0; i < this.providers.length; i++) {
-      const provider = this.providers[i];
-      const now = Date.now();
-      const cooldown = this.cooldowns.get(provider.name);
-
-      if (cooldown && cooldown.availableAt > now) {
-        this.emitProviderTraceEvent(options, {
-          kind: "error",
-          transport,
-          provider: provider.name,
-          payload: {
-            reason: "provider_cooldown_skip",
-            retryAfterMs: Math.max(0, cooldown.availableAt - now),
-            availableAt: cooldown.availableAt,
-            failures: cooldown.failures,
-          },
-          context: {
-            stage: "fallback_selection",
-          },
-        });
-        continue;
-      }
-
-      let attempts = 0;
-      while (true) {
-        try {
-          const streamChunkCallback = onStreamChunk;
-          const shouldStream =
-            transport === "chat_stream" && streamChunkCallback !== undefined;
-          const remainingProviderMs =
-            options?.requestDeadlineAt !== undefined &&
-              Number.isFinite(options.requestDeadlineAt)
-              ? Math.max(1, options.requestDeadlineAt - Date.now())
-              : undefined;
-          const providerChatOptions: LLMChatOptions | undefined =
-            baseChatOptions || remainingProviderMs !== undefined
-              ? {
-                ...(baseChatOptions ?? {}),
-                ...(remainingProviderMs !== undefined
-                  ? { timeoutMs: remainingProviderMs }
-                  : {}),
-              }
-              : undefined;
-          const response = shouldStream
-            ? await provider.chatStream(
-              boundedMessages,
-              streamChunkCallback,
-              providerChatOptions,
-            )
-            : await provider.chat(boundedMessages, providerChatOptions);
-
-          if (response.finishReason === "error") {
-            throw (
-              response.error ??
-              new LLMProviderError(provider.name, "Provider returned error")
-            );
-          }
-
-          // Success — clear cooldown
-          const priorCooldown = this.cooldowns.get(provider.name);
-          this.cooldowns.delete(provider.name);
-          if (priorCooldown) {
-            this.emitProviderTraceEvent(options, {
-              kind: "response",
-              transport,
-              provider: provider.name,
-              model: response.model,
-              payload: {
-                reason: "provider_cooldown_cleared",
-                failures: priorCooldown.failures,
-                previousAvailableAt: priorCooldown.availableAt,
-              },
-              context: {
-                stage: "fallback_selection",
-              },
-            });
-          }
-
-          return {
-            response,
-            providerName: provider.name,
-            usedFallback: i > 0,
-            beforeBudget,
-            afterBudget,
-            budgetDiagnostics,
-          };
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-          const failureClass = classifyLLMFailure(lastError);
-          const retryRule = this.retryPolicyMatrix[failureClass];
-
-          if (
-            this.shouldRetryProviderImmediately(
-              failureClass,
-              retryRule,
-              lastError,
-              attempts,
-            )
-          ) {
-            attempts++;
-            continue;
-          }
-
-          if (!this.shouldFallbackForFailureClass(failureClass, lastError)) {
-            throw lastError;
-          }
-
-          // Apply cooldown for this provider before trying fallbacks.
-          const failures =
-            (this.cooldowns.get(provider.name)?.failures ?? 0) + 1;
-          const cooldownDuration = this.computeProviderCooldownMs(
-            failures,
-            retryRule,
-            lastError,
-          );
-          const availableAt = Date.now() + cooldownDuration;
-          this.cooldowns.set(provider.name, {
-            availableAt,
-            failures,
-          });
-          this.emitProviderTraceEvent(options, {
-            kind: "error",
-            transport,
-            provider: provider.name,
-            payload: {
-              reason: "provider_cooldown_applied",
-              failureClass,
-              retryAfterMs: cooldownDuration,
-              cooldownDurationMs: cooldownDuration,
-              availableAt,
-              failures,
-              errorName: lastError.name,
-              errorMessage: lastError.message,
-              ...(lastError instanceof LLMProviderError &&
-              lastError.statusCode !== undefined
-                ? { statusCode: lastError.statusCode }
-                : {}),
-              ...(lastError instanceof LLMRateLimitError &&
-              lastError.retryAfterMs !== undefined
-                ? { providerRetryAfterMs: lastError.retryAfterMs }
-                : {}),
-            },
-            context: {
-              stage: "fallback_selection",
-              attempts,
-            },
-          });
-          break;
-        }
-      }
-    }
-
-    if (lastError) {
-      throw lastError;
-    }
-    const now = Date.now();
-    this.emitProviderTraceEvent(options, {
-      kind: "error",
-      transport,
-      provider: "chat-executor",
-      payload: {
-        reason: "all_providers_in_cooldown",
-        providers: this.buildActiveCooldownSnapshot(now),
+    return callWithFallbackFn(
+      {
+        providers: this.providers,
+        cooldowns: this.cooldowns,
+        promptBudget: this.promptBudget,
+        retryPolicyMatrix: this.retryPolicyMatrix,
+        cooldownMs: this.cooldownMs,
+        maxCooldownMs: this.maxCooldownMs,
       },
-      context: {
-        stage: "fallback_selection",
-      },
-    });
-    // All providers were skipped (in cooldown) — no provider was attempted
-    throw new LLMProviderError(
-      "chat-executor",
-      "All providers are in cooldown",
+      messages,
+      onStreamChunk,
+      messageSections,
+      options,
     );
   }
 
-  private emitProviderTraceEvent(
-    options:
-      | {
-          trace?: ChatExecuteParams["trace"];
-          callIndex?: number;
-          callPhase?: ChatCallUsageRecord["phase"];
-        }
-      | undefined,
-    event: Omit<LLMProviderTraceEvent, "callIndex" | "callPhase">,
-  ): void {
-    options?.trace?.onProviderTraceEvent?.({
-      ...event,
-      ...(options.callIndex !== undefined
-        ? { callIndex: options.callIndex }
-        : {}),
-      ...(options.callPhase !== undefined
-        ? { callPhase: options.callPhase }
-        : {}),
-    });
-  }
-
-  private buildActiveCooldownSnapshot(
-    now: number,
-  ): Array<{
-    provider: string;
-    retryAfterMs: number;
-    availableAt: number;
-    failures: number;
-  }> {
-    return Array.from(this.cooldowns.entries())
-      .map(([provider, cooldown]) => ({
-        provider,
-        retryAfterMs: Math.max(0, cooldown.availableAt - now),
-        availableAt: cooldown.availableAt,
-        failures: cooldown.failures,
-      }))
-      .filter((entry) => entry.retryAfterMs > 0)
-      .sort((left, right) => left.provider.localeCompare(right.provider));
-  }
-
-  private shouldRetryProviderImmediately(
-    failureClass: LLMFailureClass,
-    retryRule: LLMRetryPolicyRule,
-    error: Error,
-    attempts: number,
-  ): boolean {
-    if (attempts >= retryRule.maxRetries) return false;
-    switch (failureClass) {
-      case "validation_error":
-      case "authentication_error":
-      case "budget_exceeded":
-      case "cancelled":
-      case "tool_error":
-      case "no_progress":
-        return false;
-      case "rate_limited":
-        // Respect provider retry-after via cooldown/fallback instead of tight-loop retries.
-        return !(error instanceof LLMRateLimitError && Boolean(error.retryAfterMs));
-      case "provider_error":
-        // 4xx-style provider validation/config failures are deterministic.
-        if (error instanceof LLMProviderError) return false;
-        return true;
-      default:
-        return true;
-    }
-  }
-
-  private shouldFallbackForFailureClass(
-    failureClass: LLMFailureClass,
-    error: Error,
-  ): boolean {
-    switch (failureClass) {
-      case "validation_error":
-      case "authentication_error":
-      case "budget_exceeded":
-      case "cancelled":
-        return false;
-      case "provider_error":
-        return !(error instanceof LLMProviderError);
-      default:
-        return true;
-    }
-  }
-
-  private computeProviderCooldownMs(
-    failures: number,
-    retryRule: LLMRetryPolicyRule,
-    error: Error,
-  ): number {
-    if (error instanceof LLMRateLimitError && error.retryAfterMs) {
-      return error.retryAfterMs;
-    }
-    const linearCooldown = Math.min(
-      this.cooldownMs * failures,
-      this.maxCooldownMs,
-    );
-    const policyCooldown = retryRule.baseDelayMs > 0
-      ? Math.min(retryRule.baseDelayMs * failures, retryRule.maxDelayMs)
-      : 0;
-    return Math.max(0, Math.max(linearCooldown, policyCooldown));
-  }
-
-  private annotateFailureError(
-    error: unknown,
-    stage: string,
-  ): {
-    error: Error;
-    failureClass: LLMFailureClass;
-    stopReason: LLMPipelineStopReason;
-    stopReasonDetail: string;
-  } {
-    const baseError = error instanceof Error ? error : new Error(String(error));
-    const failureClass = classifyLLMFailure(baseError);
-    const stopReason = toPipelineStopReason(failureClass);
-    const stopReasonDetail = `${stage} failed (${stopReason}): ${baseError.message}`;
-    const annotated = baseError as Error & {
-      failureClass?: LLMFailureClass;
-      stopReason?: LLMPipelineStopReason;
-      stopReasonDetail?: string;
-    };
-    annotated.failureClass = failureClass;
-    annotated.stopReason = stopReason;
-    annotated.stopReasonDetail = stopReasonDetail;
-    return {
-      error: annotated,
-      failureClass,
-      stopReason,
-      stopReasonDetail,
-    };
-  }
-
-  private getOrCreateToolFailureCircuitState(
-    sessionId: string,
-  ): SessionToolFailureCircuitState {
-    const existing = this.sessionToolFailureCircuits.get(sessionId);
-    if (existing) return existing;
-    const created: SessionToolFailureCircuitState = {
-      openUntil: 0,
-      reason: undefined,
-      patterns: new Map(),
-    };
-    this.sessionToolFailureCircuits.set(sessionId, created);
-    if (this.sessionToolFailureCircuits.size > this.maxTrackedSessions) {
-      const oldest = this.sessionToolFailureCircuits.keys().next().value;
-      if (oldest !== undefined) {
-        this.sessionToolFailureCircuits.delete(oldest);
-      }
-    }
-    return created;
-  }
-
-  private getActiveToolFailureCircuit(
-    sessionId: string,
-  ): { reason: string; retryAfterMs: number } | null {
-    if (!this.toolFailureBreakerEnabled) return null;
-    const state = this.sessionToolFailureCircuits.get(sessionId);
-    if (!state) return null;
-    const now = Date.now();
-    if (state.openUntil <= now) {
-      state.openUntil = 0;
-      state.reason = undefined;
-      return null;
-    }
-    return {
-      reason:
-        state.reason ??
-        "Session tool-failure circuit breaker is open after repeated failing tool patterns",
-      retryAfterMs: Math.max(0, state.openUntil - now),
-    };
-  }
-
-  private recordToolFailurePattern(
-    sessionId: string,
-    semanticKey: string,
-    toolName: string,
-  ): string | undefined {
-    if (!this.toolFailureBreakerEnabled || semanticKey.length === 0) {
-      return undefined;
-    }
-
-    const state = this.getOrCreateToolFailureCircuitState(sessionId);
-    const now = Date.now();
-    for (const [key, pattern] of state.patterns) {
-      if (now - pattern.lastAt > this.toolFailureBreakerWindowMs) {
-        state.patterns.delete(key);
-      }
-    }
-
-    const existing = state.patterns.get(semanticKey);
-    const next: SessionToolFailurePattern = existing
-      ? { count: existing.count + 1, lastAt: now }
-      : { count: 1, lastAt: now };
-    state.patterns.set(semanticKey, next);
-
-    if (next.count < this.toolFailureBreakerThreshold) {
-      return undefined;
-    }
-
-    state.openUntil = now + this.toolFailureBreakerCooldownMs;
-    state.reason =
-      `Session breaker opened after ${next.count} repeated failures for tool "${toolName}" ` +
-      `within ${this.toolFailureBreakerWindowMs}ms`;
-    return state.reason;
-  }
-
-  private clearToolFailurePattern(sessionId: string, semanticKey: string): void {
-    if (!this.toolFailureBreakerEnabled || semanticKey.length === 0) return;
-    const state = this.sessionToolFailureCircuits.get(sessionId);
-    if (!state) return;
-    state.patterns.delete(semanticKey);
-    if (state.patterns.size === 0 && state.openUntil <= Date.now()) {
-      this.sessionToolFailureCircuits.delete(sessionId);
-    }
-  }
 
 
 
@@ -4852,7 +2140,7 @@ export class ChatExecutor {
       const oldest = this.sessionTokens.keys().next().value;
       if (oldest !== undefined) {
         this.sessionTokens.delete(oldest);
-        this.sessionToolFailureCircuits.delete(oldest);
+        this.toolFailureBreaker.clearSession(oldest);
       }
     }
   }
@@ -4921,7 +2209,7 @@ export class ChatExecutor {
           : {}),
       });
     } catch (error) {
-      throw this.annotateFailureError(error, "response evaluation").error;
+      throw annotateFailureError(error, "response evaluation").error;
     }
     const {
       response,
@@ -5022,7 +2310,7 @@ export class ChatExecutor {
           : {}),
       });
     } catch (error) {
-      throw this.annotateFailureError(error, "history compaction").error;
+      throw annotateFailureError(error, "history compaction").error;
     }
 
     const { response } = compactResponse;

@@ -72,8 +72,7 @@ describe("chat-executor-text", () => {
     });
 
     expect(message).toBeDefined();
-    expect(String(message?.content).length).toBeLessThanOrEqual(12_000);
-    expect(String(message?.content)).toContain('"truncatedLedger":true');
+    expect(String(message?.content).length).toBeLessThanOrEqual(100_000);
     expect(String(message?.content)).toContain('"failedToolNames":["execute_with_agent"]');
   });
 

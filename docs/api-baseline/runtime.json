@@ -1,9 +1,13 @@
 {
   "package": "@agenc/runtime",
   "version": "0.1.0",
-  "generatedAt": "2026-02-14T05:31:53.098Z",
+  "generatedAt": "2026-03-16T02:41:38.699Z",
   "entryPoint": "runtime/src/index.ts",
   "exports": [
+    {
+      "name": "AcceptServiceBidInput",
+      "kind": "interface"
+    },
     {
       "name": "AcceptTaskBidRequest",
       "kind": "interface"
@@ -41,6 +45,10 @@
       "kind": "const"
     },
     {
+      "name": "AGENT_STATUS_OFFSET",
+      "kind": "const"
+    },
+    {
       "name": "AgentAlreadyRegisteredError",
       "kind": "class"
     },
@@ -61,12 +69,24 @@
       "kind": "interface"
     },
     {
+      "name": "AgentDiscovery",
+      "kind": "class"
+    },
+    {
+      "name": "AgentDiscoveryError",
+      "kind": "class"
+    },
+    {
       "name": "AgentEventCallback",
       "kind": "type"
     },
     {
       "name": "AgentEventCallbacks",
       "kind": "interface"
+    },
+    {
+      "name": "AgentFeed",
+      "kind": "class"
     },
     {
       "name": "agentIdFromString",
@@ -97,8 +117,20 @@
       "kind": "interface"
     },
     {
+      "name": "AgentMessage",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentMessaging",
+      "kind": "class"
+    },
+    {
       "name": "AgentNotRegisteredError",
       "kind": "class"
+    },
+    {
+      "name": "AgentProfile",
+      "kind": "interface"
     },
     {
       "name": "AgentRegisteredEvent",
@@ -117,8 +149,21 @@
       "kind": "interface"
     },
     {
+      "name": "AgentSearchFilters",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentSortField",
+      "kind": "type"
+    },
+    {
       "name": "AgentState",
       "kind": "interface"
+    },
+    {
+      "name": "agentStateToProfile",
+      "kind": "function",
+      "signature": "(pda: PublicKey, state: AgentState): AgentProfile"
     },
     {
       "name": "AgentStatus",
@@ -143,6 +188,14 @@
     },
     {
       "name": "AgentUpdateParams",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentUsageSummary",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentWorkspace",
       "kind": "interface"
     },
     {
@@ -171,12 +224,14 @@
       "kind": "const"
     },
     {
-      "name": "AnthropicProvider",
-      "kind": "class"
+      "name": "applyAnomalyFilter",
+      "kind": "function",
+      "signature": "(anomalies: readonly ReplayAnomaly[], dsl: QueryDSL): ReplayAnomaly[]"
     },
     {
-      "name": "AnthropicProviderConfig",
-      "kind": "interface"
+      "name": "applyQueryFilter",
+      "kind": "function",
+      "signature": "<TEvent extends Pick<ProjectedTimelineEvent, \"slot\" | \"type\" | \"taskPda\" | \"payload\">>(events: readonly TEvent[], dsl: QueryDSL): TEvent[]"
     },
     {
       "name": "ApplySlashParams",
@@ -192,12 +247,41 @@
       "signature": "(input: CandidateArbitrationInput): CandidateArbitrationDecision"
     },
     {
+      "name": "assembleSystemPrompt",
+      "kind": "function",
+      "signature": "(files: WorkspaceFiles, options?: AssembleSystemPromptOptions): string"
+    },
+    {
+      "name": "AssembleSystemPromptOptions",
+      "kind": "interface"
+    },
+    {
       "name": "AssignTeamRoleInput",
       "kind": "interface"
     },
     {
       "name": "ASSOCIATED_TOKEN_PROGRAM_ID",
       "kind": "const"
+    },
+    {
+      "name": "AudioFormat",
+      "kind": "interface"
+    },
+    {
+      "name": "AuditTrailEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "AuditTrailStore",
+      "kind": "interface"
+    },
+    {
+      "name": "AuditTrailVerification",
+      "kind": "interface"
+    },
+    {
+      "name": "AuthState",
+      "kind": "interface"
     },
     {
       "name": "AutoMatchTaskBidRequest",
@@ -232,6 +316,14 @@
       "kind": "enum"
     },
     {
+      "name": "AwarenessGoalBridgeConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "AwarenessPattern",
+      "kind": "interface"
+    },
+    {
       "name": "BackfillDuplicateReport",
       "kind": "interface"
     },
@@ -248,11 +340,52 @@
       "kind": "interface"
     },
     {
+      "name": "BackgroundRunControlAction",
+      "kind": "type"
+    },
+    {
+      "name": "BackgroundRunOperatorAvailability",
+      "kind": "interface"
+    },
+    {
+      "name": "BackgroundRunOperatorDetail",
+      "kind": "interface"
+    },
+    {
+      "name": "BackgroundRunOperatorErrorPayload",
+      "kind": "interface"
+    },
+    {
+      "name": "BackgroundRunOperatorSummary",
+      "kind": "interface"
+    },
+    {
       "name": "BalancedBidStrategy",
       "kind": "class"
     },
     {
       "name": "BalancedBidStrategyConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "base64ToUint8",
+      "kind": "function",
+      "signature": "(base64: string): Uint8Array"
+    },
+    {
+      "name": "BaseChannelPlugin",
+      "kind": "class"
+    },
+    {
+      "name": "BashExecutionResult",
+      "kind": "interface"
+    },
+    {
+      "name": "BashToolConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "BashToolInput",
       "kind": "interface"
     },
     {
@@ -277,7 +410,7 @@
     },
     {
       "name": "BenchmarkMetricDelta",
-      "kind": "interface"
+      "kind": "type"
     },
     {
       "name": "BenchmarkRunner",
@@ -321,6 +454,10 @@
     },
     {
       "name": "BidAntiSpamConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "BidOnServiceInput",
       "kind": "interface"
     },
     {
@@ -370,6 +507,14 @@
       "kind": "const"
     },
     {
+      "name": "BridgeError",
+      "kind": "class"
+    },
+    {
+      "name": "BridgePaymentError",
+      "kind": "class"
+    },
+    {
       "name": "buildApplyDisputeSlashTokenAccounts",
       "kind": "function",
       "signature": "(rewardMint: PublicKey | null | undefined, escrowPda: PublicKey, treasury: PublicKey): Record<string, PublicKey | null>"
@@ -400,9 +545,19 @@
       "signature": "(rewardMint: PublicKey | null | undefined, escrowPda: PublicKey, creatorPubkey: PublicKey): Record<string, PublicKey | null>"
     },
     {
+      "name": "buildDelegationBenchmarkManifest",
+      "kind": "function",
+      "signature": "(k?: number): BenchmarkManifest"
+    },
+    {
       "name": "buildExpireDisputeTokenAccounts",
       "kind": "function",
       "signature": "(rewardMint: PublicKey | null | undefined, escrowPda: PublicKey, creatorPubkey: PublicKey, workerAuthority: PublicKey | null): Record<string, PublicKey | null>"
+    },
+    {
+      "name": "buildPipelineQualityArtifact",
+      "kind": "function",
+      "signature": "(input: PipelineQualityArtifactInput): PipelineQualityArtifact"
     },
     {
       "name": "buildReplayKey",
@@ -413,6 +568,16 @@
       "name": "buildResolveDisputeTokenAccounts",
       "kind": "function",
       "signature": "(rewardMint: PublicKey | null | undefined, escrowPda: PublicKey, creatorPubkey: PublicKey, workerAuthority: PublicKey | null, treasury: PublicKey): Record<string, PublicKey | null>"
+    },
+    {
+      "name": "buildSdkProverConfig",
+      "kind": "function",
+      "signature": "(config: ProverBackendConfig): SdkProverConfig"
+    },
+    {
+      "name": "buildSigningPayload",
+      "kind": "function",
+      "signature": "(sender: PublicKey, recipient: PublicKey, nonce: number, content: string, threadId?: string | null): Uint8Array"
     },
     {
       "name": "BuiltAgent",
@@ -442,6 +607,14 @@
     {
       "name": "CallbackSink",
       "kind": "class"
+    },
+    {
+      "name": "CancelProposalParams",
+      "kind": "interface"
+    },
+    {
+      "name": "CancelServiceInput",
+      "kind": "interface"
     },
     {
       "name": "CancelTaskBidRequest",
@@ -516,12 +689,78 @@
       "signature": "(trace: TrajectoryTrace): TrajectoryTrace"
     },
     {
+      "name": "CanonicalQuery",
+      "kind": "interface"
+    },
+    {
+      "name": "Capability",
+      "kind": "const"
+    },
+    {
       "name": "CAPABILITY_NAMES",
       "kind": "const"
     },
     {
       "name": "CapabilityName",
       "kind": "type"
+    },
+    {
+      "name": "ChannelAlreadyRegisteredError",
+      "kind": "class"
+    },
+    {
+      "name": "ChannelConnectionError",
+      "kind": "class"
+    },
+    {
+      "name": "ChannelContext",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelHandle",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelNameInvalidError",
+      "kind": "class"
+    },
+    {
+      "name": "ChannelNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "ChannelPlugin",
+      "kind": "interface"
+    },
+    {
+      "name": "ChatBudgetExceededError",
+      "kind": "class"
+    },
+    {
+      "name": "ChatExecuteParams",
+      "kind": "interface"
+    },
+    {
+      "name": "ChatExecutor",
+      "kind": "class"
+    },
+    {
+      "name": "ChatExecutorConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ChatExecutorResult",
+      "kind": "interface"
+    },
+    {
+      "name": "checkDockerAvailable",
+      "kind": "function",
+      "signature": "(): Promise<boolean>"
+    },
+    {
+      "name": "checkStalePid",
+      "kind": "function",
+      "signature": "(pidPath: string): Promise<StalePidResult>"
     },
     {
       "name": "CircuitBreakerConfig",
@@ -540,6 +779,72 @@
       "kind": "interface"
     },
     {
+      "name": "classifyGatewayControlMessage",
+      "kind": "function",
+      "signature": "(parsed: unknown): GatewayControlMessage"
+    },
+    {
+      "name": "COLLABORATION_TOPIC",
+      "kind": "const"
+    },
+    {
+      "name": "CollaborationConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "CollaborationFormationError",
+      "kind": "class"
+    },
+    {
+      "name": "CollaborationOpsConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "CollaborationProtocol",
+      "kind": "class"
+    },
+    {
+      "name": "CollaborationRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "CollaborationRequestError",
+      "kind": "class"
+    },
+    {
+      "name": "CollaborationRequestMetadata",
+      "kind": "interface"
+    },
+    {
+      "name": "CollaborationRequestState",
+      "kind": "interface"
+    },
+    {
+      "name": "CollaborationRequestStatus",
+      "kind": "type"
+    },
+    {
+      "name": "CollaborationResponse",
+      "kind": "interface"
+    },
+    {
+      "name": "CollaborationResponseError",
+      "kind": "class"
+    },
+    {
+      "name": "combineCapabilities",
+      "kind": "function",
+      "signature": "(...caps: bigint[]): bigint"
+    },
+    {
+      "name": "CompactionResult",
+      "kind": "interface"
+    },
+    {
+      "name": "CompactionStrategy",
+      "kind": "type"
+    },
+    {
       "name": "CompactOptions",
       "kind": "interface"
     },
@@ -550,6 +855,10 @@
     },
     {
       "name": "CompleteResult",
+      "kind": "interface"
+    },
+    {
+      "name": "CompleteServiceInput",
       "kind": "interface"
     },
     {
@@ -587,9 +896,19 @@
       "signature": "(bins: CalibrationBin[]): number"
     },
     {
+      "name": "computeInputHash",
+      "kind": "function",
+      "signature": "(input: unknown): string"
+    },
+    {
       "name": "computeMaxCalibrationError",
       "kind": "function",
       "signature": "(bins: CalibrationBin[]): number"
+    },
+    {
+      "name": "computeOutputHash",
+      "kind": "function",
+      "signature": "(output: unknown): string"
     },
     {
       "name": "computePassAtK",
@@ -612,6 +931,21 @@
       "signature": "(agent: Pick<AgentState, \"lastTaskCreated\" | \"lastDisputeInitiated\" | \"taskCount24h\" | \"disputeCount24h\" | \"rateLimitWindowStart\">, config: { taskCreationCooldown: number; maxTasksPer24h: number; disputeInitiationCooldown: number; maxDisputesPer24h: number; }, nowUnix: number): RateLimitState"
     },
     {
+      "name": "computeReconnectDelayMs",
+      "kind": "function",
+      "signature": "(attempt: number, config?: GatewaySocketBackoffConfig): number"
+    },
+    {
+      "name": "computeRetrievalScore",
+      "kind": "function",
+      "signature": "(relevanceScore: number, entryTimestamp: number, now: number, recencyWeight: number, halfLifeMs: number): number"
+    },
+    {
+      "name": "computeRevenueShare",
+      "kind": "function",
+      "signature": "(input: RevenueShareInput): RevenueShareResult"
+    },
+    {
       "name": "computeTeamPayout",
       "kind": "function",
       "signature": "(input: TeamPayoutComputationInput): TeamPayoutResult"
@@ -620,6 +954,14 @@
       "name": "computeWeightedScore",
       "kind": "function",
       "signature": "(bid: TaskBid, candidates: readonly TaskBid[], weights: WeightedScoreWeights): WeightedScoreComputation"
+    },
+    {
+      "name": "ConfigDiff",
+      "kind": "interface"
+    },
+    {
+      "name": "ConfigErrorCallback",
+      "kind": "type"
     },
     {
       "name": "ConfigMigrationError",
@@ -632,6 +974,10 @@
     {
       "name": "ConfigMigrationStep",
       "kind": "interface"
+    },
+    {
+      "name": "ConfigReloadCallback",
+      "kind": "type"
     },
     {
       "name": "ConfigSchemaSnapshot",
@@ -653,6 +999,10 @@
     {
       "name": "ConfigWarning",
       "kind": "interface"
+    },
+    {
+      "name": "ConfigWatcher",
+      "kind": "class"
     },
     {
       "name": "ConnectionError",
@@ -683,6 +1033,28 @@
       "kind": "class"
     },
     {
+      "name": "ControlMessage",
+      "kind": "interface"
+    },
+    {
+      "name": "ControlMessageType",
+      "kind": "type"
+    },
+    {
+      "name": "ControlResponse",
+      "kind": "interface"
+    },
+    {
+      "name": "convertOpenClawSkill",
+      "kind": "function",
+      "signature": "(content: string): string"
+    },
+    {
+      "name": "cosineSimilarity",
+      "kind": "function",
+      "signature": "(a: number[], b: number[]): number"
+    },
+    {
       "name": "createAES256GCMProvider",
       "kind": "function",
       "signature": "(config: EncryptionConfig): EncryptionProvider"
@@ -691,6 +1063,31 @@
       "name": "createAgencTools",
       "kind": "function",
       "signature": "(context: ToolContext): Tool[]"
+    },
+    {
+      "name": "createApprovalRunDomain",
+      "kind": "function",
+      "signature": "(): RunDomain"
+    },
+    {
+      "name": "createAwarenessGoalBridge",
+      "kind": "function",
+      "signature": "(config: AwarenessGoalBridgeConfig): (awarenessOutput: string) => Promise<ManagedGoal | null>"
+    },
+    {
+      "name": "createBashTool",
+      "kind": "function",
+      "signature": "(config?: BashToolConfig): Tool"
+    },
+    {
+      "name": "createBrowserRunDomain",
+      "kind": "function",
+      "signature": "(): RunDomain"
+    },
+    {
+      "name": "createBuiltinHooks",
+      "kind": "function",
+      "signature": "(): HookHandler[]"
     },
     {
       "name": "createCapabilityMask",
@@ -703,6 +1100,11 @@
       "signature": "(program: Program<AgencCoordination>, logger: Logger): Tool"
     },
     {
+      "name": "createDefaultCommands",
+      "kind": "function",
+      "signature": "(): SlashCommandDef[]"
+    },
+    {
       "name": "createDefaultMutationOperators",
       "kind": "function",
       "signature": "(): MutationOperator[]"
@@ -711,6 +1113,49 @@
       "name": "createDefaultWorkflowObjectiveSpec",
       "kind": "function",
       "signature": "(id?: string): WorkflowObjectiveSpec"
+    },
+    {
+      "name": "createDesktopAwarenessAction",
+      "kind": "function",
+      "signature": "(config: DesktopAwarenessConfig): HeartbeatAction"
+    },
+    {
+      "name": "createDesktopAwareToolHandler",
+      "kind": "function",
+      "signature": "(baseHandler: ToolHandler, sessionId: string, options: DesktopRouterOptions): ToolHandler"
+    },
+    {
+      "name": "createDesktopGuiRunDomain",
+      "kind": "function",
+      "signature": "(): RunDomain"
+    },
+    {
+      "name": "CreateDesktopSandboxOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "createEmbeddingProvider",
+      "kind": "function",
+      "signature": "(config?: { preferred?: \"openai\" | \"ollama\" | \"noop\"; apiKey?: string; baseUrl?: string; model?: string; }): Promise<EmbeddingProvider>"
+    },
+    {
+      "name": "createFilesystemTools",
+      "kind": "function",
+      "signature": "(config: FilesystemToolConfig): Tool[]"
+    },
+    {
+      "name": "createGatewayMessage",
+      "kind": "function",
+      "signature": "(params: CreateGatewayMessageParams): GatewayMessage"
+    },
+    {
+      "name": "CreateGatewayMessageParams",
+      "kind": "type"
+    },
+    {
+      "name": "createGenericRunDomain",
+      "kind": "function",
+      "signature": "(): RunDomain"
     },
     {
       "name": "createGetAgentTool",
@@ -733,6 +1178,16 @@
       "signature": "(program: Program<AgencCoordination>, logger: Logger): Tool"
     },
     {
+      "name": "createGoalExecutorAction",
+      "kind": "function",
+      "signature": "(config: GoalExecutorActionConfig): HeartbeatAction"
+    },
+    {
+      "name": "createHttpTools",
+      "kind": "function",
+      "signature": "(config?: HttpToolConfig, logger?: Logger): Tool[]"
+    },
+    {
       "name": "createListTasksTool",
       "kind": "function",
       "signature": "(ops: TaskOperations, logger: Logger): Tool"
@@ -743,9 +1198,42 @@
       "signature": "(minLevel?: LogLevel, prefix?: string): Logger"
     },
     {
+      "name": "createMCPConnection",
+      "kind": "function",
+      "signature": "(config: MCPServerConfig, logger?: Logger): Promise<any>"
+    },
+    {
+      "name": "createOutboundMessage",
+      "kind": "function",
+      "signature": "(params: OutboundMessage): OutboundMessage"
+    },
+    {
+      "name": "createPipelineRunDomain",
+      "kind": "function",
+      "signature": "(): RunDomain"
+    },
+    {
+      "name": "createPolicyGateHook",
+      "kind": "function",
+      "signature": "(options: CreatePolicyGateHookOptions): HookHandler"
+    },
+    {
+      "name": "CreatePolicyGateHookOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "createProcessTools",
+      "kind": "function",
+      "signature": "(config?: SystemProcessToolConfig): Tool[]"
+    },
+    {
       "name": "createProgram",
       "kind": "function",
       "signature": "(provider: AnchorProvider, programId?: PublicKey): Program<AgencCoordination>"
+    },
+    {
+      "name": "CreateProposalParams",
+      "kind": "interface"
     },
     {
       "name": "createReadOnlyProgram",
@@ -753,9 +1241,43 @@
       "signature": "(connection: Connection, programId?: PublicKey): Program<AgencCoordination>"
     },
     {
+      "name": "createRemoteJobTools",
+      "kind": "function",
+      "signature": "(config?: SystemRemoteJobToolConfig, manager?: SystemRemoteJobManager): Tool[]"
+    },
+    {
+      "name": "createRemoteMcpRunDomain",
+      "kind": "function",
+      "signature": "(): RunDomain"
+    },
+    {
       "name": "createReplayAlertDispatcher",
       "kind": "function",
       "signature": "(policy: ReplayAlertingPolicyOptions | undefined, logger?: Logger): ReplayAlertDispatcher"
+    },
+    {
+      "name": "createResearchRunDomain",
+      "kind": "function",
+      "signature": "(): RunDomain"
+    },
+    {
+      "name": "createResearchTools",
+      "kind": "function",
+      "signature": "(config?: SystemResearchToolConfig, manager?: SystemResearchManager): Tool[]"
+    },
+    {
+      "name": "createSandboxTools",
+      "kind": "function",
+      "signature": "(config?: SystemSandboxToolConfig, manager?: SystemSandboxManager): Tool[]"
+    },
+    {
+      "name": "createServerTools",
+      "kind": "function",
+      "signature": "(config?: SystemServerToolConfig): Tool[]"
+    },
+    {
+      "name": "CreateServiceRequestInput",
+      "kind": "interface"
     },
     {
       "name": "CreateTaskBidRequest",
@@ -766,8 +1288,52 @@
       "kind": "interface"
     },
     {
+      "name": "createToken",
+      "kind": "function",
+      "signature": "(secret: string, subject: string, expirySeconds?: number): string"
+    },
+    {
+      "name": "createToolBridge",
+      "kind": "function",
+      "signature": "(client: any, serverName: string, logger?: Logger, options?: ToolBridgeOptions): Promise<MCPToolBridge>"
+    },
+    {
+      "name": "createWorkspaceRunDomain",
+      "kind": "function",
+      "signature": "(): RunDomain"
+    },
+    {
+      "name": "cronMatches",
+      "kind": "function",
+      "signature": "(schedule: CronSchedule, date: Date): boolean"
+    },
+    {
+      "name": "CronSchedule",
+      "kind": "interface"
+    },
+    {
+      "name": "CronScheduler",
+      "kind": "class"
+    },
+    {
+      "name": "CronSchedulerConfig",
+      "kind": "interface"
+    },
+    {
       "name": "CURRENT_CONFIG_VERSION",
       "kind": "const"
+    },
+    {
+      "name": "DaemonManager",
+      "kind": "class"
+    },
+    {
+      "name": "DaemonManagerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "DaemonStatus",
+      "kind": "interface"
     },
     {
       "name": "DAGMonitor",
@@ -786,7 +1352,69 @@
       "kind": "class"
     },
     {
+      "name": "DANGEROUS_SHELL_PATTERNS",
+      "kind": "const"
+    },
+    {
+      "name": "DangerousShellPattern",
+      "kind": "interface"
+    },
+    {
+      "name": "decodeMessageStateKey",
+      "kind": "function",
+      "signature": "(stateKey: Uint8Array): { recipientPrefix: Uint8Array; nonce: number; } | null"
+    },
+    {
+      "name": "decodeMessageStateValue",
+      "kind": "function",
+      "signature": "(stateValue: Uint8Array): string"
+    },
+    {
+      "name": "DEFAULT_COLLABORATION_WEIGHT",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_DELEGATION_BENCHMARK_K",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_DENY_LIST",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_DENY_PREFIXES",
+      "kind": "const"
+    },
+    {
       "name": "DEFAULT_FEE_PERCENT",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_GATEWAY_MAX_OFFLINE_QUEUE",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_GATEWAY_PING_INTERVAL_MS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_GATEWAY_SOCKET_BACKOFF",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_MAX_ATTACHMENT_BYTES",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_MAX_OUTPUT_BYTES",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_MAX_RETAINED_TERMINAL_SUB_AGENTS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_MESSAGE_WEIGHT",
       "kind": "const"
     },
     {
@@ -798,7 +1426,63 @@
       "kind": "const"
     },
     {
+      "name": "DEFAULT_ON_CHAIN_WEIGHT",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_PIPELINE_QUALITY_GATE_THRESHOLDS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_POST_WEIGHT",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_PROCESSING_TIMEOUT_MS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_RESOLUTION",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_SPAM_PENALTY",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_SUB_AGENT_TIMEOUT_MS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_TEMP_DIR",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_TEMP_FILE_TTL_MS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_TERMINAL_SUB_AGENT_RETENTION_MS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_TIMEOUT_MS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_TRIAL_SECS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_UPVOTE_WEIGHT",
+      "kind": "const"
+    },
+    {
       "name": "DEFAULT_WEIGHTED_SCORE_WEIGHTS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_WORKSPACE_ID",
       "kind": "const"
     },
     {
@@ -806,9 +1490,48 @@
       "kind": "const"
     },
     {
+      "name": "defaultDesktopSandboxConfig",
+      "kind": "function",
+      "signature": "(): DesktopSandboxConfig"
+    },
+    {
+      "name": "defaultMediaPipelineConfig",
+      "kind": "function",
+      "signature": "(overrides?: Partial<MediaPipelineConfig>): MediaPipelineConfig"
+    },
+    {
+      "name": "defaultSandboxConfig",
+      "kind": "function",
+      "signature": "(): SandboxConfig"
+    },
+    {
       "name": "defaultTaskScorer",
       "kind": "function",
       "signature": "(task: DiscoveredTask): number"
+    },
+    {
+      "name": "DELEGATION_BENCHMARK_BASELINE_SCENARIO_ID",
+      "kind": "const"
+    },
+    {
+      "name": "DELEGATION_BENCHMARK_CORPUS_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "DelegationBenchmarkSuiteConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "DelegationBenchmarkSuiteResult",
+      "kind": "interface"
+    },
+    {
+      "name": "DelegationBenchmarkSummary",
+      "kind": "interface"
+    },
+    {
+      "name": "DelegationResult",
+      "kind": "interface"
     },
     {
       "name": "DependentTaskCreatedEvent",
@@ -854,9 +1577,49 @@
       "signature": "(taskPda: PublicKey, programId?: PublicKey): PdaWithBump"
     },
     {
+      "name": "deriveFeedPostPda",
+      "kind": "function",
+      "signature": "(authorPda: PublicKey, nonce: Uint8Array | number[], programId: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveFeedVotePda",
+      "kind": "function",
+      "signature": "(postPda: PublicKey, voterPda: PublicKey, programId: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveGovernanceConfigPda",
+      "kind": "function",
+      "signature": "(programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveGovernanceVotePda",
+      "kind": "function",
+      "signature": "(proposalPda: PublicKey, voterAuthorityPubkey: PublicKey, programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveProposalPda",
+      "kind": "function",
+      "signature": "(proposerPda: PublicKey, nonce: bigint, programId?: PublicKey): PdaWithBump"
+    },
+    {
       "name": "deriveProtocolPda",
       "kind": "function",
       "signature": "(programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveReputationDelegationPda",
+      "kind": "function",
+      "signature": "(delegatorPda: PublicKey, delegateePda: PublicKey, programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveReputationStakePda",
+      "kind": "function",
+      "signature": "(agentPda: PublicKey, programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveSessionId",
+      "kind": "function",
+      "signature": "(params: SessionLookupParams, scope: SessionScope): string"
     },
     {
       "name": "deriveTaskPda",
@@ -874,16 +1637,131 @@
       "signature": "(disputePda: PublicKey, arbiterAgentPda: PublicKey, programId?: PublicKey): PdaWithBump"
     },
     {
+      "name": "DesktopAwarenessConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "DesktopExecutor",
+      "kind": "class"
+    },
+    {
+      "name": "DesktopExecutorConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "DesktopExecutorResult",
+      "kind": "interface"
+    },
+    {
+      "name": "DesktopRESTBridge",
+      "kind": "class"
+    },
+    {
+      "name": "DesktopRESTBridgeOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "DesktopRouterOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "DesktopSandboxConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "DesktopSandboxConnectionError",
+      "kind": "class"
+    },
+    {
+      "name": "DesktopSandboxHandle",
+      "kind": "interface"
+    },
+    {
+      "name": "DesktopSandboxHealthError",
+      "kind": "class"
+    },
+    {
+      "name": "DesktopSandboxInfo",
+      "kind": "interface"
+    },
+    {
+      "name": "DesktopSandboxLifecycleError",
+      "kind": "class"
+    },
+    {
+      "name": "DesktopSandboxManager",
+      "kind": "class"
+    },
+    {
+      "name": "DesktopSandboxManagerOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "DesktopSandboxPoolExhaustedError",
+      "kind": "class"
+    },
+    {
+      "name": "DesktopSandboxStatus",
+      "kind": "type"
+    },
+    {
+      "name": "DesktopSandboxWatchdog",
+      "kind": "class"
+    },
+    {
+      "name": "DesktopSandboxWatchdogConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "destroySessionBridge",
+      "kind": "function",
+      "signature": "(sessionId: string, bridges: Map<string, DesktopRESTBridge>, playwrightBridges?: Map<string, MCPToolBridge>, containerMCPBridges?: Map<string, MCPToolBridge[]>, log?: Logger): void"
+    },
+    {
       "name": "detectCandidateInconsistencies",
       "kind": "function",
       "signature": "(input: InconsistencyDetectorInput): Promise<InconsistencyDetectionResult>"
+    },
+    {
+      "name": "detectNamespace",
+      "kind": "function",
+      "signature": "(content: string): \"openclaw\" | \"agenc\" | \"unknown\""
+    },
+    {
+      "name": "DEVELOPER_REVENUE_BPS",
+      "kind": "const"
     },
     {
       "name": "DEVNET_RPC",
       "kind": "const"
     },
     {
+      "name": "diffGatewayConfig",
+      "kind": "function",
+      "signature": "(oldConfig: GatewayConfig, newConfig: GatewayConfig): ConfigDiff"
+    },
+    {
+      "name": "DiscordChannel",
+      "kind": "class"
+    },
+    {
+      "name": "DiscordChannelConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "DiscordIntentName",
+      "kind": "type"
+    },
+    {
+      "name": "DiscoveredSkill",
+      "kind": "interface"
+    },
+    {
       "name": "DiscoveredTask",
+      "kind": "interface"
+    },
+    {
+      "name": "DiscoveryConfig",
       "kind": "interface"
     },
     {
@@ -891,8 +1769,24 @@
       "kind": "type"
     },
     {
+      "name": "DiscoveryPaths",
+      "kind": "interface"
+    },
+    {
+      "name": "DiscoveryTier",
+      "kind": "type"
+    },
+    {
       "name": "DISCRIMINATOR_SIZE",
       "kind": "const"
+    },
+    {
+      "name": "DispatchResult",
+      "kind": "interface"
+    },
+    {
+      "name": "DisplayResolution",
+      "kind": "interface"
     },
     {
       "name": "DISPUTE_STATUS_OFFSET",
@@ -947,6 +1841,10 @@
       "kind": "interface"
     },
     {
+      "name": "DisputeServiceInput",
+      "kind": "interface"
+    },
+    {
       "name": "DisputeSlashError",
       "kind": "class"
     },
@@ -972,6 +1870,40 @@
       "kind": "type"
     },
     {
+      "name": "DurableGovernanceAuditLogConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "EdgeTTSProvider",
+      "kind": "class"
+    },
+    {
+      "name": "EdgeTTSProviderConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ElevenLabsProvider",
+      "kind": "class"
+    },
+    {
+      "name": "ElevenLabsProviderConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "EmbeddingProvider",
+      "kind": "interface"
+    },
+    {
+      "name": "encodeMessageStateKey",
+      "kind": "function",
+      "signature": "(recipient: PublicKey, nonce: number): Uint8Array"
+    },
+    {
+      "name": "encodeMessageStateValue",
+      "kind": "function",
+      "signature": "(content: string): Uint8Array"
+    },
+    {
       "name": "EncryptionConfig",
       "kind": "interface"
     },
@@ -988,8 +1920,18 @@
       "kind": "interface"
     },
     {
+      "name": "enforceRole",
+      "kind": "function",
+      "signature": "(role: OperatorRole, command: IncidentCommandCategory): void"
+    },
+    {
       "name": "EngineProofResult",
       "kind": "interface"
+    },
+    {
+      "name": "enqueueBounded",
+      "kind": "function",
+      "signature": "(queue: string[], payload: string, maxSize: number): void"
     },
     {
       "name": "ensureWallet",
@@ -1018,6 +1960,11 @@
       "kind": "type"
     },
     {
+      "name": "estimateMemoryTokens",
+      "kind": "function",
+      "signature": "(text: string): number"
+    },
+    {
       "name": "estimateWorkflow",
       "kind": "function",
       "signature": "(definition: WorkflowDefinition): WorkflowDryRunEstimate"
@@ -1043,6 +1990,11 @@
       "name": "evaluateMutationRegressionGates",
       "kind": "function",
       "signature": "(artifact: MutationArtifact, thresholds?: Partial<MutationGateThresholds>, manifest?: MutationGatingPolicyManifest): MutationGateEvaluation"
+    },
+    {
+      "name": "evaluatePipelineQualityGates",
+      "kind": "function",
+      "signature": "(artifact: PipelineQualityArtifact, thresholds?: Partial<PipelineQualityGateThresholds>): PipelineGateEvaluation"
     },
     {
       "name": "EvaluationScorecard",
@@ -1081,6 +2033,14 @@
       "kind": "interface"
     },
     {
+      "name": "ExecuteProposalParams",
+      "kind": "interface"
+    },
+    {
+      "name": "ExecutionStep",
+      "kind": "interface"
+    },
+    {
       "name": "ExecutorStateError",
       "kind": "class"
     },
@@ -1092,6 +2052,11 @@
       "name": "extractCanonicalTuple",
       "kind": "function",
       "signature": "(input: OnChainProjectionInput, fallbackSequence: number): CanonicalEventTuple"
+    },
+    {
+      "name": "extractDisputePdaFromPayload",
+      "kind": "function",
+      "signature": "(payload: Readonly<Record<string, unknown>>): string | undefined"
     },
     {
       "name": "extractTaskRiskFeatures",
@@ -1113,8 +2078,80 @@
       "kind": "interface"
     },
     {
+      "name": "FallbackChainConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "FallbackLLMProvider",
+      "kind": "class"
+    },
+    {
+      "name": "FarcasterBridge",
+      "kind": "class"
+    },
+    {
+      "name": "FarcasterBridgeConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "FarcasterPostParams",
+      "kind": "interface"
+    },
+    {
+      "name": "FarcasterPostResult",
+      "kind": "interface"
+    },
+    {
+      "name": "FEED_POST_AUTHOR_OFFSET",
+      "kind": "const"
+    },
+    {
+      "name": "FEED_POST_TOPIC_OFFSET",
+      "kind": "const"
+    },
+    {
+      "name": "FeedConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "FeedEventCallbacks",
+      "kind": "interface"
+    },
+    {
+      "name": "FeedFilters",
+      "kind": "interface"
+    },
+    {
+      "name": "FeedOpsConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "FeedPost",
+      "kind": "interface"
+    },
+    {
+      "name": "FeedPostError",
+      "kind": "class"
+    },
+    {
+      "name": "FeedQueryError",
+      "kind": "class"
+    },
+    {
+      "name": "FeedUpvoteError",
+      "kind": "class"
+    },
+    {
+      "name": "FeedVoteAccount",
+      "kind": "interface"
+    },
+    {
       "name": "FileReplayTimelineStore",
       "kind": "class"
+    },
+    {
+      "name": "FilesystemToolConfig",
+      "kind": "interface"
     },
     {
       "name": "filterAndRank",
@@ -1151,9 +2188,34 @@
       "signature": "(taskPda: PublicKey, programId?: PublicKey): PublicKey"
     },
     {
+      "name": "findGovernanceConfigPda",
+      "kind": "function",
+      "signature": "(programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findGovernanceVotePda",
+      "kind": "function",
+      "signature": "(proposalPda: PublicKey, voterAuthorityPubkey: PublicKey, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findProposalPda",
+      "kind": "function",
+      "signature": "(proposerPda: PublicKey, nonce: bigint, programId?: PublicKey): PublicKey"
+    },
+    {
       "name": "findProtocolPda",
       "kind": "function",
       "signature": "(programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findReputationDelegationPda",
+      "kind": "function",
+      "signature": "(delegatorPda: PublicKey, delegateePda: PublicKey, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findReputationStakePda",
+      "kind": "function",
+      "signature": "(agentPda: PublicKey, programId?: PublicKey): PublicKey"
     },
     {
       "name": "findTaskPda",
@@ -1170,9 +2232,155 @@
       "kind": "interface"
     },
     {
+      "name": "flushQueueIfOpen",
+      "kind": "function",
+      "signature": "(socket: SocketLike | null | undefined, openState: number, queue: string[]): number"
+    },
+    {
       "name": "formatMutationGateEvaluation",
       "kind": "function",
       "signature": "(evaluation: MutationGateEvaluation): string"
+    },
+    {
+      "name": "formatPipelineQualityGateEvaluation",
+      "kind": "function",
+      "signature": "(evaluation: PipelineGateEvaluation): string"
+    },
+    {
+      "name": "Gateway",
+      "kind": "class"
+    },
+    {
+      "name": "GatewayAgentConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayAuthConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayAuthError",
+      "kind": "class"
+    },
+    {
+      "name": "GatewayBackgroundRunAlert",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayBackgroundRunMetrics",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayBackgroundRunStatus",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayBindConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayChannelConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayConnectionConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayConnectionError",
+      "kind": "class"
+    },
+    {
+      "name": "GatewayControlMessage",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayControlMessageKind",
+      "kind": "type"
+    },
+    {
+      "name": "GatewayEvent",
+      "kind": "type"
+    },
+    {
+      "name": "GatewayEventHandler",
+      "kind": "type"
+    },
+    {
+      "name": "GatewayEventSubscription",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayLifecycleError",
+      "kind": "class"
+    },
+    {
+      "name": "GatewayLLMConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayLoggingConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayMemoryConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayMessage",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewaySocketBackoffConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayState",
+      "kind": "type"
+    },
+    {
+      "name": "GatewayStateError",
+      "kind": "class"
+    },
+    {
+      "name": "GatewayStatus",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewaySubagentChildToolAllowlistStrategy",
+      "kind": "type"
+    },
+    {
+      "name": "GatewaySubagentConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewaySubagentFallbackBehavior",
+      "kind": "type"
+    },
+    {
+      "name": "GatewaySubagentMode",
+      "kind": "type"
+    },
+    {
+      "name": "GatewayTelemetryConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GatewayValidationError",
+      "kind": "class"
+    },
+    {
+      "name": "GatewayVoiceConfig",
+      "kind": "interface"
     },
     {
       "name": "generateAgentId",
@@ -1187,6 +2395,21 @@
       "name": "generateExecutionCandidates",
       "kind": "function",
       "signature": "(input: CandidateGenerationInput): Promise<CandidateGenerationResult>"
+    },
+    {
+      "name": "generateLaunchdPlist",
+      "kind": "function",
+      "signature": "(options: { programArguments: string[]; label?: string; logDir?: string; }): string"
+    },
+    {
+      "name": "generateSystemdUnit",
+      "kind": "function",
+      "signature": "(options: { execStart: string; description?: string; user?: string; }): string"
+    },
+    {
+      "name": "generateTemplate",
+      "kind": "function",
+      "signature": "(fileName: WorkspaceFileName): string"
     },
     {
       "name": "generateWorkflowMutationCandidates",
@@ -1204,12 +2427,32 @@
       "signature": "(code: number): AnchorErrorName | undefined"
     },
     {
+      "name": "getCachedDesktopToolDefinitions",
+      "kind": "function",
+      "signature": "(): readonly Tool[] | null"
+    },
+    {
       "name": "getCapabilityNames",
       "kind": "function",
       "signature": "(caps: bigint): CapabilityName[]"
     },
     {
+      "name": "getDefaultConfigPath",
+      "kind": "function",
+      "signature": "(): string"
+    },
+    {
       "name": "getDefaultKeypairPath",
+      "kind": "function",
+      "signature": "(): string"
+    },
+    {
+      "name": "getDefaultPidPath",
+      "kind": "function",
+      "signature": "(): string"
+    },
+    {
+      "name": "getDefaultWorkspacePath",
       "kind": "function",
       "signature": "(): string"
     },
@@ -1247,11 +2490,95 @@
       "kind": "interface"
     },
     {
+      "name": "GoalExecutorActionConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GoalManager",
+      "kind": "class"
+    },
+    {
+      "name": "GoalManagerConfig",
+      "kind": "interface"
+    },
+    {
       "name": "GoalPlanner",
       "kind": "interface"
     },
     {
       "name": "GoalPlannerInput",
+      "kind": "interface"
+    },
+    {
+      "name": "GoalStatus",
+      "kind": "type"
+    },
+    {
+      "name": "GovernanceAuditConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GovernanceAuditEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "GovernanceAuditEventType",
+      "kind": "type"
+    },
+    {
+      "name": "GovernanceAuditExport",
+      "kind": "interface"
+    },
+    {
+      "name": "GovernanceAuditLog",
+      "kind": "interface"
+    },
+    {
+      "name": "GovernanceAuditLogConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GovernanceAuditRecord",
+      "kind": "interface"
+    },
+    {
+      "name": "GovernanceAuditRecordListOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "GovernanceAuditRedactionConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GovernanceAuditRetentionMode",
+      "kind": "type"
+    },
+    {
+      "name": "GovernanceAuditVerification",
+      "kind": "interface"
+    },
+    {
+      "name": "GovernanceExecutionError",
+      "kind": "class"
+    },
+    {
+      "name": "GovernanceOperations",
+      "kind": "class"
+    },
+    {
+      "name": "GovernanceOpsConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GovernanceProposalNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "GovernanceVoteError",
+      "kind": "class"
+    },
+    {
+      "name": "GovernanceVoteResult",
       "kind": "interface"
     },
     {
@@ -1290,13 +2617,118 @@
       "kind": "interface"
     },
     {
+      "name": "HeartbeatActionDef",
+      "kind": "interface"
+    },
+    {
+      "name": "HeartbeatContext",
+      "kind": "interface"
+    },
+    {
       "name": "hexToBytes",
       "kind": "function",
       "signature": "(hex: string): Uint8Array"
     },
     {
+      "name": "HookConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "HookContext",
+      "kind": "interface"
+    },
+    {
+      "name": "HookDispatcher",
+      "kind": "class"
+    },
+    {
+      "name": "HookDispatcherConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "HookEvent",
+      "kind": "type"
+    },
+    {
+      "name": "HookHandler",
+      "kind": "interface"
+    },
+    {
+      "name": "HookResult",
+      "kind": "interface"
+    },
+    {
+      "name": "HttpResponse",
+      "kind": "interface"
+    },
+    {
+      "name": "HttpToolConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "HybridSearchOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "IdentityAccount",
+      "kind": "interface"
+    },
+    {
+      "name": "IdentityLink",
+      "kind": "interface"
+    },
+    {
+      "name": "IdentityLinkExpiredError",
+      "kind": "class"
+    },
+    {
+      "name": "IdentityLinkNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "IdentityResolver",
+      "kind": "class"
+    },
+    {
+      "name": "IdentityResolverConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "IdentitySelfLinkError",
+      "kind": "class"
+    },
+    {
+      "name": "IdentitySignatureError",
+      "kind": "class"
+    },
+    {
+      "name": "IdentityStore",
+      "kind": "interface"
+    },
+    {
+      "name": "IdentityValidationError",
+      "kind": "class"
+    },
+    {
       "name": "IDL",
       "kind": "const"
+    },
+    {
+      "name": "ImageDescriptionProvider",
+      "kind": "interface"
+    },
+    {
+      "name": "importSkill",
+      "kind": "function",
+      "signature": "(source: string, targetDir: string): Promise<{ path: string; converted: boolean; }>"
+    },
+    {
+      "name": "IncidentCommandCategory",
+      "kind": "type"
+    },
+    {
+      "name": "IncidentRoleViolationError",
+      "kind": "class"
     },
     {
       "name": "InconsistencyDetectionResult",
@@ -1307,8 +2739,16 @@
       "kind": "interface"
     },
     {
+      "name": "InitializeGovernanceParams",
+      "kind": "interface"
+    },
+    {
       "name": "InitiateDisputeParams",
       "kind": "interface"
+    },
+    {
+      "name": "InMemoryAuditTrail",
+      "kind": "class"
     },
     {
       "name": "InMemoryBackend",
@@ -1317,6 +2757,14 @@
     {
       "name": "InMemoryBackendConfig",
       "kind": "interface"
+    },
+    {
+      "name": "InMemoryGovernanceAuditLog",
+      "kind": "class"
+    },
+    {
+      "name": "InMemoryIdentityStore",
+      "kind": "class"
     },
     {
       "name": "InMemoryReplayTimelineStore",
@@ -1331,6 +2779,14 @@
       "kind": "interface"
     },
     {
+      "name": "InMemoryVectorStore",
+      "kind": "class"
+    },
+    {
+      "name": "InMemoryVectorStoreConfig",
+      "kind": "interface"
+    },
+    {
       "name": "InsufficientStakeError",
       "kind": "class"
     },
@@ -1340,14 +2796,48 @@
       "signature": "(error: unknown, code: AnchorErrorCode): boolean"
     },
     {
+      "name": "isAudioMime",
+      "kind": "function",
+      "signature": "(mimeType: string): boolean"
+    },
+    {
+      "name": "isBashCommandAllowed",
+      "kind": "function",
+      "signature": "(command: string, denySet: ReadonlySet<string>, allowSet: ReadonlySet<string> | null, denyExclusions?: ReadonlySet<string> | null): { allowed: true; } | { allowed: false; reason: string; }"
+    },
+    {
+      "name": "isCommandAllowed",
+      "kind": "function",
+      "signature": "(role: OperatorRole, command: IncidentCommandCategory): boolean"
+    },
+    {
       "name": "isConnectionLevelError",
       "kind": "function",
       "signature": "(error: unknown): boolean"
     },
     {
+      "name": "isDomainAllowed",
+      "kind": "function",
+      "signature": "(url: string, allowedDomains?: readonly string[], blockedDomains?: readonly string[]): { allowed: boolean; reason?: string; }"
+    },
+    {
+      "name": "isImageMime",
+      "kind": "function",
+      "signature": "(mimeType: string): boolean"
+    },
+    {
       "name": "isKeypair",
       "kind": "function",
       "signature": "(wallet: Keypair | Wallet): wallet is Keypair"
+    },
+    {
+      "name": "IsolatedSessionContext",
+      "kind": "interface"
+    },
+    {
+      "name": "isPathAllowed",
+      "kind": "function",
+      "signature": "(targetPath: string, allowedPaths: readonly string[]): Promise<boolean>"
     },
     {
       "name": "isPrivateExecutionResult",
@@ -1360,6 +2850,11 @@
       "signature": "(task: OnChainTask): boolean"
     },
     {
+      "name": "isProcessAlive",
+      "kind": "function",
+      "signature": "(pid: number): boolean"
+    },
+    {
       "name": "isRetryableError",
       "kind": "function",
       "signature": "(error: unknown): boolean"
@@ -1368,6 +2863,11 @@
       "name": "isRuntimeError",
       "kind": "function",
       "signature": "(error: unknown): error is RuntimeError"
+    },
+    {
+      "name": "isSkillMarkdown",
+      "kind": "function",
+      "signature": "(content: string): boolean"
     },
     {
       "name": "isTaskClaimable",
@@ -1393,6 +2893,11 @@
       "name": "isValidBps",
       "kind": "function",
       "signature": "(value: number): boolean"
+    },
+    {
+      "name": "isValidGatewayConfig",
+      "kind": "function",
+      "signature": "(obj: unknown): obj is GatewayConfig"
     },
     {
       "name": "isWriteMethod",
@@ -1448,6 +2953,10 @@
       "kind": "interface"
     },
     {
+      "name": "JWTPayload",
+      "kind": "interface"
+    },
+    {
       "name": "KeypairFileError",
       "kind": "class"
     },
@@ -1470,6 +2979,18 @@
       "signature": "(lamports: bigint): string"
     },
     {
+      "name": "LangChainBridge",
+      "kind": "class"
+    },
+    {
+      "name": "LangChainBridgeConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "LangChainTool",
+      "kind": "interface"
+    },
+    {
       "name": "LegacyTrajectoryEventV0",
       "kind": "interface"
     },
@@ -1482,8 +3003,21 @@
       "kind": "interface"
     },
     {
+      "name": "listPersonalityTemplates",
+      "kind": "function",
+      "signature": "(): readonly PersonalityTemplate[]"
+    },
+    {
+      "name": "ListServiceRequestsInput",
+      "kind": "interface"
+    },
+    {
       "name": "ListTaskBidsRequest",
       "kind": "interface"
+    },
+    {
+      "name": "LLMAuthenticationError",
+      "kind": "class"
     },
     {
       "name": "LLMMessage",
@@ -1511,6 +3045,10 @@
     },
     {
       "name": "LLMResponseConversionError",
+      "kind": "class"
+    },
+    {
+      "name": "LLMServerError",
       "kind": "class"
     },
     {
@@ -1556,6 +3094,11 @@
       "signature": "(): Promise<Keypair>"
     },
     {
+      "name": "loadGatewayConfig",
+      "kind": "function",
+      "signature": "(path: string): Promise<GatewayConfig>"
+    },
+    {
       "name": "loadKeypairFromFile",
       "kind": "function",
       "signature": "(filePath: string): Promise<Keypair>"
@@ -1564,6 +3107,11 @@
       "name": "loadKeypairFromFileSync",
       "kind": "function",
       "signature": "(filePath: string): Keypair"
+    },
+    {
+      "name": "loadPersonalityTemplate",
+      "kind": "function",
+      "signature": "(template: PersonalityTemplate): WorkspaceFiles"
     },
     {
       "name": "Logger",
@@ -1576,6 +3124,28 @@
     {
       "name": "MAINNET_RPC",
       "kind": "const"
+    },
+    {
+      "name": "ManagedGoal",
+      "kind": "interface"
+    },
+    {
+      "name": "mapLLMError",
+      "kind": "function",
+      "signature": "(providerName: string, err: unknown, timeoutMs: number): Error"
+    },
+    {
+      "name": "mapOpenClawMetadata",
+      "kind": "function",
+      "signature": "(openclawMeta: Record<string, unknown>): MarkdownSkillMetadata"
+    },
+    {
+      "name": "MarkdownSkill",
+      "kind": "interface"
+    },
+    {
+      "name": "MarkdownSkillMetadata",
+      "kind": "interface"
     },
     {
       "name": "MARKETPLACE_ID_PATTERN",
@@ -1615,6 +3185,30 @@
       "kind": "interface"
     },
     {
+      "name": "MatrixChannel",
+      "kind": "class"
+    },
+    {
+      "name": "MatrixChannelConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MAX_ANALYTICS_ENTRIES_PER_SKILL",
+      "kind": "const"
+    },
+    {
+      "name": "MAX_COLLABORATION_MEMBERS",
+      "kind": "const"
+    },
+    {
+      "name": "MAX_CONCURRENT_SUB_AGENTS",
+      "kind": "const"
+    },
+    {
+      "name": "MAX_DESCRIPTION_LENGTH",
+      "kind": "const"
+    },
+    {
       "name": "MAX_ENDPOINT_LENGTH",
       "kind": "const"
     },
@@ -1635,12 +3229,52 @@
       "kind": "const"
     },
     {
+      "name": "MAX_TITLE_LENGTH",
+      "kind": "const"
+    },
+    {
       "name": "MAX_U8",
+      "kind": "const"
+    },
+    {
+      "name": "MCPManager",
+      "kind": "class"
+    },
+    {
+      "name": "MCPServerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MCPToolBridge",
+      "kind": "interface"
+    },
+    {
+      "name": "MediaLogger",
+      "kind": "interface"
+    },
+    {
+      "name": "MediaPipeline",
+      "kind": "class"
+    },
+    {
+      "name": "MediaPipelineConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MediaProcessingResult",
+      "kind": "interface"
+    },
+    {
+      "name": "MEMORY_NAMESPACE_PREFIX",
       "kind": "const"
     },
     {
       "name": "MEMORY_OPERATIONAL_LIMITS",
       "kind": "const"
+    },
+    {
+      "name": "MemoryBackedGovernanceAuditLog",
+      "kind": "class"
     },
     {
       "name": "MemoryBackend",
@@ -1699,6 +3333,10 @@
       "kind": "interface"
     },
     {
+      "name": "MemoryRetriever",
+      "kind": "interface"
+    },
+    {
       "name": "MemoryRole",
       "kind": "type"
     },
@@ -1707,13 +3345,58 @@
       "kind": "class"
     },
     {
+      "name": "mergePersonality",
+      "kind": "function",
+      "signature": "(base: WorkspaceFiles, overrides: Partial<WorkspaceFiles>): WorkspaceFiles"
+    },
+    {
+      "name": "MessageAttachment",
+      "kind": "interface"
+    },
+    {
+      "name": "MessageHandler",
+      "kind": "type"
+    },
+    {
+      "name": "MessageMode",
+      "kind": "type"
+    },
+    {
       "name": "MessageRole",
+      "kind": "type"
+    },
+    {
+      "name": "MessageRouter",
+      "kind": "class"
+    },
+    {
+      "name": "MessageScope",
       "kind": "type"
     },
     {
       "name": "messageToEntryOptions",
       "kind": "function",
       "signature": "(msg: LLMMessage, sessionId: string): Omit<AddEntryOptions, \"taskPda\" | \"metadata\" | \"ttlMs\">"
+    },
+    {
+      "name": "MessagingConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MessagingConnectionError",
+      "kind": "class"
+    },
+    {
+      "name": "MessagingOpsConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MessagingSendError",
+      "kind": "class"
+    },
+    {
+      "name": "MessagingSignatureError",
+      "kind": "class"
     },
     {
       "name": "migrateConfig",
@@ -1732,6 +3415,26 @@
     {
       "name": "MilestoneTeamPayoutConfig",
       "kind": "interface"
+    },
+    {
+      "name": "MIN_DELEGATION_AMOUNT",
+      "kind": "const"
+    },
+    {
+      "name": "MIN_SUBSCRIPTION_DURATION_SECS",
+      "kind": "const"
+    },
+    {
+      "name": "MissingRequirement",
+      "kind": "interface"
+    },
+    {
+      "name": "MSG_CONTENT_MAX_ONCHAIN",
+      "kind": "const"
+    },
+    {
+      "name": "MSG_MAGIC",
+      "kind": "const"
     },
     {
       "name": "MultiCandidateArbitrationWeights",
@@ -1830,7 +3533,84 @@
       "kind": "interface"
     },
     {
+      "name": "nextCronMatch",
+      "kind": "function",
+      "signature": "(schedule: CronSchedule, after?: Date): Date"
+    },
+    {
+      "name": "NoopEmbeddingProvider",
+      "kind": "class"
+    },
+    {
+      "name": "NoopImageDescriptionProvider",
+      "kind": "class"
+    },
+    {
       "name": "NoopTelemetryCollector",
+      "kind": "class"
+    },
+    {
+      "name": "NoopTranscriptionProvider",
+      "kind": "class"
+    },
+    {
+      "name": "normalizePdaString",
+      "kind": "function",
+      "signature": "(value: unknown): string | undefined"
+    },
+    {
+      "name": "normalizePdaValue",
+      "kind": "function",
+      "signature": "(value: unknown): string | undefined"
+    },
+    {
+      "name": "normalizeQuery",
+      "kind": "function",
+      "signature": "(dsl: QueryDSL): CanonicalQuery"
+    },
+    {
+      "name": "normalizeVector",
+      "kind": "function",
+      "signature": "(v: number[]): number[]"
+    },
+    {
+      "name": "ObservabilityArtifactResponse",
+      "kind": "interface"
+    },
+    {
+      "name": "ObservabilityEventRecord",
+      "kind": "interface"
+    },
+    {
+      "name": "ObservabilityLogResponse",
+      "kind": "interface"
+    },
+    {
+      "name": "ObservabilitySummary",
+      "kind": "interface"
+    },
+    {
+      "name": "ObservabilityTraceDetail",
+      "kind": "interface"
+    },
+    {
+      "name": "ObservabilityTraceStatus",
+      "kind": "type"
+    },
+    {
+      "name": "ObservabilityTraceSummary",
+      "kind": "interface"
+    },
+    {
+      "name": "OffChainEnvelope",
+      "kind": "interface"
+    },
+    {
+      "name": "OfflineQueueEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "OllamaEmbeddingProvider",
       "kind": "class"
     },
     {
@@ -1874,8 +3654,36 @@
       "kind": "interface"
     },
     {
+      "name": "OnChainGovernanceConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "OnChainGovernanceVote",
+      "kind": "interface"
+    },
+    {
       "name": "OnChainProjectionInput",
       "kind": "interface"
+    },
+    {
+      "name": "OnChainProposal",
+      "kind": "interface"
+    },
+    {
+      "name": "OnChainPurchaseRecord",
+      "kind": "interface"
+    },
+    {
+      "name": "OnChainReputationDelegation",
+      "kind": "interface"
+    },
+    {
+      "name": "OnChainReputationStake",
+      "kind": "interface"
+    },
+    {
+      "name": "OnChainSkillRegistryClient",
+      "kind": "class"
     },
     {
       "name": "OnChainTask",
@@ -1890,8 +3698,28 @@
       "kind": "enum"
     },
     {
+      "name": "OpenAIEmbeddingProvider",
+      "kind": "class"
+    },
+    {
+      "name": "OpenAITTSProvider",
+      "kind": "class"
+    },
+    {
+      "name": "OpenAITTSProviderConfig",
+      "kind": "interface"
+    },
+    {
       "name": "OperatingMode",
       "kind": "type"
+    },
+    {
+      "name": "OperatorRole",
+      "kind": "type"
+    },
+    {
+      "name": "OutboundMessage",
+      "kind": "interface"
     },
     {
       "name": "OUTPUT_FIELD_COUNT",
@@ -1943,7 +3771,16 @@
       "signature": "(s: string): ConfigVersion"
     },
     {
+      "name": "parseCron",
+      "kind": "function",
+      "signature": "(expression: string): CronSchedule"
+    },
+    {
       "name": "ParsedAnchorError",
+      "kind": "interface"
+    },
+    {
+      "name": "ParsedCommand",
       "kind": "interface"
     },
     {
@@ -1977,6 +3814,11 @@
       "signature": "(raw: RawDisputeVoteCastEvent): DisputeVoteCastEvent"
     },
     {
+      "name": "parseJsonMessage",
+      "kind": "function",
+      "signature": "(raw: unknown): unknown"
+    },
+    {
       "name": "parseMigrationCompletedEvent",
       "kind": "function",
       "signature": "(raw: RawMigrationCompletedEvent): MigrationCompletedEvent"
@@ -1997,6 +3839,31 @@
       "signature": "(raw: Record<string, unknown>): OnChainDisputeVote"
     },
     {
+      "name": "parseOnChainGovernanceConfig",
+      "kind": "function",
+      "signature": "(raw: Record<string, unknown>): OnChainGovernanceConfig"
+    },
+    {
+      "name": "parseOnChainGovernanceVote",
+      "kind": "function",
+      "signature": "(raw: Record<string, unknown>): OnChainGovernanceVote"
+    },
+    {
+      "name": "parseOnChainProposal",
+      "kind": "function",
+      "signature": "(raw: Record<string, unknown>): OnChainProposal"
+    },
+    {
+      "name": "parseOnChainReputationDelegation",
+      "kind": "function",
+      "signature": "(raw: { delegator: PublicKey; delegatee: PublicKey; amount: number; expiresAt: { toNumber(): number; }; createdAt: { toNumber(): number; }; bump: number; }): OnChainReputationDelegation"
+    },
+    {
+      "name": "parseOnChainReputationStake",
+      "kind": "function",
+      "signature": "(raw: { agent: PublicKey; stakedAmount: { toString(): string; }; lockedUntil: { toNumber(): number; }; slashCount: number; createdAt: { toNumber(): number; }; bump: number; }): OnChainReputationStake"
+    },
+    {
       "name": "parseOnChainTask",
       "kind": "function",
       "signature": "(data: unknown): OnChainTask"
@@ -2005,6 +3872,11 @@
       "name": "parseOnChainTaskClaim",
       "kind": "function",
       "signature": "(data: unknown): OnChainTaskClaim"
+    },
+    {
+      "name": "parsePipelineQualityArtifact",
+      "kind": "function",
+      "signature": "(value: unknown): PipelineQualityArtifact"
     },
     {
       "name": "parseProtocolConfig",
@@ -2027,6 +3899,11 @@
       "signature": "(raw: RawProtocolVersionUpdatedEvent): ProtocolVersionUpdatedEvent"
     },
     {
+      "name": "parseQueryDSL",
+      "kind": "function",
+      "signature": "(input: string): QueryDSL"
+    },
+    {
       "name": "parseRateLimitHitEvent",
       "kind": "function",
       "signature": "(raw: RawRateLimitHitEvent): RateLimitHitEvent"
@@ -2045,6 +3922,16 @@
       "name": "parseRewardDistributedEvent",
       "kind": "function",
       "signature": "(raw: RawRewardDistributedEvent): RewardDistributedEvent"
+    },
+    {
+      "name": "parseSkillContent",
+      "kind": "function",
+      "signature": "(content: string, sourcePath?: string): MarkdownSkill"
+    },
+    {
+      "name": "parseSkillFile",
+      "kind": "function",
+      "signature": "(filePath: string): Promise<MarkdownSkill>"
     },
     {
       "name": "parseSpeculativeCommitmentCreatedEvent",
@@ -2101,12 +3988,229 @@
       "kind": "interface"
     },
     {
+      "name": "PeerResolver",
+      "kind": "interface"
+    },
+    {
       "name": "PendingDisputeVotesError",
       "kind": "class"
     },
     {
+      "name": "PendingLink",
+      "kind": "interface"
+    },
+    {
       "name": "PERCENT_BASE",
       "kind": "const"
+    },
+    {
+      "name": "PersonalityTemplate",
+      "kind": "type"
+    },
+    {
+      "name": "pidFileExists",
+      "kind": "function",
+      "signature": "(pidPath: string): Promise<boolean>"
+    },
+    {
+      "name": "PidFileInfo",
+      "kind": "interface"
+    },
+    {
+      "name": "Pipeline",
+      "kind": "interface"
+    },
+    {
+      "name": "PIPELINE_QUALITY_ARTIFACT_SCHEMA_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "PipelineCheckpoint",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineContext",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineContextGrowthArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineContextGrowthInput",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineDelegationArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineDelegationInput",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineDelegationScenarioArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineDelegationScenarioInput",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineDelegationScenarioMode",
+      "kind": "type"
+    },
+    {
+      "name": "PipelineDesktopRunArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineDesktopRunner",
+      "kind": "type"
+    },
+    {
+      "name": "PipelineDesktopRunnerInput",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineDesktopStabilityArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineDesktopStabilityInput",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineExecutor",
+      "kind": "class"
+    },
+    {
+      "name": "PipelineExecutorConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineGateEvaluation",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineGateViolation",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineHttpReproOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineHttpReproResult",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineHttpReproStepResult",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineOfflineReplayArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineOfflineReplayFixtureArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineOfflineReplayInput",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelinePlannerContext",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelinePlannerContextHistoryEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelinePlannerContextHistoryRole",
+      "kind": "type"
+    },
+    {
+      "name": "PipelinePlannerContextMemoryEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelinePlannerContextMemorySource",
+      "kind": "type"
+    },
+    {
+      "name": "PipelinePlannerContextToolOutputEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelinePlannerDeterministicStep",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelinePlannerStep",
+      "kind": "type"
+    },
+    {
+      "name": "PipelinePlannerStepType",
+      "kind": "type"
+    },
+    {
+      "name": "PipelinePlannerSubagentStep",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelinePlannerSynthesisStep",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineQualityArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineQualityArtifactInput",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineQualityGateThresholds",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineQualityRunnerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineResult",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineStatus",
+      "kind": "type"
+    },
+    {
+      "name": "PipelineStep",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineStepErrorPolicy",
+      "kind": "type"
+    },
+    {
+      "name": "PipelineTokenEfficiencyArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineTokenEfficiencyInput",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineToolTurnArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "PipelineToolTurnInput",
+      "kind": "interface"
     },
     {
       "name": "PlaceBidOptions",
@@ -2126,6 +4230,14 @@
       "signature": "(input: VerifierScheduleInput): VerifierSchedulePlan"
     },
     {
+      "name": "PluginCatalog",
+      "kind": "class"
+    },
+    {
+      "name": "PluginCatalogConfig",
+      "kind": "interface"
+    },
+    {
       "name": "PolicyAccess",
       "kind": "type"
     },
@@ -2139,6 +4251,14 @@
     },
     {
       "name": "PolicyBudgetRule",
+      "kind": "interface"
+    },
+    {
+      "name": "PolicyClass",
+      "kind": "type"
+    },
+    {
+      "name": "PolicyClassRule",
       "kind": "interface"
     },
     {
@@ -2158,12 +4278,36 @@
       "kind": "interface"
     },
     {
+      "name": "PolicyEvaluationScope",
+      "kind": "interface"
+    },
+    {
+      "name": "PolicySimulationMode",
+      "kind": "type"
+    },
+    {
       "name": "PolicyViolation",
       "kind": "interface"
     },
     {
       "name": "PolicyViolationError",
       "kind": "class"
+    },
+    {
+      "name": "PortableReputationProof",
+      "kind": "interface"
+    },
+    {
+      "name": "PostCreatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "PostToFeedParams",
+      "kind": "interface"
+    },
+    {
+      "name": "PostUpvotedEvent",
+      "kind": "interface"
     },
     {
       "name": "PRIVACY_CASH_PROGRAM_ID",
@@ -2174,8 +4318,32 @@
       "kind": "interface"
     },
     {
+      "name": "ProfileCache",
+      "kind": "class"
+    },
+    {
+      "name": "ProfileCacheConfig",
+      "kind": "interface"
+    },
+    {
       "name": "PROGRAM_ID",
       "kind": "const"
+    },
+    {
+      "name": "ProgressEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "ProgressEntryType",
+      "kind": "type"
+    },
+    {
+      "name": "ProgressTracker",
+      "kind": "class"
+    },
+    {
+      "name": "ProgressTrackerConfig",
+      "kind": "interface"
     },
     {
       "name": "ProjectedTimelineEvent",
@@ -2248,6 +4416,35 @@
       "kind": "class"
     },
     {
+      "name": "PROPOSAL_STATUS_OFFSET",
+      "kind": "const"
+    },
+    {
+      "name": "ProposalResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ProposalStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "proposalStatusToString",
+      "kind": "function",
+      "signature": "(status: ProposalStatus): string"
+    },
+    {
+      "name": "ProposalType",
+      "kind": "enum"
+    },
+    {
+      "name": "ProposalWithVotes",
+      "kind": "interface"
+    },
+    {
+      "name": "PROTOCOL_REVENUE_BPS",
+      "kind": "const"
+    },
+    {
       "name": "ProtocolConfig",
       "kind": "interface"
     },
@@ -2284,8 +4481,32 @@
       "kind": "type"
     },
     {
-      "name": "PUBLIC_INPUTS_COUNT",
-      "kind": "const"
+      "name": "ProverBackend",
+      "kind": "type"
+    },
+    {
+      "name": "ProverBackendConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "PurchaseResult",
+      "kind": "interface"
+    },
+    {
+      "name": "PushNotification",
+      "kind": "interface"
+    },
+    {
+      "name": "QueryDSL",
+      "kind": "interface"
+    },
+    {
+      "name": "QueryDSLParseError",
+      "kind": "class"
+    },
+    {
+      "name": "QueryDSLValidationError",
+      "kind": "interface"
     },
     {
       "name": "RankedTaskBid",
@@ -2334,6 +4555,19 @@
       "kind": "interface"
     },
     {
+      "name": "ReactionEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "readPidFile",
+      "kind": "function",
+      "signature": "(pidPath: string): Promise<PidFileInfo | null>"
+    },
+    {
+      "name": "RealtimeVoiceConfig",
+      "kind": "interface"
+    },
+    {
       "name": "RecentVoteActivityError",
       "kind": "class"
     },
@@ -2354,6 +4588,31 @@
     {
       "name": "RedisBackendConfig",
       "kind": "interface"
+    },
+    {
+      "name": "RemoteChatMessage",
+      "kind": "interface"
+    },
+    {
+      "name": "RemoteGatewayClient",
+      "kind": "class"
+    },
+    {
+      "name": "RemoteGatewayConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "RemoteGatewayEvents",
+      "kind": "interface"
+    },
+    {
+      "name": "RemoteGatewayState",
+      "kind": "type"
+    },
+    {
+      "name": "removePidFile",
+      "kind": "function",
+      "signature": "(pidPath: string): Promise<void>"
     },
     {
       "name": "REPLAY_ALERT_SCHEMA_VERSION",
@@ -2512,8 +4771,116 @@
       "kind": "interface"
     },
     {
+      "name": "REPUTATION_MAX",
+      "kind": "const"
+    },
+    {
+      "name": "REPUTATION_MIN",
+      "kind": "const"
+    },
+    {
+      "name": "REPUTATION_STAKING_COOLDOWN_SECONDS",
+      "kind": "const"
+    },
+    {
       "name": "ReputationChangedEvent",
       "kind": "interface"
+    },
+    {
+      "name": "ReputationChangeRecord",
+      "kind": "interface"
+    },
+    {
+      "name": "ReputationDelegationError",
+      "kind": "class"
+    },
+    {
+      "name": "ReputationDelegationParams",
+      "kind": "interface"
+    },
+    {
+      "name": "ReputationEconomyOperations",
+      "kind": "class"
+    },
+    {
+      "name": "ReputationEconomyOpsConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ReputationPortabilityError",
+      "kind": "class"
+    },
+    {
+      "name": "ReputationReason",
+      "kind": "const"
+    },
+    {
+      "name": "ReputationReasonValue",
+      "kind": "type"
+    },
+    {
+      "name": "ReputationScorer",
+      "kind": "class"
+    },
+    {
+      "name": "ReputationScorerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ReputationScoringError",
+      "kind": "class"
+    },
+    {
+      "name": "ReputationSignal",
+      "kind": "interface"
+    },
+    {
+      "name": "ReputationSignalCallback",
+      "kind": "type"
+    },
+    {
+      "name": "ReputationSignalKind",
+      "kind": "type"
+    },
+    {
+      "name": "ReputationStakeError",
+      "kind": "class"
+    },
+    {
+      "name": "ReputationStakeParams",
+      "kind": "interface"
+    },
+    {
+      "name": "ReputationTrackingError",
+      "kind": "class"
+    },
+    {
+      "name": "ReputationWeights",
+      "kind": "interface"
+    },
+    {
+      "name": "ReputationWithdrawError",
+      "kind": "class"
+    },
+    {
+      "name": "requireFiniteNumber",
+      "kind": "function",
+      "signature": "(value: unknown, field: string, errors: string[]): void"
+    },
+    {
+      "name": "requireIntRange",
+      "kind": "function",
+      "signature": "(value: unknown, field: string, min: number, max: number, errors: string[]): void"
+    },
+    {
+      "name": "requireNonEmptyString",
+      "kind": "function",
+      "signature": "(value: unknown, field: string, errors: string[]): void"
+    },
+    {
+      "name": "requireOneOf",
+      "kind": "function",
+      "signature": "(value: unknown, field: string, allowed: ReadonlySet<string>, errors: string[]): void"
     },
     {
       "name": "ResolutionType",
@@ -2529,6 +4896,10 @@
       "signature": "(input: EscalationGraphInput): EscalationGraphTransition"
     },
     {
+      "name": "ResolveServiceDisputeInput",
+      "kind": "interface"
+    },
+    {
       "name": "responseToOutput",
       "kind": "function",
       "signature": "(response: string): bigint[]"
@@ -2538,7 +4909,23 @@
       "kind": "const"
     },
     {
+      "name": "RetrievalResult",
+      "kind": "interface"
+    },
+    {
       "name": "RetryConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "REVENUE_BPS_DENOMINATOR",
+      "kind": "const"
+    },
+    {
+      "name": "RevenueShareInput",
+      "kind": "interface"
+    },
+    {
+      "name": "RevenueShareResult",
       "kind": "interface"
     },
     {
@@ -2547,6 +4934,10 @@
     },
     {
       "name": "RevisionInput",
+      "kind": "interface"
+    },
+    {
+      "name": "RevokeResult",
       "kind": "interface"
     },
     {
@@ -2570,8 +4961,84 @@
       "kind": "type"
     },
     {
+      "name": "ROLE_PERMISSION_MATRIX",
+      "kind": "const"
+    },
+    {
       "name": "RoleFailureAttribution",
       "kind": "interface"
+    },
+    {
+      "name": "RolePermission",
+      "kind": "interface"
+    },
+    {
+      "name": "RouterConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "RoutingMatch",
+      "kind": "interface"
+    },
+    {
+      "name": "RoutingRule",
+      "kind": "interface"
+    },
+    {
+      "name": "RoutingValidationError",
+      "kind": "class"
+    },
+    {
+      "name": "runCommand",
+      "kind": "function",
+      "signature": "(cmd: string, args: string[], options: RunCommandOptions): Promise<RunCommandResult>"
+    },
+    {
+      "name": "RunCommandOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "RunCommandResult",
+      "kind": "interface"
+    },
+    {
+      "name": "runDelegationBenchmarkSuite",
+      "kind": "function",
+      "signature": "(config?: DelegationBenchmarkSuiteConfig): Promise<DelegationBenchmarkSuiteResult>"
+    },
+    {
+      "name": "RunDomain",
+      "kind": "interface"
+    },
+    {
+      "name": "RunDomainExecutionContext",
+      "kind": "interface"
+    },
+    {
+      "name": "RunDomainNativeCycleResult",
+      "kind": "interface"
+    },
+    {
+      "name": "RunDomainRun",
+      "kind": "interface"
+    },
+    {
+      "name": "RunDomainVerification",
+      "kind": "interface"
+    },
+    {
+      "name": "RunDomainVerifierState",
+      "kind": "type"
+    },
+    {
+      "name": "runPipelineHttpRepro",
+      "kind": "function",
+      "signature": "(options?: PipelineHttpReproOptions): Promise<PipelineHttpReproResult>"
+    },
+    {
+      "name": "runPipelineQualitySuite",
+      "kind": "function",
+      "signature": "(config?: PipelineQualityRunnerConfig): Promise<PipelineQualityArtifact>"
     },
     {
       "name": "RuntimeError",
@@ -2586,8 +5053,17 @@
       "kind": "const"
     },
     {
+      "name": "RuntimePolicyBundleConfig",
+      "kind": "interface"
+    },
+    {
       "name": "RuntimePolicyConfig",
       "kind": "interface"
+    },
+    {
+      "name": "safePath",
+      "kind": "function",
+      "signature": "(targetPath: string, allowedPaths: readonly string[]): Promise<{ safe: boolean; resolved: string; reason?: string; }>"
     },
     {
       "name": "safeStringify",
@@ -2595,11 +5071,76 @@
       "signature": "(value: unknown): string"
     },
     {
+      "name": "SandboxConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SandboxExecuteOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "SandboxExecutionError",
+      "kind": "class"
+    },
+    {
+      "name": "SandboxManager",
+      "kind": "class"
+    },
+    {
+      "name": "SandboxMode",
+      "kind": "type"
+    },
+    {
+      "name": "SandboxResult",
+      "kind": "interface"
+    },
+    {
+      "name": "SandboxScope",
+      "kind": "type"
+    },
+    {
+      "name": "SandboxUnavailableError",
+      "kind": "class"
+    },
+    {
+      "name": "scaffoldWorkspace",
+      "kind": "function",
+      "signature": "(workspacePath: string): Promise<string[]>"
+    },
+    {
+      "name": "ScheduledJob",
+      "kind": "interface"
+    },
+    {
       "name": "SchemaCompatibilityResult",
       "kind": "interface"
     },
     {
+      "name": "ScopedActionBudgetRules",
+      "kind": "interface"
+    },
+    {
+      "name": "ScopedSpendBudgetRules",
+      "kind": "interface"
+    },
+    {
       "name": "ScorecardSerializeResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ScoredAgent",
+      "kind": "interface"
+    },
+    {
+      "name": "ScoredMemoryEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "ScoredPost",
+      "kind": "interface"
+    },
+    {
+      "name": "ScoredRetrievalEntry",
       "kind": "interface"
     },
     {
@@ -2611,6 +5152,18 @@
       "name": "scoreWorkflowObjective",
       "kind": "function",
       "signature": "(outcome: WorkflowObjectiveOutcome, spec?: WorkflowObjectiveSpec): number"
+    },
+    {
+      "name": "SearchOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "SECONDS_PER_MONTH",
+      "kind": "const"
+    },
+    {
+      "name": "SECONDS_PER_YEAR",
+      "kind": "const"
     },
     {
       "name": "SeededRandom",
@@ -2630,8 +5183,21 @@
       "signature": "(bids: readonly TaskBid[], policy: MatchingPolicyConfig): RankedTaskBid | null"
     },
     {
+      "name": "SemanticMemoryRetriever",
+      "kind": "class"
+    },
+    {
+      "name": "SemanticMemoryRetrieverConfig",
+      "kind": "interface"
+    },
+    {
       "name": "SemanticVersion",
       "kind": "type"
+    },
+    {
+      "name": "serializeAuthMessage",
+      "kind": "function",
+      "signature": "(token: string): string"
     },
     {
       "name": "serializeBenchmarkArtifact",
@@ -2641,6 +5207,11 @@
     {
       "name": "SerializedAgent",
       "kind": "interface"
+    },
+    {
+      "name": "serializeDelegationBenchmarkSuiteResult",
+      "kind": "function",
+      "signature": "(result: DelegationBenchmarkSuiteResult): string"
     },
     {
       "name": "SerializedProtocolConfig",
@@ -2661,7 +5232,102 @@
       "signature": "(artifact: MutationArtifact): string"
     },
     {
+      "name": "serializePingMessage",
+      "kind": "function",
+      "signature": "(): string"
+    },
+    {
+      "name": "serializePipelineQualityArtifact",
+      "kind": "function",
+      "signature": "(artifact: PipelineQualityArtifact): string"
+    },
+    {
+      "name": "ServiceBid",
+      "kind": "interface"
+    },
+    {
+      "name": "ServiceMarketplace",
+      "kind": "class"
+    },
+    {
+      "name": "ServiceMarketplaceConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ServiceRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "ServiceRequestRecord",
+      "kind": "interface"
+    },
+    {
+      "name": "ServiceRequestSnapshot",
+      "kind": "interface"
+    },
+    {
+      "name": "ServiceRequestStatus",
+      "kind": "type"
+    },
+    {
+      "name": "Session",
+      "kind": "interface"
+    },
+    {
+      "name": "SessionConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SessionContextIdentity",
+      "kind": "interface"
+    },
+    {
+      "name": "SessionInfo",
+      "kind": "interface"
+    },
+    {
+      "name": "SessionIsolationManager",
+      "kind": "class"
+    },
+    {
+      "name": "SessionIsolationManagerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SessionLookupParams",
+      "kind": "interface"
+    },
+    {
+      "name": "SessionManager",
+      "kind": "class"
+    },
+    {
+      "name": "SessionResetConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SessionResetMode",
+      "kind": "type"
+    },
+    {
+      "name": "SessionScope",
+      "kind": "type"
+    },
+    {
       "name": "SetTaskOwnerRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "signAgentMessage",
+      "kind": "function",
+      "signature": "(keypair: Keypair, payload: Uint8Array): Uint8Array"
+    },
+    {
+      "name": "SignalChannel",
+      "kind": "class"
+    },
+    {
+      "name": "SignalChannelConfig",
       "kind": "interface"
     },
     {
@@ -2677,6 +5343,10 @@
       "kind": "interface"
     },
     {
+      "name": "SKILL_REGISTRY_PROGRAM_ID",
+      "kind": "const"
+    },
+    {
       "name": "SkillAction",
       "kind": "interface"
     },
@@ -2689,16 +5359,52 @@
       "kind": "class"
     },
     {
+      "name": "SkillAnalytics",
+      "kind": "interface"
+    },
+    {
       "name": "SkillContext",
       "kind": "interface"
+    },
+    {
+      "name": "SkillDiscovery",
+      "kind": "class"
+    },
+    {
+      "name": "SkillDownloadError",
+      "kind": "class"
     },
     {
       "name": "SkillInitializationError",
       "kind": "class"
     },
     {
+      "name": "SkillInjector",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillInstallStep",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillListing",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillListingEntry",
+      "kind": "interface"
+    },
+    {
       "name": "SkillMetadata",
       "kind": "interface"
+    },
+    {
+      "name": "SkillMonetizationConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillMonetizationManager",
+      "kind": "class"
     },
     {
       "name": "SkillNotFoundError",
@@ -2709,16 +5415,60 @@
       "kind": "class"
     },
     {
+      "name": "SkillParseError",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillPublishError",
+      "kind": "class"
+    },
+    {
+      "name": "SkillPurchaseConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillPurchaseError",
+      "kind": "class"
+    },
+    {
+      "name": "SkillPurchaseManager",
+      "kind": "class"
+    },
+    {
       "name": "SkillRegistry",
       "kind": "class"
+    },
+    {
+      "name": "SkillRegistryClient",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillRegistryClientConfig",
+      "kind": "interface"
     },
     {
       "name": "SkillRegistryConfig",
       "kind": "interface"
     },
     {
+      "name": "SkillRegistryNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "SkillRequirements",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillRevenueError",
+      "kind": "class"
+    },
+    {
       "name": "SkillState",
       "kind": "enum"
+    },
+    {
+      "name": "SkillSubscriptionError",
+      "kind": "class"
     },
     {
       "name": "skillToTools",
@@ -2730,9 +5480,61 @@
       "kind": "interface"
     },
     {
+      "name": "SkillUsageEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillUsageTracker",
+      "kind": "class"
+    },
+    {
+      "name": "SkillVerificationError",
+      "kind": "class"
+    },
+    {
+      "name": "SlackChannel",
+      "kind": "class"
+    },
+    {
+      "name": "SlackChannelConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SlashCommandContext",
+      "kind": "interface"
+    },
+    {
+      "name": "SlashCommandDef",
+      "kind": "interface"
+    },
+    {
+      "name": "SlashCommandHandler",
+      "kind": "type"
+    },
+    {
+      "name": "SlashCommandRegistry",
+      "kind": "class"
+    },
+    {
+      "name": "SlashCommandRegistryConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SocialSignals",
+      "kind": "interface"
+    },
+    {
+      "name": "SocketLike",
+      "kind": "interface"
+    },
+    {
       "name": "solToLamports",
       "kind": "function",
       "signature": "(sol: number | string): bigint"
+    },
+    {
+      "name": "SortOrder",
+      "kind": "type"
     },
     {
       "name": "SpeculationConfig",
@@ -2740,6 +5542,10 @@
     },
     {
       "name": "SpeculativeCommitmentCreatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "SpeechToTextProvider",
       "kind": "interface"
     },
     {
@@ -2765,12 +5571,88 @@
       "signature": "(value: JsonValue): string"
     },
     {
+      "name": "StakeResult",
+      "kind": "interface"
+    },
+    {
+      "name": "StalePidResult",
+      "kind": "interface"
+    },
+    {
+      "name": "StartServiceInput",
+      "kind": "interface"
+    },
+    {
       "name": "StateUpdatedEvent",
       "kind": "interface"
     },
     {
       "name": "StreamProgressCallback",
       "kind": "type"
+    },
+    {
+      "name": "STTConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "STTOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "SUB_AGENT_SESSION_PREFIX",
+      "kind": "const"
+    },
+    {
+      "name": "SubAgentConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SubAgentInfo",
+      "kind": "interface"
+    },
+    {
+      "name": "SubagentLifecyclePayload",
+      "kind": "interface"
+    },
+    {
+      "name": "SubagentLifecycleType",
+      "kind": "type"
+    },
+    {
+      "name": "SubAgentManager",
+      "kind": "class"
+    },
+    {
+      "name": "SubAgentManagerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SubAgentNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "SubAgentResult",
+      "kind": "interface"
+    },
+    {
+      "name": "SubAgentSessionIdentity",
+      "kind": "interface"
+    },
+    {
+      "name": "SubAgentSpawnError",
+      "kind": "class"
+    },
+    {
+      "name": "SubAgentStatus",
+      "kind": "type"
+    },
+    {
+      "name": "SubAgentTimeoutError",
+      "kind": "class"
+    },
+    {
+      "name": "SubscribeParams",
+      "kind": "interface"
     },
     {
       "name": "subscribeToAgentDeregistered",
@@ -2943,6 +5825,35 @@
       "signature": "(program: Program<AgencCoordination>, callback: EventCallback<TaskCreatedEvent>, options?: TaskEventFilterOptions): EventSubscription"
     },
     {
+      "name": "SubscriptionModel",
+      "kind": "interface"
+    },
+    {
+      "name": "SubscriptionPeriod",
+      "kind": "type"
+    },
+    {
+      "name": "SubscriptionRecord",
+      "kind": "interface"
+    },
+    {
+      "name": "SubscriptionResult",
+      "kind": "interface"
+    },
+    {
+      "name": "SubscriptionStatus",
+      "kind": "type"
+    },
+    {
+      "name": "Summarizer",
+      "kind": "type"
+    },
+    {
+      "name": "summarizeToolResult",
+      "kind": "function",
+      "signature": "(toolName: string, args: Record<string, unknown>, result: string, durationMs: number): string"
+    },
+    {
       "name": "SwapQuote",
       "kind": "interface"
     },
@@ -2952,6 +5863,58 @@
     },
     {
       "name": "SwapResult",
+      "kind": "interface"
+    },
+    {
+      "name": "SynthesisResult",
+      "kind": "interface"
+    },
+    {
+      "name": "SystemProcessLifecycleEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "SystemProcessManager",
+      "kind": "class"
+    },
+    {
+      "name": "SystemProcessToolConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SystemRemoteJobManager",
+      "kind": "class"
+    },
+    {
+      "name": "SystemRemoteJobToolConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SystemResearchManager",
+      "kind": "class"
+    },
+    {
+      "name": "SystemResearchToolConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SystemSandboxManager",
+      "kind": "class"
+    },
+    {
+      "name": "SystemSandboxToolConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SystemSandboxWorkspaceAccessMode",
+      "kind": "type"
+    },
+    {
+      "name": "SystemServerManager",
+      "kind": "class"
+    },
+    {
+      "name": "SystemServerToolConfig",
       "kind": "interface"
     },
     {
@@ -3277,6 +6240,18 @@
       "kind": "class"
     },
     {
+      "name": "TelegramChannel",
+      "kind": "class"
+    },
+    {
+      "name": "TelegramChannelConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TelegramWebhookConfig",
+      "kind": "interface"
+    },
+    {
       "name": "TELEMETRY_METRIC_NAMES",
       "kind": "const"
     },
@@ -3298,6 +6273,10 @@
     },
     {
       "name": "TelemetrySnapshot",
+      "kind": "interface"
+    },
+    {
+      "name": "TextToSpeechProvider",
       "kind": "interface"
     },
     {
@@ -3330,6 +6309,10 @@
       "kind": "class"
     },
     {
+      "name": "ToolCallRecord",
+      "kind": "interface"
+    },
+    {
       "name": "ToolContext",
       "kind": "interface"
     },
@@ -3343,6 +6326,30 @@
     },
     {
       "name": "ToolNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "ToolPermissionPolicy",
+      "kind": "interface"
+    },
+    {
+      "name": "ToolPolicy",
+      "kind": "interface"
+    },
+    {
+      "name": "ToolPolicyConditions",
+      "kind": "interface"
+    },
+    {
+      "name": "ToolPolicyContext",
+      "kind": "interface"
+    },
+    {
+      "name": "ToolPolicyDecision",
+      "kind": "interface"
+    },
+    {
+      "name": "ToolPolicyEvaluator",
       "kind": "class"
     },
     {
@@ -3365,6 +6372,11 @@
       "name": "topologicalSort",
       "kind": "function",
       "signature": "(definition: WorkflowDefinition): string[]"
+    },
+    {
+      "name": "toTranscriptionProvider",
+      "kind": "function",
+      "signature": "(stt: SpeechToTextProvider): TranscriptionProvider"
     },
     {
       "name": "TrajectoryEvent",
@@ -3407,6 +6419,18 @@
       "kind": "interface"
     },
     {
+      "name": "TranscriptionProvider",
+      "kind": "interface"
+    },
+    {
+      "name": "TranscriptionResult",
+      "kind": "interface"
+    },
+    {
+      "name": "TranscriptionSegment",
+      "kind": "interface"
+    },
+    {
       "name": "TransferResult",
       "kind": "interface"
     },
@@ -3444,8 +6468,21 @@
       "signature": "(violation: TransitionValidationViolation): string"
     },
     {
+      "name": "TTSConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TTSOptions",
+      "kind": "interface"
+    },
+    {
       "name": "U64_SIZE",
       "kind": "const"
+    },
+    {
+      "name": "uint8ToBase64",
+      "kind": "function",
+      "signature": "(data: Uint8Array): string"
     },
     {
       "name": "UnifiedTelemetryCollector",
@@ -3460,6 +6497,10 @@
       "kind": "interface"
     },
     {
+      "name": "UpvotePostParams",
+      "kind": "interface"
+    },
+    {
       "name": "USDC_MINT",
       "kind": "const"
     },
@@ -3468,9 +6509,18 @@
       "kind": "const"
     },
     {
+      "name": "VadConfig",
+      "kind": "interface"
+    },
+    {
       "name": "validateAlertSchema",
       "kind": "function",
       "signature": "(payload: unknown): SchemaCompatibilityResult"
+    },
+    {
+      "name": "validateAttachment",
+      "kind": "function",
+      "signature": "(att: unknown, maxSizeBytes?: number): ValidationResult"
     },
     {
       "name": "validateConfigStrict",
@@ -3478,14 +6528,44 @@
       "signature": "(config: Record<string, unknown>, strict: boolean): ConfigValidationResult"
     },
     {
+      "name": "validateGatewayConfig",
+      "kind": "function",
+      "signature": "(obj: unknown): ValidationResult"
+    },
+    {
+      "name": "validateGatewayMessage",
+      "kind": "function",
+      "signature": "(msg: unknown): ValidationResult"
+    },
+    {
       "name": "validateMarketplaceId",
       "kind": "function",
       "signature": "(value: string, maxLength?: number): string | null"
     },
     {
+      "name": "validateOutboundMessage",
+      "kind": "function",
+      "signature": "(msg: unknown): ValidationResult"
+    },
+    {
+      "name": "validateShellCommand",
+      "kind": "function",
+      "signature": "(command: string): { allowed: true; } | { allowed: false; reason: string; }"
+    },
+    {
+      "name": "validateSkillMetadata",
+      "kind": "function",
+      "signature": "(skill: MarkdownSkill): SkillParseError[]"
+    },
+    {
       "name": "validateTeamId",
       "kind": "function",
       "signature": "(value: string, maxLength?: number): string | null"
+    },
+    {
+      "name": "validateToolCall",
+      "kind": "function",
+      "signature": "(raw: unknown): LLMToolCall | null"
     },
     {
       "name": "validateTransition",
@@ -3507,16 +6587,34 @@
       "kind": "class"
     },
     {
+      "name": "validationResult",
+      "kind": "function",
+      "signature": "(errors: string[]): ValidationResult"
+    },
+    {
+      "name": "ValidationResult",
+      "kind": "interface"
+    },
+    {
+      "name": "VectorMemoryBackend",
+      "kind": "interface"
+    },
+    {
+      "name": "VectorSearchOptions",
+      "kind": "interface"
+    },
+    {
       "name": "VerdictComparison",
       "kind": "interface"
     },
     {
-      "name": "VERIFICATION_COMPUTE_UNITS",
-      "kind": "const"
-    },
-    {
       "name": "VerificationBudgetDecision",
       "kind": "interface"
+    },
+    {
+      "name": "verificationSupportsContinuation",
+      "kind": "function",
+      "signature": "(verification: RunDomainVerification): boolean"
     },
     {
       "name": "VERIFIER_METRIC_NAMES",
@@ -3595,11 +6693,81 @@
       "kind": "interface"
     },
     {
+      "name": "verifyAgentSignature",
+      "kind": "function",
+      "signature": "(publicKey: PublicKey, payload: Uint8Array, signature: Uint8Array): boolean"
+    },
+    {
+      "name": "verifyToken",
+      "kind": "function",
+      "signature": "(secret: string, token: string): JWTPayload | null"
+    },
+    {
       "name": "VERSION",
       "kind": "const"
     },
     {
+      "name": "VOICE_CHUNK_INTERVAL_MS",
+      "kind": "const"
+    },
+    {
+      "name": "VOICE_SAMPLE_RATE",
+      "kind": "const"
+    },
+    {
+      "name": "VoiceBridge",
+      "kind": "class"
+    },
+    {
+      "name": "VoiceBridgeConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "VoiceClientEvent",
+      "kind": "type"
+    },
+    {
+      "name": "VoiceConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "VoiceInfo",
+      "kind": "interface"
+    },
+    {
+      "name": "VoiceRealtimeError",
+      "kind": "class"
+    },
+    {
+      "name": "VoiceServerEvent",
+      "kind": "type"
+    },
+    {
+      "name": "VoiceSessionCallbacks",
+      "kind": "interface"
+    },
+    {
+      "name": "VoiceSessionConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "VoiceSynthesisError",
+      "kind": "class"
+    },
+    {
+      "name": "VoiceTool",
+      "kind": "interface"
+    },
+    {
+      "name": "VoiceTranscriptionError",
+      "kind": "class"
+    },
+    {
       "name": "VoteDisputeParams",
+      "kind": "interface"
+    },
+    {
+      "name": "VoteProposalParams",
       "kind": "interface"
     },
     {
@@ -3609,6 +6777,54 @@
     {
       "name": "Wallet",
       "kind": "interface"
+    },
+    {
+      "name": "WebChatChannel",
+      "kind": "class"
+    },
+    {
+      "name": "WebChatChannelConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "WebChatDeps",
+      "kind": "interface"
+    },
+    {
+      "name": "WebChatHandler",
+      "kind": "interface"
+    },
+    {
+      "name": "WebhookHandler",
+      "kind": "type"
+    },
+    {
+      "name": "WebhookMethod",
+      "kind": "type"
+    },
+    {
+      "name": "WebhookRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "WebhookResponse",
+      "kind": "interface"
+    },
+    {
+      "name": "WebhookRoute",
+      "kind": "interface"
+    },
+    {
+      "name": "WebhookRouteMatch",
+      "kind": "interface"
+    },
+    {
+      "name": "WebhookRouter",
+      "kind": "class"
+    },
+    {
+      "name": "WebhookRouteRegistry",
+      "kind": "class"
     },
     {
       "name": "WeightedScoreWeights",
@@ -3625,6 +6841,30 @@
     {
       "name": "WELL_KNOWN_TOKENS",
       "kind": "const"
+    },
+    {
+      "name": "WhatsAppChannel",
+      "kind": "class"
+    },
+    {
+      "name": "WhatsAppChannelConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "WhisperAPIProvider",
+      "kind": "class"
+    },
+    {
+      "name": "WhisperAPIProviderConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "WithdrawResult",
+      "kind": "interface"
+    },
+    {
+      "name": "WithdrawStakeParams",
+      "kind": "interface"
     },
     {
       "name": "WORKFLOW_FEATURE_SCHEMA_VERSION",
@@ -3824,6 +7064,54 @@
       "kind": "class"
     },
     {
+      "name": "WORKSPACE_CONFIG_FILE",
+      "kind": "const"
+    },
+    {
+      "name": "WORKSPACE_FILES",
+      "kind": "const"
+    },
+    {
+      "name": "WORKSPACE_ID_PATTERN",
+      "kind": "const"
+    },
+    {
+      "name": "WorkspaceAccessMode",
+      "kind": "type"
+    },
+    {
+      "name": "WorkspaceConfigJson",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkspaceFileName",
+      "kind": "type"
+    },
+    {
+      "name": "WorkspaceFiles",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkspaceLoader",
+      "kind": "class"
+    },
+    {
+      "name": "WorkspaceManager",
+      "kind": "class"
+    },
+    {
+      "name": "WorkspaceTemplate",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkspaceValidation",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkspaceValidationError",
+      "kind": "class"
+    },
+    {
       "name": "writeBenchmarkArtifact",
       "kind": "function",
       "signature": "(outputPath: string, artifact: BenchmarkArtifact): Promise<void>"
@@ -3834,8 +7122,297 @@
       "signature": "(outputPath: string, artifact: MutationArtifact): Promise<void>"
     },
     {
+      "name": "writePidFile",
+      "kind": "function",
+      "signature": "(info: PidFileInfo, pidPath: string): Promise<void>"
+    },
+    {
+      "name": "WS_AGENT_STATUS",
+      "kind": "const"
+    },
+    {
+      "name": "WS_APPROVAL_REQUEST",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_CANCEL",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_CANCELLED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_HISTORY",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_MESSAGE",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_NEW",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_OWNER",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_RESUME",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_RESUMED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_SESSION",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_SESSIONS",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_TYPING",
+      "kind": "const"
+    },
+    {
+      "name": "WS_CHAT_USAGE",
+      "kind": "const"
+    },
+    {
+      "name": "WS_DESKTOP_ATTACH",
+      "kind": "const"
+    },
+    {
+      "name": "WS_DESKTOP_ATTACHED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_DESKTOP_CREATE",
+      "kind": "const"
+    },
+    {
+      "name": "WS_DESKTOP_CREATED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_DESKTOP_DESTROY",
+      "kind": "const"
+    },
+    {
+      "name": "WS_DESKTOP_DESTROYED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_DESKTOP_ERROR",
+      "kind": "const"
+    },
+    {
+      "name": "WS_DESKTOP_LIST",
+      "kind": "const"
+    },
+    {
+      "name": "WS_EVENTS_EVENT",
+      "kind": "const"
+    },
+    {
+      "name": "WS_EVENTS_SUBSCRIBE",
+      "kind": "const"
+    },
+    {
+      "name": "WS_EVENTS_SUBSCRIBED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_EVENTS_UNSUBSCRIBE",
+      "kind": "const"
+    },
+    {
+      "name": "WS_EVENTS_UNSUBSCRIBED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_OBSERVABILITY_ARTIFACT",
+      "kind": "const"
+    },
+    {
+      "name": "WS_OBSERVABILITY_LOGS",
+      "kind": "const"
+    },
+    {
+      "name": "WS_OBSERVABILITY_SUMMARY",
+      "kind": "const"
+    },
+    {
+      "name": "WS_OBSERVABILITY_TRACE",
+      "kind": "const"
+    },
+    {
+      "name": "WS_OBSERVABILITY_TRACES",
+      "kind": "const"
+    },
+    {
+      "name": "WS_RUN_CONTROL",
+      "kind": "const"
+    },
+    {
+      "name": "WS_RUN_INSPECT",
+      "kind": "const"
+    },
+    {
+      "name": "WS_RUN_UPDATED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_RUNS_LIST",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENT_LIFECYCLE_TYPES",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENTS_CANCELLED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENTS_COMPLETED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENTS_FAILED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENTS_PLANNED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENTS_PROGRESS",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENTS_SPAWNED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENTS_STARTED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENTS_SYNTHESIZED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENTS_TOOL_EXECUTING",
+      "kind": "const"
+    },
+    {
+      "name": "WS_SUBAGENTS_TOOL_RESULT",
+      "kind": "const"
+    },
+    {
+      "name": "WS_TOOLS_EXECUTING",
+      "kind": "const"
+    },
+    {
+      "name": "WS_TOOLS_RESULT",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_AUDIO",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_COMMIT",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_DELEGATION",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_ERROR",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_RESPONSE_DONE",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_SPEECH_STARTED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_SPEECH_STOPPED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_START",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_STARTED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_STATE",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_STOP",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_STOPPED",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_TRANSCRIPT",
+      "kind": "const"
+    },
+    {
+      "name": "WS_VOICE_USER_TRANSCRIPT",
+      "kind": "const"
+    },
+    {
       "name": "WSOL_MINT",
       "kind": "const"
+    },
+    {
+      "name": "X402Bridge",
+      "kind": "class"
+    },
+    {
+      "name": "X402BridgeConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "X402PaymentRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "X402PaymentResponse",
+      "kind": "interface"
+    },
+    {
+      "name": "XaiAudioFormat",
+      "kind": "type"
+    },
+    {
+      "name": "XaiRealtimeClient",
+      "kind": "class"
+    },
+    {
+      "name": "XaiRealtimeClientConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "XaiVoice",
+      "kind": "type"
     }
   ]
 }

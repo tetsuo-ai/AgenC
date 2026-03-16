@@ -4,7 +4,7 @@
  */
 
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID, SEEDS } from "../../../sdk/src/constants.ts";
+import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
 import { AGENT_ID_LENGTH } from "./types.js";
 import { derivePda, validateIdLength } from "../utils/pda.js";
 

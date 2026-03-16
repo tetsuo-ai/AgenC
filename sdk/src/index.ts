@@ -98,6 +98,7 @@ export {
 export {
   PROGRAM_ID,
   PRIVACY_CASH_PROGRAM_ID,
+  VERIFIER_PROGRAM_ID,
   DEVNET_RPC,
   MAINNET_RPC,
   // Size constants

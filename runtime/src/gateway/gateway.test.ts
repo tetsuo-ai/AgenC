@@ -1,8 +1,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { Gateway } from "./gateway.js";
+
+function getAvailablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      server.close((err) => (err ? reject(err) : resolve(port)));
+    });
+  });
+}
+
+function getActualPort(gw: Gateway): number {
+  const server = (gw as any).httpServer;
+  const addr = server?.address?.();
+  return typeof addr === "object" && addr ? addr.port : 0;
+}
 import { GatewayStateError, GatewayValidationError } from "./errors.js";
 import {
   loadGatewayConfig,
@@ -23,7 +41,8 @@ const walletAirdropMocks = vi.hoisted(() => ({
   getDefaultKeypairPath: vi.fn(),
 }));
 
-vi.mock("@solana/web3.js", () => {
+vi.mock("@solana/web3.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@solana/web3.js")>();
   class MockConnection {
     constructor(...args: unknown[]) {
       walletAirdropMocks.connectionCtor(...args);
@@ -35,6 +54,7 @@ vi.mock("@solana/web3.js", () => {
   }
 
   return {
+    ...actual,
     Connection: MockConnection,
     LAMPORTS_PER_SOL: 1_000_000_000,
   };
@@ -51,21 +71,23 @@ let wssConnectionHandler: ((...args: unknown[]) => void) | null = null;
 
 vi.mock("ws", () => {
   const mockClients = new Set();
-  const MockWebSocketServer = vi.fn().mockImplementation(() => ({
-    on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+  const MockWebSocketServer = vi.fn(function (this: any) {
+    this.on = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
       if (event === "connection") {
         wssConnectionHandler = handler;
       }
-    }),
-    close: vi.fn((cb?: (err?: Error) => void) => cb?.()),
-    clients: mockClients,
-  }));
+    });
+    this.close = vi.fn((cb?: (err?: Error) => void) => cb?.());
+    this.clients = mockClients;
+  });
   return { WebSocketServer: MockWebSocketServer };
 });
 
+let TEST_PORT = 0;
+
 function makeConfig(overrides?: Partial<GatewayConfig>): GatewayConfig {
   return {
-    gateway: { port: 9100, bind: "127.0.0.1" },
+    gateway: { port: TEST_PORT, bind: "127.0.0.1" },
     agent: { name: "test-agent" },
     connection: { rpcUrl: "http://localhost:8899" },
     ...overrides,
@@ -84,7 +106,8 @@ function makeChannel(name: string, healthy = true): ChannelHandle {
 describe("Gateway", () => {
   let gateway: Gateway;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    TEST_PORT = await getAvailablePort();
     walletAirdropMocks.connectionCtor.mockReset();
     walletAirdropMocks.requestAirdrop.mockReset();
     walletAirdropMocks.confirmTransaction.mockReset();
@@ -150,7 +173,7 @@ describe("Gateway", () => {
     it("start fails for non-loopback bind without auth.secret", async () => {
       gateway = new Gateway(
         makeConfig({
-          gateway: { port: 9100, bind: "0.0.0.0" },
+          gateway: { port: TEST_PORT, bind: "0.0.0.0" },
         }),
         { logger: silentLogger },
       );
@@ -176,7 +199,7 @@ describe("Gateway", () => {
       const statusAfter = gateway.getStatus();
       expect(statusAfter.state).toBe("running");
       expect(statusAfter.uptimeMs).toBeGreaterThanOrEqual(0);
-      expect(statusAfter.controlPlanePort).toBe(9100);
+      expect(statusAfter.controlPlanePort).toBe(TEST_PORT);
       expect(statusAfter.channels).toEqual([]);
     });
 
@@ -237,7 +260,8 @@ describe("Gateway", () => {
         }),
       });
 
-      const response = await fetch("http://127.0.0.1:9100/webhooks/test", {
+      const actualPort = getActualPort(gateway);
+      const response = await fetch(`http://127.0.0.1:${actualPort}/webhooks/test`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ hello: "world" }),
@@ -268,9 +292,7 @@ describe("Gateway", () => {
 
     it("matches parameterized webhook routes and forwards path params", async () => {
       gateway = new Gateway(
-        makeConfig({
-          gateway: { port: 9101, bind: "127.0.0.1" },
-        }),
+        makeConfig(),
         { logger: silentLogger },
       );
       await gateway.start();
@@ -286,7 +308,8 @@ describe("Gateway", () => {
         }),
       });
 
-      const response = await fetch("http://127.0.0.1:9101/webhooks/test/job-42", {
+      const paramPort = getActualPort(gateway);
+      const response = await fetch(`http://127.0.0.1:${paramPort}/webhooks/test/job-42`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ hello: "world" }),
@@ -982,7 +1005,7 @@ describe("config loading", () => {
     const loaded = await loadGatewayConfig(configPath);
 
     expect(loaded.agent.name).toBe("test-agent");
-    expect(loaded.gateway.port).toBe(9100);
+    expect(loaded.gateway.port).toBe(TEST_PORT);
   });
 
   it("validateGatewayConfig rejects missing fields", () => {

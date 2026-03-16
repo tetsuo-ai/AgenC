@@ -402,36 +402,30 @@ describe("BackgroundRunStore", () => {
 
     await backend.set("background-run:session:session-1", legacyRun);
 
-    await expect(store.loadRun("session-1")).resolves.toMatchObject({
-      version: AGENT_RUN_SCHEMA_VERSION,
-      sessionId: "session-1",
-      carryForward: expect.objectContaining({
-        artifacts: [],
-        memoryAnchors: [],
-        summaryHealth: {
-          status: "healthy",
-          driftCount: 0,
-        },
-      }),
-      budgetState: expect.objectContaining({
-        maxRuntimeMs: 604_800_000,
-        maxCycles: deriveDefaultBackgroundRunMaxCycles({
-          maxRuntimeMs: 604_800_000,
-          nextCheckMs: 4_000,
-        }),
-      }),
-      compaction: expect.objectContaining({
-        lastCompactedCycle: 1,
-        repairCount: 0,
-      }),
-      approvalState: { status: "none" },
-      watchRegistrations: [
-        expect.objectContaining({
-          id: "watch:managed_process:proc_watcher",
-        }),
-      ],
-      fenceToken: 1,
+    const migrated = await store.loadRun("session-1");
+    expect(migrated).toBeDefined();
+    expect(migrated!.version).toBe(AGENT_RUN_SCHEMA_VERSION);
+    expect(migrated!.sessionId).toBe("session-1");
+    expect(migrated!.carryForward?.artifacts).toEqual([]);
+    expect(migrated!.carryForward?.memoryAnchors).toEqual([]);
+    expect(migrated!.carryForward?.summaryHealth).toEqual({
+      status: "healthy",
+      driftCount: 0,
     });
+    expect(migrated!.budgetState.maxRuntimeMs).toBe(604_800_000);
+    expect(migrated!.budgetState.maxCycles).toBe(
+      deriveDefaultBackgroundRunMaxCycles({
+        maxRuntimeMs: 604_800_000,
+        nextCheckMs: 4_000,
+      }),
+    );
+    expect(migrated!.compaction.lastCompactedCycle).toBe(1);
+    expect(migrated!.compaction.repairCount).toBe(0);
+    expect(migrated!.approvalState.status).toBe("none");
+    expect(migrated!.watchRegistrations[0]?.id).toBe(
+      "watch:managed_process:proc_watcher",
+    );
+    expect(migrated!.fenceToken).toBe(1);
   });
 
   it("scales default cycle budgets to the runtime budget instead of a fixed short cap", () => {

@@ -18,8 +18,11 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { createProgram } from "../runtime/src/idl.js";
-import { Capability, combineCapabilities } from "../runtime/src/agent/capabilities.js";
+import {
+  createProgram,
+  Capability,
+  combineCapabilities,
+} from "../runtime/src/index.js";
 
 const DEFAULT_RPC_URL = "http://127.0.0.1:8899";
 const DEFAULT_PROGRAM_ID = "6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab";

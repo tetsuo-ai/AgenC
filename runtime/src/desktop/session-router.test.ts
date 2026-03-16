@@ -42,12 +42,12 @@ vi.mock("./rest-bridge.js", () => {
   ];
 
   return {
-    DesktopRESTBridge: vi.fn().mockImplementation(() => ({
-      connect: vi.fn().mockResolvedValue(undefined),
-      disconnect: vi.fn(),
-      isConnected: vi.fn().mockReturnValue(true),
-      getTools: vi.fn().mockReturnValue(mockTools),
-    })),
+    DesktopRESTBridge: vi.fn(function (this: any) {
+      this.connect = vi.fn().mockResolvedValue(undefined);
+      this.disconnect = vi.fn();
+      this.isConnected = vi.fn().mockReturnValue(true);
+      this.getTools = vi.fn().mockReturnValue(mockTools);
+    }),
   };
 });
 
@@ -350,22 +350,19 @@ describe("createDesktopAwareToolHandler", () => {
       isError: false,
     });
 
-    bridgeCtor.mockImplementationOnce(
-      () =>
-        ({
-          connect: vi.fn().mockResolvedValue(undefined),
-          disconnect: vi.fn(),
-          isConnected: vi.fn().mockReturnValue(true),
-          getTools: vi.fn().mockReturnValue([
-            {
-              name: "desktop.bash",
-              description: "Run bash command",
-              inputSchema: {},
-              execute: bashExecute,
-            },
-          ]),
-        }) as unknown as DesktopRESTBridge,
-    );
+    bridgeCtor.mockImplementationOnce(function (this: any) {
+      this.connect = vi.fn().mockResolvedValue(undefined);
+      this.disconnect = vi.fn();
+      this.isConnected = vi.fn().mockReturnValue(true);
+      this.getTools = vi.fn().mockReturnValue([
+        {
+          name: "desktop.bash",
+          description: "Run bash command",
+          inputSchema: {},
+          execute: bashExecute,
+        },
+      ]);
+    });
 
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
       desktopManager: manager,
@@ -396,22 +393,19 @@ describe("createDesktopAwareToolHandler", () => {
       isError: false,
     });
 
-    bridgeCtor.mockImplementationOnce(
-      () =>
-        ({
-          connect: vi.fn().mockResolvedValue(undefined),
-          disconnect: vi.fn(),
-          isConnected: vi.fn().mockReturnValue(true),
-          getTools: vi.fn().mockReturnValue([
-            {
-              name: "desktop.bash",
-              description: "Run bash command",
-              inputSchema: {},
-              execute: bashExecute,
-            },
-          ]),
-        }) as unknown as DesktopRESTBridge,
-    );
+    bridgeCtor.mockImplementationOnce(function (this: any) {
+      this.connect = vi.fn().mockResolvedValue(undefined);
+      this.disconnect = vi.fn();
+      this.isConnected = vi.fn().mockReturnValue(true);
+      this.getTools = vi.fn().mockReturnValue([
+        {
+          name: "desktop.bash",
+          description: "Run bash command",
+          inputSchema: {},
+          execute: bashExecute,
+        },
+      ]);
+    });
 
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
       desktopManager: manager,
@@ -591,28 +585,25 @@ describe("createDesktopAwareToolHandler", () => {
       isError: false,
     });
 
-    bridgeCtor.mockImplementationOnce(
-      () =>
-        ({
-          connect: vi.fn().mockResolvedValue(undefined),
-          disconnect: vi.fn(),
-          isConnected: vi.fn().mockReturnValue(true),
-          getTools: vi.fn().mockReturnValue([
-            {
-              name: "desktop.window_list",
-              description: "List windows",
-              inputSchema: {},
-              execute: windowListExecute,
-            },
-            {
-              name: "desktop.window_focus",
-              description: "Focus window",
-              inputSchema: {},
-              execute: windowFocusExecute,
-            },
-          ]),
-        }) as unknown as DesktopRESTBridge,
-    );
+    bridgeCtor.mockImplementationOnce(function (this: any) {
+      this.connect = vi.fn().mockResolvedValue(undefined);
+      this.disconnect = vi.fn();
+      this.isConnected = vi.fn().mockReturnValue(true);
+      this.getTools = vi.fn().mockReturnValue([
+        {
+          name: "desktop.window_list",
+          description: "List windows",
+          inputSchema: {},
+          execute: windowListExecute,
+        },
+        {
+          name: "desktop.window_focus",
+          description: "Focus window",
+          inputSchema: {},
+          execute: windowFocusExecute,
+        },
+      ]);
+    });
 
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
       desktopManager: manager,
@@ -665,8 +656,12 @@ describe("createDesktopAwareToolHandler", () => {
     } as unknown as DesktopRESTBridge;
 
     bridgeCtor
-      .mockImplementationOnce(() => failingBridge)
-      .mockImplementationOnce(() => recoveredBridge);
+      .mockImplementationOnce(function (this: any) {
+        Object.assign(this, failingBridge);
+      })
+      .mockImplementationOnce(function (this: any) {
+        Object.assign(this, recoveredBridge);
+      });
 
     const handler = createDesktopAwareToolHandler(baseHandler, "sess1", {
       desktopManager: manager,
@@ -715,28 +710,25 @@ describe("createDesktopAwareToolHandler", () => {
       isError: false,
     });
 
-    bridgeCtor.mockImplementationOnce(
-      () =>
-        ({
-          connect: vi.fn().mockResolvedValue(undefined),
-          disconnect: vi.fn(),
-          isConnected: vi.fn().mockReturnValue(true),
-          getTools: vi.fn().mockReturnValue([
-            {
-              name: "desktop.bash",
-              description: "Run bash command",
-              inputSchema: {},
-              execute: bashExecute,
-            },
-            {
-              name: "desktop.keyboard_type",
-              description: "Type text",
-              inputSchema: {},
-              execute: keyboardExecute,
-            },
-          ]),
-        }) as unknown as DesktopRESTBridge,
-    );
+    bridgeCtor.mockImplementationOnce(function (this: any) {
+      this.connect = vi.fn().mockResolvedValue(undefined);
+      this.disconnect = vi.fn();
+      this.isConnected = vi.fn().mockReturnValue(true);
+      this.getTools = vi.fn().mockReturnValue([
+        {
+          name: "desktop.bash",
+          description: "Run bash command",
+          inputSchema: {},
+          execute: bashExecute,
+        },
+        {
+          name: "desktop.keyboard_type",
+          description: "Type text",
+          inputSchema: {},
+          execute: keyboardExecute,
+        },
+      ]);
+    });
 
     const navigateExecute = vi.fn().mockResolvedValue({
       content: '{"ok":true}',

@@ -18,7 +18,7 @@ import {
   parseJsonMessage,
   serializeAuthMessage,
   serializePingMessage,
-} from '../../../runtime/src/channels/webchat/socket-client-core';
+} from '@agenc/runtime';
 
 interface UseRemoteGatewayOptions {
   connection: GatewayConnection | null;

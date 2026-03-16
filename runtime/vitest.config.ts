@@ -3,12 +3,8 @@ import { resolve } from 'path';
 
 export default defineConfig({
   resolve: {
-    alias: {
-      // Resolve workspace peer deps from the runtime package itself during tests.
-      '@coral-xyz/anchor': resolve(__dirname, './node_modules/@coral-xyz/anchor'),
-      // Ensure tests always use the freshly built workspace SDK instead of stale file: copies.
-      '@agenc/sdk': resolve(__dirname, '../sdk/dist/index.mjs'),
-    },
+    // npm workspaces hoist deps to the monorepo root and symlink workspace
+    // packages into node_modules/@agenc/*. No manual aliases needed.
   },
   test: {
     globals: false,
