@@ -103,6 +103,7 @@ import {
   resolveSessionTokenBudget,
 } from "./daemon.js";
 import type { PidFileInfo } from "./daemon.js";
+import { buildDesktopContext, buildSystemPrompt } from "./system-prompt-builder.js";
 import { LLMTimeoutError, LLMAuthenticationError } from "../llm/errors.js";
 import { loadGatewayConfig } from "./config-watcher.js";
 import { WorkspaceValidationError } from "./workspace.js";
@@ -134,13 +135,17 @@ describe("DaemonManager host workspace prompt and memory resolution", () => {
   it("uses a generic local-engineering fallback for non-workspace host paths", async () => {
     const hostPath = await mkdtemp(join(tmpdir(), "agenc-host-workspace-"));
     try {
-      const dm = new DaemonManager({ configPath: "/tmp/config.json" });
-      const prompt = await (dm as any).buildSystemPrompt({
-        gateway: { port: 9000 },
-        agent: { name: "host-test" },
-        connection: { rpcUrl: "http://localhost:8899" },
-        workspace: { hostPath },
-      });
+      const noop = () => {};
+      const silentLog = { debug: noop, info: noop, warn: noop, error: noop, setLevel: noop } as any;
+      const prompt = await buildSystemPrompt(
+        {
+          gateway: { port: 9000 },
+          agent: { name: "host-test" },
+          connection: { rpcUrl: "http://localhost:8899" },
+          workspace: { hostPath },
+        } as any,
+        { yolo: false, configPath: "/tmp/config.json", logger: silentLog },
+      );
 
       expect(prompt).toContain("local engineering and automation tasks");
       expect(prompt).toContain("Start executing immediately");
@@ -1409,17 +1414,16 @@ describe("buildDesktopContext", () => {
       configurable: true,
     });
 
-    const manager = new DaemonManager({
-      configPath: "/tmp/agenc-test-config.json",
-    });
-
     try {
-      const context = (manager as any).buildDesktopContext({
-        desktop: {
-          enabled: true,
-          environment: "desktop",
-        },
-      });
+      const context = buildDesktopContext(
+        {
+          desktop: {
+            enabled: true,
+            environment: "desktop",
+          },
+        } as any,
+        false,
+      );
 
       expect(context).toContain(
         "host-side typed artifact readers (`system.pdf*`, `system.sqlite*`, `system.spreadsheet*`, `system.officeDocument*`, `system.emailMessage*`, `system.calendar*`)",
