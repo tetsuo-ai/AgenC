@@ -224,7 +224,6 @@ RUN chmod 644 /etc/supervisor/conf.d/supervisord.conf
 # =============================================================================
 # REST server
 # =============================================================================
-COPY sdk/ /opt/agenc/sdk/
 COPY containers/desktop/server/package.json containers/desktop/server/package-lock.json* /opt/agenc/containers/desktop/server/
 WORKDIR /opt/agenc/containers/desktop/server
 RUN npm install --production

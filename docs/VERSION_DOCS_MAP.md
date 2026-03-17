@@ -22,13 +22,14 @@ Changelog entry template:
 - `<symbolName>` in `<filePath>` — use `<replacement>` instead. Removal planned for v<version>. (#<issue>)
 ```
 
-## @tetsuo-ai/sdk v1.3.0
+## @tetsuo-ai/sdk v1.3.1
 
-- README: `sdk/README.md`
-- Changelog: `sdk/CHANGELOG.md`
-- Entry point: `sdk/src/index.ts`
-- API baseline: `docs/api-baseline/sdk.json`
-- Public exports: see `docs/api-baseline/sdk.json`
+- Canonical repo: `https://github.com/tetsuo-ai/agenc-sdk`
+- README: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/README.md`
+- Changelog: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/CHANGELOG.md`
+- Entry point: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/src/index.ts`
+- API baseline: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/docs/api-baseline/sdk.json`
+- Public exports: see `https://github.com/tetsuo-ai/agenc-sdk/blob/main/docs/api-baseline/sdk.json`
 
 ## @tetsuo-ai/runtime v0.1.0
 

@@ -2,7 +2,8 @@
  * AgenC private task demo using the RISC0 router payload/account model.
  *
  * Run:
- *   npm run start --workspace=@tetsuo-ai/private-task-demo
+ *   npm install --no-fund --no-package-lock --prefix examples/private-task-demo
+ *   npm run start --prefix examples/private-task-demo
  */
 
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -34,8 +35,8 @@ const DEFAULT_PAYLOAD_SIM_DELAY_MS = 1200;
 
 function usage(): void {
   console.log(`Usage:
-  npm run demo:private-task
-  npm run start --workspace=@tetsuo-ai/private-task-demo
+  npm install --no-fund --no-package-lock --prefix examples/private-task-demo
+  npm run start --prefix examples/private-task-demo
 
 Environment:
   HELIUS_API_KEY                 Optional mainnet RPC key; falls back to Solana devnet

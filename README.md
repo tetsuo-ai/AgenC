@@ -90,7 +90,7 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 | Package | Version | Description |
 |---------|---------|-------------|
 | [`programs/agenc-coordination`](programs/agenc-coordination/) | n/a | Solana smart contract (Rust/Anchor), 42 instructions, 57 events |
-| [`@tetsuo-ai/sdk`](sdk/) | 1.3.0 | TypeScript SDK for tasks, ZK proofs, and SPL tokens |
+| [`@tetsuo-ai/sdk`](https://github.com/tetsuo-ai/agenc-sdk) | 1.3.1 | Public TypeScript SDK for tasks, ZK proofs, and SPL tokens; canonical source now lives in the standalone `agenc-sdk` repo |
 | [`@tetsuo-ai/runtime`](runtime/) | 0.1.0 | Agent runtime for LLM, memory, workflows, marketplace logic, and operator tooling |
 | [`@tetsuo-ai/mcp`](mcp/) | 0.1.0 | MCP server for protocol tools consumed by AI assistants |
 | [`web`](web/) | n/a | Web UI for chat, dashboard, tasks, skills, desktop VMs, and voice |
@@ -111,13 +111,14 @@ AgenC is in the middle of a whole-repository refactor program. The current sourc
 | Area | Current Status |
 |------|----------------|
 | Refactor program | Whole-repo refactor is active. Runtime, SDK, protocol, zkVM, MCP, docs tooling, apps, scripts, tests, and desktop platform are all in scope. |
-| Core TypeScript build closure | The currently maintained core package build closure is `sdk/`, `runtime/`, `mcp/`, and `docs-mcp/`. |
+| Core TypeScript build closure | The currently maintained monorepo build closure is `runtime/`, `mcp/`, and `docs-mcp/`. The SDK is now consumed as the released `@tetsuo-ai/sdk` package from `tetsuo-ai/agenc-sdk`. |
+| Public SDK authority | `@tetsuo-ai/sdk` is now owned and released from [`tetsuo-ai/agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk). The local `sdk/` tree in this repo is a rollback mirror only and must not be treated as canonical release authority. |
 | Operational control plane | `runtime/` is the live control plane today: daemon lifecycle, gateway, LLM/tool execution, background runs, channels, desktop bridge, observability, and CLI entrypoints. |
 | Operator TUI | The operator console/watch subsystem is the current terminal UI. The supported launcher is `agenc`, which boots the daemon if needed and opens the watch console. The runtime-owned watch bin is `runtime/dist/bin/agenc-watch.js`; [`scripts/agenc-watch.mjs`](scripts/agenc-watch.mjs) is a local-dev wrapper only. |
 | Consumer surfaces | `web/`, `mobile/`, `demo-app/`, `examples/`, `tests/`, `containers/desktop/`, and `zkvm/` are all live surfaces with their own package/build/test expectations. |
 | Root package | The repo root is a workspace/control surface only. Use the maintained workspaces and package-level entrypoints rather than inventing root build ownership that no longer exists. |
 
-If you are touching the live AgenC runtime and operator experience, start in `runtime/`, `runtime/src/watch/`, `sdk/`, and the docs under `docs/`.
+If you are touching the live AgenC runtime and operator experience, start in `runtime/`, `runtime/src/watch/`, and the docs under `docs/`. SDK contract changes now land in [`tetsuo-ai/agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk).
 
 <p align="right"><a href="#agenc">back to top</a></p>
 
@@ -705,7 +706,7 @@ flowchart TB
     reliability["replay, eval, telemetry, observability"]
   end
 
-  sdk["sdk/"]
+  sdk["agenc-sdk repo / @tetsuo-ai/sdk"]
   program["programs/agenc-coordination/"]
   zkvm["zkvm/"]
 
@@ -746,7 +747,8 @@ flowchart TB
 | Surface | Paths | Purpose |
 |---------|-------|---------|
 | Protocol and proof core | `programs/agenc-coordination/`, `zkvm/` | On-chain coordination program plus private proof generation and verification flow |
-| Core TypeScript packages | `sdk/`, `runtime/`, `mcp/`, `docs-mcp/` | SDK, live runtime/control plane, MCP server, and docs server |
+| Core TypeScript packages | `runtime/`, `mcp/`, `docs-mcp/` | Live runtime/control plane, MCP server, and docs server owned by this monorepo |
+| External public package | `@tetsuo-ai/sdk` from `tetsuo-ai/agenc-sdk` | Public SDK consumed as a released package rather than a monorepo workspace |
 | Operator and app consumers | `scripts/agenc-watch.mjs`, `web/`, `mobile/`, `demo-app/`, `examples/` | Terminal operator console, browser/mobile surfaces, demos, and runnable examples |
 | Platform and operations | `containers/desktop/`, `tests/`, `scripts/`, `docs/`, `migrations/` | Desktop container platform, integration tests, automation scripts, docs, and migrations |
 
@@ -755,7 +757,7 @@ flowchart TB
 ```text
 AgenC/
 ├── programs/agenc-coordination/   # Solana program (Rust/Anchor)
-├── sdk/                           # TypeScript SDK
+├── sdk/                           # Transitional rollback mirror; canonical SDK repo is github.com/tetsuo-ai/agenc-sdk
 ├── runtime/                       # Live runtime, daemon, CLI, gateway, tools, channels
 ├── mcp/                           # MCP server
 ├── docs-mcp/                      # Documentation MCP server

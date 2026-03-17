@@ -9,11 +9,11 @@ import { execFileSync, spawn } from 'node:child_process';
 const repoRoot = process.cwd();
 const packages = [
   { name: '@tetsuo-ai/desktop-tool-contracts', dir: 'contracts/desktop-tool-contracts' },
-  { name: '@tetsuo-ai/sdk', dir: 'sdk' },
   { name: '@tetsuo-ai/runtime', dir: 'runtime' },
   { name: '@tetsuo-ai/mcp', dir: 'mcp' },
   { name: '@tetsuo-ai/docs-mcp', dir: 'docs-mcp' },
 ];
+const releasedPackages = ['@tetsuo-ai/sdk@1.3.1'];
 
 function run(command, args, cwd) {
   return execFileSync(command, args, {
@@ -105,7 +105,11 @@ async function main() {
 
     logStep(`creating clean install at ${tempRoot}`);
     run('npm', ['init', '-y'], tempRoot);
-    run('npm', ['install', '--no-fund', '--no-audit', ...tarballs], tempRoot);
+    run(
+      'npm',
+      ['install', '--no-fund', '--no-audit', ...releasedPackages, ...tarballs],
+      tempRoot,
+    );
 
     const smokeSource = [
       "require('@tetsuo-ai/desktop-tool-contracts');",

@@ -18,7 +18,7 @@ if [ ! -d "node_modules" ]; then
   npm install --no-fund
 fi
 
-if [ ! -d "sdk/dist" ] || [ ! -d "runtime/dist" ]; then
+if [ ! -d "runtime/dist" ]; then
   echo "Building packages first..."
   npm run build
 fi
@@ -43,7 +43,6 @@ for EXAMPLE_DIR in examples/*/; do
     const candidates = [
       './node_modules/esbuild',
       './runtime/node_modules/esbuild',
-      './sdk/node_modules/esbuild',
       './mcp/node_modules/esbuild',
     ];
     for (const candidate of candidates) {
