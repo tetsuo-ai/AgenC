@@ -4,7 +4,15 @@ import { constants as fsConstants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { __managedProcessTestHooks, executeTool } from "./tools.js";
+import {
+  __managedProcessTestHooks,
+  executeTool,
+  validateDesktopToolHandlers,
+} from "./tools.js";
+
+test("desktop tool contract stays aligned with executable handlers", () => {
+  assert.doesNotThrow(() => validateDesktopToolHandlers());
+});
 
 async function waitForFile(path: string, timeoutMs = 3_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;

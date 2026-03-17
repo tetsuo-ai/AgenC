@@ -1,11 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { DocEntry, IssueEntry, IssueMapData } from './types.js';
+import type { DocEntry } from './types.js';
 
 const ROOT_DOC_FILES = [
   'README.md',
   'AGENTS.md',
   'CODEX.md',
+  'REFACTOR.MD',
   'REFACTOR-MASTER-PROGRAM.md',
 ] as const;
 
@@ -73,6 +74,12 @@ function categorize(relPath: string): DocEntry['category'] {
     return 'artifact';
   }
   if (
+    normalized === 'REFACTOR.MD'
+    || normalized === 'REFACTOR-MASTER-PROGRAM.md'
+  ) {
+    return 'planning';
+  }
+  if (
     normalized.startsWith('runtime/docs/')
     || normalized.startsWith('docs/DEPLOY')
     || normalized.startsWith('docs/MAINNET')
@@ -92,14 +99,6 @@ function categorize(relPath: string): DocEntry['category'] {
     || normalized.startsWith('docs/security/')
   ) {
     return 'runbook';
-  }
-  if (
-    normalized === 'REFACTOR-MASTER-PROGRAM.md'
-    || normalized === 'docs/ROADMAP.md'
-    || normalized === 'docs/ISSUES_ROADMAP.md'
-    || normalized === 'docs/ISSUES_959_999.md'
-  ) {
-    return 'planning';
   }
   if (
     normalized === 'README.md'
@@ -181,16 +180,12 @@ function loadNamedFiles(dirPath: string, repoRoot: string, allowedNames: Readonl
 
 export interface LoadedDocs {
   docs: Map<string, DocEntry>;
-  issues: Map<number, IssueEntry>;
-  issueMapRaw: IssueMapData | null;
-  roadmapContent: string;
   repoRoot: string;
 }
 
 export function loadDocs(): LoadedDocs {
   const repoRoot = findRepoRoot();
   const docsDir = path.join(repoRoot, 'docs');
-  const archDir = path.join(docsDir, 'architecture');
 
   const docEntries: DocEntry[] = [
     ...loadTextFiles(docsDir, repoRoot, new Set(['.md', '.json'])),
@@ -218,31 +213,5 @@ export function loadDocs(): LoadedDocs {
     docs.set(entry.path, entry);
   }
 
-  // Load ROADMAP.md
-  let roadmapContent = '';
-  const roadmapPath = path.join(docsDir, 'ROADMAP.md');
-  if (fs.existsSync(roadmapPath)) {
-    roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
-    docs.set('docs/ROADMAP.md', {
-      path: 'docs/ROADMAP.md',
-      title: 'AgenC Roadmap: Personal AI Agent Platform',
-      content: roadmapContent,
-      category: 'planning',
-    });
-  }
-
-  // Load issue-map.json
-  const issues = new Map<number, IssueEntry>();
-  let issueMapRaw: IssueMapData | null = null;
-  const issueMapPath = path.join(archDir, 'issue-map.json');
-  if (fs.existsSync(issueMapPath)) {
-    const raw = JSON.parse(fs.readFileSync(issueMapPath, 'utf-8')) as IssueMapData;
-    issueMapRaw = raw;
-    for (const [numStr, entry] of Object.entries(raw.issues)) {
-      const issueNumber = parseInt(numStr, 10);
-      issues.set(issueNumber, { ...entry, issueNumber });
-    }
-  }
-
-  return { docs, issues, issueMapRaw, roadmapContent, repoRoot };
+  return { docs, repoRoot };
 }

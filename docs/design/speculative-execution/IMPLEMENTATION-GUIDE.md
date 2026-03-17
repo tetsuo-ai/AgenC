@@ -112,7 +112,7 @@ yarn test
 yarn test:integration
 
 # Specific package
-yarn workspace @agenc/runtime test
+yarn workspace @tetsuo-ai/runtime test
 ```
 
 ## Code Patterns

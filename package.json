@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "npm@11.7.0",
   "workspaces": [
+    "contracts/desktop-tool-contracts",
     "sdk",
     "runtime",
     "mcp",
@@ -12,9 +13,19 @@
     "mobile",
     "demo-app",
     "containers/desktop/server",
+    "examples/autonomous-agent",
+    "examples/dispute-arbiter",
+    "examples/event-dashboard",
+    "examples/llm-agent",
+    "examples/memory-agent",
+    "examples/private-task-demo",
+    "examples/risc0-proof-demo",
     "examples/simple-usage",
+    "examples/skill-jupiter",
     "examples/tetsuo-integration",
-    "examples/helius-webhook"
+    "examples/helius-webhook",
+    "tools/localnet-social",
+    "tools/zk-admin"
   ],
   "scripts": {
     "build": "npm run build --workspace=@tetsuo-ai/sdk && npm run build --workspace=@tetsuo-ai/runtime && npm run build --workspace=@tetsuo-ai/mcp && npm run build --workspace=@tetsuo-ai/docs-mcp",
@@ -26,7 +37,19 @@
     "test": "npm run test --workspace=@tetsuo-ai/sdk && npm run test --workspace=@tetsuo-ai/runtime",
     "test:fast": "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test-create-task.ts tests/test-claim-task.ts tests/test-lifecycle.ts tests/test-state-machine.ts tests/test-authority.ts tests/test-audit-gaps.ts tests/test-escrow.ts tests/test-disputes.ts tests/test-reputation-stake.ts tests/test-concurrency.ts tests/test-invariants.ts tests/test-reputation-gate.ts tests/agent-feed.ts",
     "typecheck": "npm run typecheck --workspace=@tetsuo-ai/sdk && npm run typecheck --workspace=@tetsuo-ai/runtime && npm run typecheck --workspace=@tetsuo-ai/mcp",
-    "benchmark:private:e2e": "npx tsx scripts/benchmark-private-e2e.mts"
+    "demo:private-task": "npm run start --workspace=@tetsuo-ai/private-task-demo --",
+    "example:autonomous-agent": "npm run start --workspace=@tetsuo-ai/example-autonomous-agent --",
+    "example:dispute-arbiter": "npm run start --workspace=@tetsuo-ai/example-dispute-arbiter --",
+    "example:event-dashboard": "npm run start --workspace=@tetsuo-ai/example-event-dashboard --",
+    "example:llm-agent": "npm run start --workspace=@tetsuo-ai/example-llm-agent --",
+    "example:memory-agent": "npm run start --workspace=@tetsuo-ai/example-memory-agent --",
+    "example:risc0-proof-demo": "npm run start --workspace=@tetsuo-ai/example-risc0-proof-demo --",
+    "example:skill-jupiter": "npm run start --workspace=@tetsuo-ai/example-skill-jupiter --",
+    "localnet:social:bootstrap": "npm run bootstrap --workspace=@tetsuo-ai/localnet-social-tools --",
+    "localnet:social:smoke": "npm run smoke --workspace=@tetsuo-ai/localnet-social-tools --",
+    "benchmark:private:e2e": "npm run benchmark:e2e --workspace=@tetsuo-ai/zk-admin-tools --",
+    "zk:config": "npm run zk:config --workspace=@tetsuo-ai/zk-admin-tools --",
+    "zk:devnet:preflight": "npm run devnet:preflight --workspace=@tetsuo-ai/zk-admin-tools --"
   },
   "overrides": {
     "bn.js": "^5.2.3",
@@ -34,7 +57,8 @@
   },
   "dependencies": {
     "markdown-it": "^14.1.1",
-    "tsx": "^4.7.0"
+    "tsx": "^4.7.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@coral-xyz/anchor": "^0.32.1",

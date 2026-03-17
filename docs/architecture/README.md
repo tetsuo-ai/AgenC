@@ -1,10 +1,11 @@
 # AgenC Architecture Documentation
 
-Architecture reference for the AgenC protocol — designed to provide implementation context for AI agents working on roadmap issues.
+Architecture reference for AgenC protocol and runtime surfaces. These docs are implementation reference, not the whole-repository planning authority.
 
 ## How to Use
 
-- **Implementing an issue?** Start with `issue-map.json` or the relevant phase guide in `phases/`
+- **Planning whole-repository refactor work?** Start with [REFACTOR.MD](../../REFACTOR.MD) and [REFACTOR-MASTER-PROGRAM.md](../../REFACTOR-MASTER-PROGRAM.md)
+- **Reading legacy runtime roadmap material?** Use the relevant phase guide in `phases/` as historical runtime-scoped reference only
 - **Understanding the system?** Read `overview.md` then `runtime-layers.md`
 - **Writing new code?** Check `guides/` for conventions and templates
 - **Debugging a flow?** See the sequence diagrams in `flows/`
@@ -64,12 +65,6 @@ Architecture reference for the AgenC protocol — designed to provide implementa
 | [phases/phase-09-channels-ui.md](phases/phase-09-channels-ui.md) | 4 issues (#1098-#1102) | P2 |
 | [phases/phase-10-marketplace.md](phases/phase-10-marketplace.md) | 5 issues (#1106-#1110) | P3 |
 
-### Machine-Readable Index
-
-| File | Description |
-|------|-------------|
-| [issue-map.json](issue-map.json) | All 58 issues with dependencies, code locations, and phase mappings |
-
 ## Docs MCP Server
 
 An MCP server at `docs-mcp/` serves this documentation to AI agents:
@@ -78,4 +73,6 @@ An MCP server at `docs-mcp/` serves this documentation to AI agents:
 claude mcp add agenc-docs -- node docs-mcp/dist/index.js
 ```
 
-Tools: `docs_search`, `docs_get_issue_context`, `docs_get_phase_graph`, `docs_get_module_template`, `docs_get_module_info`, `docs_get_conventions`
+Current tools: `docs_search`, `docs_get_module_template`, `docs_get_module_info`, `docs_get_conventions`
+
+`docs_search` plus the indexed docs/resources are the primary access path. The remaining helper tools are runtime-scoped and are not authoritative for whole-repository planning.

@@ -38,6 +38,8 @@ const KNOWN_DOC_SOURCE_PATHS = [
   "AGENTS.md",
   "README.md",
   "CODEX.md",
+  "REFACTOR.MD",
+  "REFACTOR-MASTER-PROGRAM.md",
   ".github/PULL_REQUEST_TEMPLATE.md",
 ] as const;
 const KNOWN_HELPER_SCRIPT_PATHS = [
@@ -638,11 +640,12 @@ function buildRepoAwareGuidelines(snapshot: RepositorySnapshot): string | null {
 
   const repoStateLines: string[] = [];
   if (
+    hasTopFile(snapshot, "REFACTOR.MD") ||
     hasTopFile(snapshot, "REFACTOR-MASTER-PROGRAM.md") ||
     /refactor/i.test(currentStatus ?? "")
   ) {
     repoStateLines.push(
-      "- AgenC is mid-refactor; treat `REFACTOR-MASTER-PROGRAM.md` as the current scope and migration-gate reference before broad changes.",
+      "- AgenC is mid-refactor; treat `REFACTOR-MASTER-PROGRAM.md` as canonical program authority and `REFACTOR.MD` as the live execution ledger before broad changes.",
     );
   }
   if (hasTopDirectory(snapshot, "runtime")) {
@@ -656,14 +659,6 @@ function buildRepoAwareGuidelines(snapshot: RepositorySnapshot): string | null {
   if (corePackages.length > 0) {
     repoStateLines.push(
       `- The maintained TypeScript build closure is ${formatPathList(corePackages.map((path) => `${path}/`))}; use those packages as the canonical contributor entrypoints.`,
-    );
-  }
-  if (
-    /legacy/i.test(currentStatus ?? "") ||
-    (snapshot.rootPackageName === "grid-router-ts" && hasTopDirectory(snapshot, "src"))
-  ) {
-    repoStateLines.push(
-      "- The root `package.json` and `src/` still expose a legacy surface. Do not treat root `npm run build` or `npm test` as authoritative for the active monorepo.",
     );
   }
   if (repoStateLines.length > 0) {

@@ -22,7 +22,7 @@ Changelog entry template:
 - `<symbolName>` in `<filePath>` — use `<replacement>` instead. Removal planned for v<version>. (#<issue>)
 ```
 
-## @agenc/sdk v1.3.0
+## @tetsuo-ai/sdk v1.3.0
 
 - README: `sdk/README.md`
 - Changelog: `sdk/CHANGELOG.md`
@@ -30,7 +30,7 @@ Changelog entry template:
 - API baseline: `docs/api-baseline/sdk.json`
 - Public exports: see `docs/api-baseline/sdk.json`
 
-## @agenc/runtime v0.1.0
+## @tetsuo-ai/runtime v0.1.0
 
 - README: `runtime/README.md`
 - Changelog: `runtime/CHANGELOG.md`
@@ -38,11 +38,10 @@ Changelog entry template:
 - API baseline: `docs/api-baseline/runtime.json`
 - Public exports: see `docs/api-baseline/runtime.json`
 
-## @agenc/mcp v0.1.0
+## @tetsuo-ai/mcp v0.1.0
 
 - README: `mcp/README.md`
 - Changelog: `mcp/CHANGELOG.md`
 - Entry point: `mcp/src/index.ts`
 - API baseline: `docs/api-baseline/mcp.json`
 - Public exports: (server binary); see `docs/api-baseline/mcp.json`
-

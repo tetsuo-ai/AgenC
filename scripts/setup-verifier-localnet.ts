@@ -26,7 +26,7 @@ import {
   deriveVerifierProgramDataPda,
   hasExpectedProgramDataAuthority,
   isExpectedVerifierEntryData,
-} from "./verifier-localnet";
+} from "../tools/zk-admin/verifier-localnet.js";
 
 type RouterAccounts = {
   verifierRouter: { fetch(address: PublicKey): Promise<unknown> };

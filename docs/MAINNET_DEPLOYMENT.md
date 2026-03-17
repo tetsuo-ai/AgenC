@@ -426,7 +426,7 @@ cargo run --manifest-path /path/to/agenc-prover/Cargo.toml \
 Show current protocol + `zk_config` state:
 
 ```bash
-npm run zk:config:show -- \
+npm run zk:config -- show \
   --rpc-url https://api.mainnet-beta.solana.com \
   --authority-keypair ~/.config/solana/mainnet-deploy.json
 ```
@@ -434,7 +434,7 @@ npm run zk:config:show -- \
 Initialize `zk_config` the first time:
 
 ```bash
-npm run zk:config:init -- \
+npm run zk:config -- init \
   --rpc-url https://api.mainnet-beta.solana.com \
   --authority-keypair ~/.config/solana/mainnet-deploy.json \
   --image-id "163, 162, 235, 60, 222, 160, 40, 184, 182, 95, 135, 53, 39, 239, 42, 88, 52, 171, 21, 130, 15, 219, 143, 17, 216, 26, 185, 77, 94, 34, 68, 20"
@@ -443,7 +443,7 @@ npm run zk:config:init -- \
 Rotate `zk_config.active_image_id` for later guest releases:
 
 ```bash
-npm run zk:config:rotate -- \
+npm run zk:config -- rotate \
   --rpc-url https://api.mainnet-beta.solana.com \
   --authority-keypair ~/.config/solana/mainnet-deploy.json \
   --image-id "<new 32-byte image ID>"

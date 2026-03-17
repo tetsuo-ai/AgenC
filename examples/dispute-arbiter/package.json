@@ -1,0 +1,18 @@
+{
+  "name": "@tetsuo-ai/example-dispute-arbiter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dispute arbiter example for AgenC",
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.98.4",
+    "@tetsuo-ai/runtime": "0.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}

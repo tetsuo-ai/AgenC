@@ -113,11 +113,11 @@ AgenC is in the middle of a whole-repository refactor program. The current sourc
 | Refactor program | Whole-repo refactor is active. Runtime, SDK, protocol, zkVM, MCP, docs tooling, apps, scripts, tests, and desktop platform are all in scope. |
 | Core TypeScript build closure | The currently maintained core package build closure is `sdk/`, `runtime/`, `mcp/`, and `docs-mcp/`. |
 | Operational control plane | `runtime/` is the live control plane today: daemon lifecycle, gateway, LLM/tool execution, background runs, channels, desktop bridge, observability, and CLI entrypoints. |
-| Operator TUI | The operator console/watch subsystem is the current terminal UI. The supported launcher is `agenc`, which boots the daemon if needed and opens the watch console. The direct entrypoint is [`scripts/agenc-watch.mjs`](scripts/agenc-watch.mjs). |
+| Operator TUI | The operator console/watch subsystem is the current terminal UI. The supported launcher is `agenc`, which boots the daemon if needed and opens the watch console. The runtime-owned watch bin is `runtime/dist/bin/agenc-watch.js`; [`scripts/agenc-watch.mjs`](scripts/agenc-watch.mjs) is a local-dev wrapper only. |
 | Consumer surfaces | `web/`, `mobile/`, `demo-app/`, `examples/`, `tests/`, `containers/desktop/`, and `zkvm/` are all live surfaces with their own package/build/test expectations. |
-| Root package | The root [`package.json`](package.json) and [`src/`](src/) still expose a legacy `grid-router-ts` surface. They are not the canonical AgenC repo entrypoints. Do not treat root `npm run build` / `npm test` as the authoritative build for the active monorepo surfaces. |
+| Root package | The repo root is a workspace/control surface only. Use the maintained workspaces and package-level entrypoints rather than inventing root build ownership that no longer exists. |
 
-If you are touching the live AgenC runtime and operator experience, start in `runtime/`, `sdk/`, `scripts/agenc-watch*.mjs`, and the docs under `docs/`.
+If you are touching the live AgenC runtime and operator experience, start in `runtime/`, `runtime/src/watch/`, `sdk/`, and the docs under `docs/`.
 
 <p align="right"><a href="#agenc">back to top</a></p>
 
@@ -196,8 +196,8 @@ anchor build
 
 Notes:
 
-- `npm --prefix runtime run build` produces the current CLI/TUI artifacts, including `runtime/dist/bin/agenc.js`, `runtime/dist/bin/agenc-runtime.js`, and `runtime/dist/operator-events.mjs`.
-- Root `npm install` / `npm run build` currently target the legacy root package surface, not the active AgenC package graph.
+- `npm --prefix runtime run build` produces the current CLI/TUI artifacts, including `runtime/dist/bin/agenc.js`, `runtime/dist/bin/agenc-runtime.js`, `runtime/dist/bin/agenc-watch.js`, and the exported `@tetsuo-ai/runtime/operator-events` contract.
+- Root `npm install` manages the workspace graph; use package-level build/test entrypoints for maintained AgenC surfaces.
 
 ### Run Core Verification
 
@@ -378,7 +378,7 @@ Trace output includes inbound messages, serialized session history, per-tool arg
 
 ## Operator Console (TUI)
 
-The terminal UI is the operator console/watch subsystem. In the current codebase the supported launcher is `agenc`, and the underlying watch entrypoint is [`scripts/agenc-watch.mjs`](scripts/agenc-watch.mjs).
+The terminal UI is the operator console/watch subsystem. In the current codebase the supported launcher is `agenc`, and the runtime-owned watch entrypoint is `runtime/dist/bin/agenc-watch.js`. [`scripts/agenc-watch.mjs`](scripts/agenc-watch.mjs) remains as a local-dev wrapper.
 
 ### Supported Launcher
 
@@ -405,14 +405,13 @@ Use this only when you want to debug the watch app directly instead of going thr
 
 ```bash
 AGENC_WATCH_WS_URL=ws://127.0.0.1:3100 \
-AGENC_WATCH_OPERATOR_EVENTS_MODULE=$PWD/runtime/dist/operator-events.mjs \
 AGENC_WATCH_PROJECT_ROOT=$PWD \
-node scripts/agenc-watch.mjs
+node runtime/dist/bin/agenc-watch.js
 ```
 
 Notes:
 
-- `AGENC_WATCH_OPERATOR_EVENTS_MODULE` must point at the built runtime operator-event contract, so run `npm --prefix runtime run build` first.
+- Run `npm --prefix runtime run build` first so the runtime watch bin and exported operator-event contract exist.
 - The watch console uses the daemon WebSocket on `ws://127.0.0.1:3100` by default.
 - Use `/help` inside the TUI to list slash commands such as `/sessions`, `/logs`, `/trace`, `/model`, and `/init`.
 
@@ -714,12 +713,10 @@ flowchart TB
     containers["containers/desktop/"]
     tests["tests/"]
     scripts["scripts/"]
+    tools["tools/"]
     docs["docs/"]
     migrations["migrations/"]
-    demos["demo/ and demos/"]
   end
-
-  legacy["root package.json + src/\nlegacy grid-router-ts surface"]
 
   agenc --> watch
   watch --> runtime
@@ -742,7 +739,6 @@ flowchart TB
   scripts --> sdk
   scripts --> program
   migrations --> program
-  legacy -. non-canonical .-> runtime
 ```
 
 ### Current Repo Surfaces
@@ -752,8 +748,7 @@ flowchart TB
 | Protocol and proof core | `programs/agenc-coordination/`, `zkvm/` | On-chain coordination program plus private proof generation and verification flow |
 | Core TypeScript packages | `sdk/`, `runtime/`, `mcp/`, `docs-mcp/` | SDK, live runtime/control plane, MCP server, and docs server |
 | Operator and app consumers | `scripts/agenc-watch.mjs`, `web/`, `mobile/`, `demo-app/`, `examples/` | Terminal operator console, browser/mobile surfaces, demos, and runnable examples |
-| Platform and operations | `containers/desktop/`, `tests/`, `scripts/`, `docs/`, `migrations/`, `demo/`, `demos/` | Desktop container platform, integration tests, automation scripts, docs, migrations, and demo collateral |
-| Legacy root surface | `package.json`, `src/` | Older `grid-router-ts` root package; present in the repo but not the canonical AgenC entrypoint |
+| Platform and operations | `containers/desktop/`, `tests/`, `scripts/`, `docs/`, `migrations/` | Desktop container platform, integration tests, automation scripts, docs, and migrations |
 
 ### Directory Structure
 
@@ -774,9 +769,7 @@ AgenC/
 ├── scripts/                       # Operator console and repo automation scripts
 ├── docs/                          # Architecture, runbooks, API, rollout docs
 ├── migrations/                    # Migration support
-├── demo/                          # Demo scripts
-├── demos/                         # Demo collateral
-└── package.json + src/            # Legacy root package surface, not canonical
+└── package.json                   # Workspace root and shared scripts
 ```
 
 <p align="right"><a href="#agenc">back to top</a></p>

@@ -32,7 +32,7 @@ import {
   filterNamedToolsByEnvironment,
   type ToolEnvironmentMode,
 } from "./tool-environment-policy.js";
-import { TOOL_DEFINITIONS as DESKTOP_TOOL_DEFINITIONS } from "../desktop/tool-definitions.js";
+import { TOOL_DEFINITIONS as DESKTOP_TOOL_DEFINITIONS } from "@tetsuo-ai/desktop-tool-contracts";
 import type { GatewayLLMConfig } from "./types.js";
 import { toErrorMessage } from "../utils/async.js";
 import type { Logger } from "../utils/logger.js";

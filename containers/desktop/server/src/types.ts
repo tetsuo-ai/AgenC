@@ -1,9 +1,3 @@
-export interface ToolDefinition {
-  readonly name: string;
-  readonly description: string;
-  readonly inputSchema: Record<string, unknown>;
-}
-
 export interface ToolResult {
   content: string;
   isError?: boolean;

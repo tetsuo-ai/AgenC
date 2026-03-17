@@ -1,11 +1,11 @@
 # Runtime API Quick Reference
 
-Practical usage patterns and entry points for `@agenc/runtime`. For comprehensive type signatures and field-level documentation, see [CLAUDE.md](../CLAUDE.md).
+Practical usage patterns and entry points for `@tetsuo-ai/runtime`. For comprehensive type signatures and field-level documentation, see [CLAUDE.md](../CLAUDE.md).
 
 ## Getting Started
 
 ```bash
-npm install @agenc/runtime
+npm install @tetsuo-ai/runtime
 cd runtime && npm run build
 ```
 
@@ -17,7 +17,7 @@ import {
   createProgram,
   createReadOnlyProgram,
   keypairToWallet,
-} from '@agenc/runtime';
+} from '@tetsuo-ai/runtime';
 
 // Read-only access (queries, event subscriptions — no wallet)
 const program = createReadOnlyProgram(connection);
@@ -70,7 +70,7 @@ await runtime.stop();               // set Inactive + cleanup
 ### LLM Provider Selection
 
 ```typescript
-import { GrokProvider, AnthropicProvider, OllamaProvider } from '@agenc/runtime';
+import { GrokProvider, AnthropicProvider, OllamaProvider } from '@tetsuo-ai/runtime';
 
 // Grok (requires: npm install openai)
 const grok = new GrokProvider({ apiKey: process.env.XAI_API_KEY!, model: 'grok-3', tools });
@@ -89,7 +89,7 @@ All providers implement `LLMProvider`: `chat()`, `chatStream()`, `healthCheck()`
 Both sites must be connected for tool calls to work:
 
 ```typescript
-import { ToolRegistry, createAgencTools, LLMTaskExecutor } from '@agenc/runtime';
+import { ToolRegistry, createAgencTools, LLMTaskExecutor } from '@tetsuo-ai/runtime';
 
 const registry = new ToolRegistry({ logger });
 registry.registerAll(createAgencTools({ connection, program, logger }));
@@ -107,7 +107,7 @@ const executor = new LLMTaskExecutor({
 ### Memory Integration
 
 ```typescript
-import { InMemoryBackend, entryToMessage } from '@agenc/runtime';
+import { InMemoryBackend, entryToMessage } from '@tetsuo-ai/runtime';
 
 const memory = new InMemoryBackend({ maxEntriesPerSession: 1000 });
 
@@ -126,7 +126,7 @@ const model = await memory.get<string>('config:model');
 ### Event Subscription
 
 ```typescript
-import { EventMonitor, createReadOnlyProgram } from '@agenc/runtime';
+import { EventMonitor, createReadOnlyProgram } from '@tetsuo-ai/runtime';
 
 // Read-only program works for events (uses Connection WebSocket internally)
 const program = createReadOnlyProgram(connection);
@@ -149,7 +149,7 @@ await monitor.stop();
 ### Proof Generation
 
 ```typescript
-import { ProofEngine } from '@agenc/runtime';
+import { ProofEngine } from '@tetsuo-ai/runtime';
 
 const engine = new ProofEngine({
   proverBackend: {
@@ -183,7 +183,7 @@ development.
 ### Dispute Operations
 
 ```typescript
-import { DisputeOperations } from '@agenc/runtime';
+import { DisputeOperations } from '@tetsuo-ai/runtime';
 
 const ops = new DisputeOperations({ program, agentId, logger });
 
@@ -239,7 +239,7 @@ await ops.applySlash({ disputePda, taskPda, workerClaimPda, workerAgentPda });
 All error classes extend `RuntimeError` which has a `code: string` field.
 
 ```typescript
-import { isRuntimeError, RuntimeErrorCodes } from '@agenc/runtime';
+import { isRuntimeError, RuntimeErrorCodes } from '@tetsuo-ai/runtime';
 
 try {
   await manager.register(params);
@@ -255,7 +255,7 @@ try {
 Use `isAnchorError()` and `parseAnchorError()` for on-chain errors:
 
 ```typescript
-import { isAnchorError, parseAnchorError, getAnchorErrorName } from '@agenc/runtime';
+import { isAnchorError, parseAnchorError, getAnchorErrorName } from '@tetsuo-ai/runtime';
 
 try {
   await program.methods.claimTask().rpc();
@@ -697,7 +697,7 @@ These scripts are release-gate inputs for delegation quality, reliability, and q
 ## Capability Constants
 
 ```typescript
-import { AgentCapabilities, hasCapability, getCapabilityNames } from '@agenc/runtime';
+import { AgentCapabilities, hasCapability, getCapabilityNames } from '@tetsuo-ai/runtime';
 
 AgentCapabilities.COMPUTE     // 1n << 0n
 AgentCapabilities.INFERENCE   // 1n << 1n

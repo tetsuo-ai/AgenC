@@ -123,7 +123,7 @@ const CONVENTIONS: Record<string, string> = {
 export function registerModuleTools(server: McpServer, docs: Map<string, DocEntry>): void {
   server.tool(
     'docs_get_module_template',
-    'Get a boilerplate template for creating a new runtime module with standard file structure, error codes, and barrel exports.',
+    'Get a boilerplate template for creating a new runtime module with standard file structure, error codes, and barrel exports. Runtime-scoped helper only; not whole-repository planning authority.',
     {
       module_name: z.string().describe('Module name in lowercase (e.g. "gateway", "social")'),
       module_type: z.enum(MODULE_TYPES).describe('Module category for layer placement'),
@@ -140,14 +140,21 @@ export function registerModuleTools(server: McpServer, docs: Map<string, DocEntr
         .replace(/\{ERROR_CODE\}/g, errorCode);
 
       return {
-        content: [{ type: 'text' as const, text: template }],
+        content: [{
+          type: 'text' as const,
+          text: [
+            'Runtime scope note: this helper describes runtime module scaffolding only. It is not authoritative for whole-repository planning or refactor sequencing.',
+            '',
+            template,
+          ].join('\n'),
+        }],
       };
     },
   );
 
   server.tool(
     'docs_get_module_info',
-    'Get architecture details about an existing runtime module: description, layer, primary class, error codes, test file.',
+    'Get architecture details about an existing runtime module: description, layer, primary class, error codes, test file. Runtime-scoped helper only; not whole-repository planning authority.',
     { module: z.string().describe('Module name (e.g. "agent", "task", "llm", "memory", "dispute")') },
     async ({ module: moduleName }) => {
       const info = MODULE_INFO[moduleName];
@@ -162,6 +169,8 @@ export function registerModuleTools(server: McpServer, docs: Map<string, DocEntr
       }
 
       const lines = [
+        'Runtime scope note: this helper summarizes runtime module patterns only. Use the indexed docs, `REFACTOR.MD`, and `REFACTOR-MASTER-PROGRAM.md` for whole-repository planning authority.',
+        '',
         `# Module: ${moduleName}/`,
         '',
         `**Description:** ${info.description}`,
@@ -195,7 +204,7 @@ export function registerModuleTools(server: McpServer, docs: Map<string, DocEntr
 
   server.tool(
     'docs_get_conventions',
-    'Get type, testing, or error handling conventions for implementing AgenC code.',
+    'Get runtime type, testing, or error handling conventions for implementing AgenC code. Runtime-scoped helper only; not whole-repository planning authority.',
     {
       topic: z.enum(['types', 'testing', 'errors']).optional()
         .describe('Specific topic. Omit to get all conventions.'),
@@ -204,14 +213,28 @@ export function registerModuleTools(server: McpServer, docs: Map<string, DocEntr
       if (topic) {
         const content = CONVENTIONS[topic];
         return {
-          content: [{ type: 'text' as const, text: content ?? `Unknown topic: ${topic}` }],
+          content: [{
+            type: 'text' as const,
+            text: [
+              'Runtime scope note: these conventions describe runtime-oriented implementation patterns and are not authoritative for whole-repository planning.',
+              '',
+              content ?? `Unknown topic: ${topic}`,
+            ].join('\n'),
+          }],
         };
       }
 
       // Return all conventions
       const all = Object.values(CONVENTIONS).join('\n\n---\n\n');
       return {
-        content: [{ type: 'text' as const, text: all }],
+        content: [{
+          type: 'text' as const,
+          text: [
+            'Runtime scope note: these conventions describe runtime-oriented implementation patterns and are not authoritative for whole-repository planning.',
+            '',
+            all,
+          ].join('\n'),
+        }],
       };
     },
   );

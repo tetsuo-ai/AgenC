@@ -64,7 +64,6 @@ export interface OperatorConsoleDeps {
     },
   ) => Promise<readonly DaemonIdentityMatch[]>;
   readonly resolveConsoleEntryPath: () => string | null;
-  readonly resolveOperatorEventsModulePath: () => string | null;
   readonly spawnProcess: (
     command: string,
     args: string[],
@@ -85,7 +84,6 @@ const DEFAULT_DEPS: OperatorConsoleDeps = {
   runStartCommand,
   findDaemonProcessesByIdentity,
   resolveConsoleEntryPath,
-  resolveOperatorEventsModulePath,
   spawnProcess: spawn,
   processExecPath: process.execPath,
   cwd: process.cwd(),
@@ -112,22 +110,8 @@ function deriveProjectWatchClientKey(launchCwd: string): string {
 function resolveConsoleEntryPath(): string | null {
   const candidates = [
     resolve(dirname(__filename), "..", "bin", "agenc-watch.js"),
-    resolve(dirname(__filename), "..", "..", "..", "scripts", "agenc-watch.mjs"),
-    resolve(process.cwd(), "scripts", "agenc-watch.mjs"),
-  ];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return null;
-}
-
-function resolveOperatorEventsModulePath(): string | null {
-  const candidates = [
-    resolve(dirname(__filename), "..", "operator-events.mjs"),
-    resolve(process.cwd(), "runtime", "dist", "operator-events.mjs"),
-    resolve(process.cwd(), "dist", "operator-events.mjs"),
+    resolve(process.cwd(), "runtime", "dist", "bin", "agenc-watch.js"),
+    resolve(process.cwd(), "node_modules", "@tetsuo-ai", "runtime", "dist", "bin", "agenc-watch.js"),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
@@ -246,13 +230,7 @@ async function launchConsoleProcess(
   const consoleEntryPath = deps.resolveConsoleEntryPath();
   if (!consoleEntryPath) {
     throw new Error(
-      "unable to locate the operator console entrypoint (expected scripts/agenc-watch.mjs)",
-    );
-  }
-  const operatorEventsModulePath = deps.resolveOperatorEventsModulePath();
-  if (!operatorEventsModulePath) {
-    throw new Error(
-      "unable to locate the built operator event contract (expected runtime/dist/operator-events.mjs); run `npm --prefix runtime run build`",
+      "unable to locate the operator console entrypoint (expected runtime dist/bin/agenc-watch.js)",
     );
   }
 
@@ -261,7 +239,6 @@ async function launchConsoleProcess(
     ...deps.env,
     ...options.env,
     AGENC_WATCH_WS_URL: `ws://127.0.0.1:${port}`,
-    AGENC_WATCH_OPERATOR_EVENTS_MODULE: operatorEventsModulePath,
     AGENC_WATCH_PROJECT_ROOT: launchCwd,
   };
   const explicitClientKey = mergedEnv.AGENC_WATCH_CLIENT_KEY?.trim();

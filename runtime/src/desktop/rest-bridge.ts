@@ -7,6 +7,7 @@
  */
 
 import { createHash } from "node:crypto";
+import type { DesktopToolDefinition } from "@tetsuo-ai/desktop-tool-contracts";
 import type { Tool, ToolResult } from "../tools/types.js";
 import { safeStringify } from "../tools/types.js";
 import type { Logger } from "../utils/logger.js";
@@ -31,12 +32,6 @@ const EVENT_STREAM_RETRY_MAX_MS = 5_000;
 // ============================================================================
 // Types for REST API responses
 // ============================================================================
-
-interface RESTToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-}
 
 interface DesktopHealthResponse {
   readonly status: "ok";
@@ -119,7 +114,7 @@ export class DesktopRESTBridge {
       );
     }
 
-    const definitions = await this.fetchJsonOrThrow<RESTToolDefinition[]>(
+    const definitions = await this.fetchJsonOrThrow<DesktopToolDefinition[]>(
       `${this.baseUrl}/tools`,
       "Failed to fetch tool definitions",
     );
@@ -173,7 +168,7 @@ export class DesktopRESTBridge {
     }
   }
 
-  private createBridgedTool(def: RESTToolDefinition): Tool {
+  private createBridgedTool(def: DesktopToolDefinition): Tool {
     const name = `desktop.${def.name}`;
     const baseUrl = this.baseUrl;
     const authToken = this.authToken;

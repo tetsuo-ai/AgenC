@@ -1,5 +1,12 @@
+import type {
+  DesktopToolDefinition,
+} from "@tetsuo-ai/desktop-tool-contracts";
+import {
+  TOOL_DEFINITIONS,
+} from "@tetsuo-ai/desktop-tool-contracts";
 import type { ToolResult } from "./types.js";
-export { TOOL_DEFINITIONS } from "./toolDefinitions.js";
+
+export { TOOL_DEFINITIONS } from "@tetsuo-ai/desktop-tool-contracts";
 
 // Re-export public APIs from sub-modules
 export {
@@ -68,6 +75,29 @@ const handlers: Record<string, ToolHandler> = {
   video_start: videoStart,
   video_stop: () => videoStop(),
 };
+
+export function validateDesktopToolHandlers(
+  definitions: readonly DesktopToolDefinition[] = TOOL_DEFINITIONS,
+): void {
+  const missingHandlers = definitions
+    .map((definition) => definition.name)
+    .filter((name) => !(name in handlers));
+  if (missingHandlers.length > 0) {
+    throw new Error(
+      `Desktop tool contract is missing handlers for: ${missingHandlers.join(", ")}`,
+    );
+  }
+
+  const definitionNames = new Set(definitions.map((definition) => definition.name));
+  const orphanHandlers = Object.keys(handlers).filter((name) => !definitionNames.has(name));
+  if (orphanHandlers.length > 0) {
+    throw new Error(
+      `Desktop tool handlers are missing contract definitions for: ${orphanHandlers.join(", ")}`,
+    );
+  }
+}
+
+validateDesktopToolHandlers();
 
 export async function executeTool(
   name: string,

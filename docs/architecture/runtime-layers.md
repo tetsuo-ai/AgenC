@@ -1,6 +1,6 @@
 # Runtime Module Dependency Diagram
 
-The `@agenc/runtime` package (~90k lines) is organized into 7 dependency layers. Modules may only depend on modules in the same or lower layers.
+The `@tetsuo-ai/runtime` package (~90k lines) is organized into 7 dependency layers. Modules may only depend on modules in the same or lower layers.
 
 ## Layer Diagram
 

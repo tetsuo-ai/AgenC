@@ -84,7 +84,7 @@ graph TD
 - `gateway/src/types.ts` — GatewayConfig, GatewayState
 - `gateway/src/control/server.ts` — WebSocket control plane
 - `gateway/src/control/protocol.ts` — Control message protocol
-- `gateway/package.json` — new package `@agenc/gateway`
+- `gateway/package.json` — new package `@tetsuo-ai/gateway`
 - `gateway/tsconfig.json`
 - `gateway/vitest.config.ts`
 - `gateway/src/gateway.test.ts`
@@ -93,7 +93,7 @@ graph TD
 - `package.json` (root) — add gateway to workspaces
 
 **Integration points:**
-- Wraps `AgentRuntime` from `@agenc/runtime`
+- Wraps `AgentRuntime` from `@tetsuo-ai/runtime`
 - Uses `ConnectionManager` for RPC health
 - Uses `MemoryBackend` for session storage
 - Exposes control socket at `~/.agenc/gateway.sock`

@@ -134,22 +134,58 @@ import { access as accessFs, constants as fsConstants } from "node:fs";
 const EVAL_SCRIPT_NAME = "agenc-eval-test.cjs";
 const EVAL_SCRIPT_TIMEOUT_MS = 10 * 60_000;
 
-export async function resolveEvalScriptPathCandidates(): Promise<string | undefined> {
-  const candidates = [
-    resolvePath(process.cwd(), EVAL_SCRIPT_NAME),
-    resolvePath(getDefaultWorkspacePath(), EVAL_SCRIPT_NAME),
-  ];
+interface ResolveEvalScriptPathOptions {
+  readonly cwd?: string;
+  readonly workspacePath?: string;
+  readonly canRead?: (candidate: string) => Promise<boolean>;
+}
+
+export function getEvalScriptPathCandidates(options: ResolveEvalScriptPathOptions = {}): string[] {
+  const cwd = options.cwd ?? process.cwd();
+  const workspacePath = options.workspacePath ?? getDefaultWorkspacePath();
+  return [
+    resolvePath(cwd, "tools", "eval", EVAL_SCRIPT_NAME),
+    resolvePath(workspacePath, "tools", "eval", EVAL_SCRIPT_NAME),
+  ].filter((candidate, index, all) => all.indexOf(candidate) === index);
+}
+
+async function canReadEvalScript(candidate: string): Promise<boolean> {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      accessFs(candidate, fsConstants.R_OK, (err) => (err ? reject(err) : resolve()));
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveEvalScriptPathCandidates(
+  options: ResolveEvalScriptPathOptions = {},
+): Promise<string | undefined> {
+  const candidates = getEvalScriptPathCandidates(options);
+  const canRead = options.canRead ?? canReadEvalScript;
   for (const candidate of candidates) {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        accessFs(candidate, fsConstants.R_OK, (err) => (err ? reject(err) : resolve()));
-      });
+    if (await canRead(candidate)) {
       return candidate;
-    } catch {
-      // continue
     }
   }
   return undefined;
+}
+
+function formatEvalScriptCandidateList(options: ResolveEvalScriptPathOptions = {}): string {
+  const candidates = getEvalScriptPathCandidates(options);
+  return candidates.map((candidate) => `- ${candidate}`).join("\n");
+}
+
+export async function resolveEvalScriptForReply(
+  options: ResolveEvalScriptPathOptions = {},
+): Promise<{ scriptPath: string | undefined; candidateList: string }> {
+  const scriptPath = await resolveEvalScriptPathCandidates(options);
+  return {
+    scriptPath,
+    candidateList: formatEvalScriptCandidateList(options),
+  };
 }
 
 export async function runEvalScript(
@@ -970,11 +1006,11 @@ export function createDaemonCommandRegistry(
       }
 
       const harnessArgs = cmdCtx.argv.slice(1);
-      const scriptPath = await resolveEvalScriptPathCandidates();
+      const { scriptPath, candidateList } = await resolveEvalScriptForReply();
       if (!scriptPath) {
         await cmdCtx.reply(
           `Could not find ${EVAL_SCRIPT_NAME}. ` +
-            `Expected it in ${process.cwd()} or ${getDefaultWorkspacePath()}.\n` +
+            `Checked these locations:\n${candidateList}\n` +
             "Use `/eval` for model testing or `/eval full` for in-session tool evaluation.",
         );
         return;

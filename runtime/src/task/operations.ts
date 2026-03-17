@@ -19,7 +19,8 @@ import {
   getAssociatedTokenAddressSync,
 } from "@tetsuo-ai/sdk";
 import { toAnchorBytes } from "../utils/encoding.js";
-import { BN, type Program } from "@coral-xyz/anchor";
+import type { Program } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import type { AgencCoordination } from "../types/agenc_coordination.js";
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
