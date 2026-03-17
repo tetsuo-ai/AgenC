@@ -67,3 +67,10 @@
 - **What worked:** Treating the private registry as a real supply-chain boundary forced the right fixes: volume ownership for the non-root Verdaccio container, deterministic service-account bootstrap, authenticated dry-run, and live publish/install rehearsal for the staged private packages.
 - **What didn't:** The first bootstrap attempt was aimed at npm prompt automation, but the actual root cause was server-side `EACCES` on the auth volume and the rehearsal initially measured the wrong failure because the fixture version was a prerelease and the workflow order ran dry-run after live publish.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1489: build(registry): wire private kernel to cloudsmith
+- **Date:** 2026-03-17
+- **Files changed:** canonical private-kernel distribution config, Cloudsmith hosted workflow/docs, private-kernel distribution probe logic, private registry rehearsal path, Verdaccio service hardening
+- **What worked:** Keeping Verdaccio as the always-on reference backend while wiring Cloudsmith as the protected hosted backend let the repo gain the permanent registry contract without reopening the local/CI supply-chain proof.
+- **What didn't:** GitHub cannot dispatch a brand-new `workflow_dispatch` workflow until the workflow file exists on the default branch, and the Verdaccio service still had a hidden host-permission bug because directly mounted config files could be unreadable to the non-root container user under a restrictive local `umask`.
+- **Rule added to CLAUDE.md:** no
