@@ -3,7 +3,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import {
-  PROGRAM_ID,
   deriveProtocolPda,
   deriveZkConfigPda,
   getProtocolConfig,
@@ -14,14 +13,19 @@ import {
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import process from "node:process";
-import { createProgram } from "@tetsuo-ai/runtime";
+import { pathToFileURL } from "node:url";
 import { type CliOptions, parseZkConfigArgs } from "./zk-config-admin-cli.js";
+import {
+  asSdkProgram,
+  createCoordinationProgram,
+  type CoordinationProgram,
+} from "./protocol-program.js";
 
-type CliContext = {
+export type CliContext = {
   options: CliOptions;
   authority: Keypair;
   connection: Connection;
-  program: ReturnType<typeof createProgram>;
+  program: CoordinationProgram;
   protocolPda: PublicKey;
   zkConfigPda: PublicKey;
 };
@@ -120,7 +124,7 @@ function writeJson(value: unknown): void {
   process.stdout.write(`${stringify(value)}\n`);
 }
 
-async function createCliContext(options: CliOptions): Promise<CliContext> {
+export async function createCliContext(options: CliOptions): Promise<CliContext> {
   const authority = await loadKeypair(options.authorityKeypairPath);
   const programId = new PublicKey(options.programId);
   const connection = new Connection(options.rpcUrl, "confirmed");
@@ -129,14 +133,7 @@ async function createCliContext(options: CliOptions): Promise<CliContext> {
     new anchor.Wallet(authority),
     { commitment: "confirmed" },
   );
-  const programIdl = {
-    ...(idlJson as anchor.Idl),
-    address: programId.toBase58(),
-  } as anchor.Idl;
-  const program = new anchor.Program<AgencCoordination>(
-    programIdl as AgencCoordination,
-    provider,
-  );
+  const program = createCoordinationProgram(provider, programId);
   return {
     options,
     authority,
@@ -149,13 +146,13 @@ async function createCliContext(options: CliOptions): Promise<CliContext> {
 
 async function loadCurrentState(context: CliContext) {
   const [protocolConfig, zkConfig] = await Promise.all([
-    getProtocolConfig(context.program),
-    getZkConfig(context.program),
+    getProtocolConfig(asSdkProgram(context.program)),
+    getZkConfig(asSdkProgram(context.program)),
   ]);
   return { protocolConfig, zkConfig };
 }
 
-async function runShow(context: CliContext): Promise<void> {
+export async function runShow(context: CliContext): Promise<void> {
   const { protocolConfig, zkConfig } = await loadCurrentState(context);
   writeJson({
     rpcUrl: context.options.rpcUrl,
@@ -169,7 +166,7 @@ async function runShow(context: CliContext): Promise<void> {
   });
 }
 
-async function runInit(context: CliContext): Promise<void> {
+export async function runInit(context: CliContext): Promise<void> {
   const { protocolConfig, zkConfig } = await loadCurrentState(context);
   assertProtocolAuthority(protocolConfig, context.authority);
   if (zkConfig) {
@@ -180,11 +177,11 @@ async function runInit(context: CliContext): Promise<void> {
 
   const result = await initializeZkConfig(
     context.connection,
-    context.program,
+    asSdkProgram(context.program),
     context.authority,
     context.options.imageId!,
   );
-  const updatedZkConfig = await getZkConfig(context.program);
+  const updatedZkConfig = await getZkConfig(asSdkProgram(context.program));
 
   writeJson({
     action: "init",
@@ -197,7 +194,7 @@ async function runInit(context: CliContext): Promise<void> {
   });
 }
 
-async function runRotate(context: CliContext): Promise<void> {
+export async function runRotate(context: CliContext): Promise<void> {
   const { protocolConfig, zkConfig } = await loadCurrentState(context);
   assertProtocolAuthority(protocolConfig, context.authority);
   if (!zkConfig) {
@@ -213,11 +210,11 @@ async function runRotate(context: CliContext): Promise<void> {
 
   const result = await updateZkImageId(
     context.connection,
-    context.program,
+    asSdkProgram(context.program),
     context.authority,
     imageId,
   );
-  const updatedZkConfig = await getZkConfig(context.program);
+  const updatedZkConfig = await getZkConfig(asSdkProgram(context.program));
 
   writeJson({
     action: "rotate",
@@ -230,8 +227,8 @@ async function runRotate(context: CliContext): Promise<void> {
   });
 }
 
-async function main(): Promise<void> {
-  const options = parseZkConfigArgs(process.argv.slice(2));
+export async function runCli(argv: string[]): Promise<void> {
+  const options = parseZkConfigArgs(argv);
   const context = await createCliContext(options);
 
   if (options.command === "show") {
@@ -252,8 +249,18 @@ async function main(): Promise<void> {
   throw new Error(`Unsupported command: ${options.command}`);
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
-});
+async function main(): Promise<void> {
+  await runCli(process.argv.slice(2));
+}
+
+const invokedAsScript =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedAsScript) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
+  });
+}

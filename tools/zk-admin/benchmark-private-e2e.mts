@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import * as anchor from "@coral-xyz/anchor";
-import { Program, type Idl } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import {
   AddressLookupTableProgram,
@@ -22,10 +21,14 @@ import path from "node:path";
 import {
   bigintToBytes32,
   computeConstraintHash,
+  createLogger,
   deriveAgentPda,
   deriveClaimPda,
   deriveEscrowPda,
-  PROGRAM_ID,
+  generateProof,
+  generateSalt,
+  getTask,
+  TaskState,
   deriveProtocolPda,
   deriveZkConfigPda,
   deriveTaskPda,
@@ -35,15 +38,6 @@ import {
   TRUSTED_RISC0_IMAGE_ID,
   updateZkImageId,
 } from "@tetsuo-ai/sdk";
-import {
-  IDL,
-  type AgencCoordination,
-  ProofEngine,
-  TaskOperations,
-  taskStatusToString,
-  createLogger,
-  keypairToWallet,
-} from "@tetsuo-ai/runtime";
 import {
   deriveRouterPda,
   deriveVerifierEntryPda,
@@ -66,6 +60,12 @@ import {
   buildBenchmarkArtifact,
   renderBenchmarkMarkdown,
 } from "./benchmark-private-e2e-artifact.js";
+import {
+  asSdkProgram,
+  createCoordinationProgram,
+  keypairToWallet,
+  type CoordinationProgram,
+} from "./protocol-program.js";
 
 const CAPABILITY_COMPUTE = 1;
 const TASK_TYPE_EXCLUSIVE = 0;
@@ -198,7 +198,7 @@ function imageIdsEqual(left: ArrayLike<number>, right: ArrayLike<number>): boole
   return true;
 }
 
-function getWalletPayer(wallet: anchor.Wallet): Keypair | undefined {
+function getWalletPayer(wallet: { payer?: Keypair }): Keypair | undefined {
   const payer = Reflect.get(wallet, "payer");
   return payer instanceof Keypair ? payer : undefined;
 }
@@ -221,29 +221,28 @@ function loadKeypairFromFile(filePath: string): Keypair {
   return Keypair.fromSecretKey(Uint8Array.from(secret));
 }
 
-function createCoordinationProgram(
-  provider: anchor.AnchorProvider,
-  programId: PublicKey = PROGRAM_ID,
-): Program<AgencCoordination> {
-  return new Program(
-    {
-      ...(IDL as Idl),
-      address: programId.toBase58(),
-    },
-    provider,
-  ) as Program<AgencCoordination>;
+function renderTaskStatus(state: TaskState): string {
+  const statusMap: Record<TaskState, string> = {
+    [TaskState.Open]: "Open",
+    [TaskState.InProgress]: "InProgress",
+    [TaskState.PendingValidation]: "PendingValidation",
+    [TaskState.Completed]: "Completed",
+    [TaskState.Cancelled]: "Cancelled",
+    [TaskState.Disputed]: "Disputed",
+  };
+  return statusMap[state] ?? `Unknown (${state})`;
 }
 
 async function ensureTrustedImageId(
   provider: anchor.AnchorProvider,
-  program: Program<AgencCoordination>,
+  program: CoordinationProgram,
 ): Promise<Uint8Array> {
   const expectedImageId = Uint8Array.from(TRUSTED_RISC0_IMAGE_ID);
-  const zkConfig = await getZkConfig(program);
+  const zkConfig = await getZkConfig(asSdkProgram(program));
   if (!zkConfig) {
     await initializeZkConfig(
       provider.connection,
-      program,
+      asSdkProgram(program),
       requireAuthorityKeypair(provider),
       expectedImageId,
     );
@@ -257,7 +256,7 @@ async function ensureTrustedImageId(
   if (!imageIdsEqual(zkConfig.activeImageId, expectedImageId)) {
     await updateZkImageId(
       provider.connection,
-      program,
+      asSdkProgram(program),
       requireAuthorityKeypair(provider),
       expectedImageId,
     );
@@ -315,12 +314,12 @@ async function assertVerifierStackReady(
 
   if (!routerProgramInfo?.executable) {
     throw new Error(
-      `Verifier router ${ROUTER_PROGRAM_ID.toBase58()} is not deployed. Run: bash scripts/setup-verifier-localnet.sh --mode real`,
+      `Verifier router ${ROUTER_PROGRAM_ID.toBase58()} is not deployed. Bootstrap a verifier-enabled validator before running this benchmark.`,
     );
   }
   if (!verifierProgramInfo?.executable) {
     throw new Error(
-      `Groth16 verifier ${VERIFIER_PROGRAM_ID.toBase58()} is not deployed. Run: bash scripts/setup-verifier-localnet.sh --mode real`,
+      `Groth16 verifier ${VERIFIER_PROGRAM_ID.toBase58()} is not deployed. Bootstrap a verifier-enabled validator before running this benchmark.`,
     );
   }
   if (!hasExpectedProgramDataAuthority(verifierProgramDataInfo, routerPda)) {
@@ -330,19 +329,19 @@ async function assertVerifierStackReady(
   }
   if (!routerPdaInfo) {
     throw new Error(
-      `Router PDA ${routerPda.toBase58()} is not initialized. Run: npx tsx scripts/setup-verifier-localnet.ts`,
+      `Router PDA ${routerPda.toBase58()} is not initialized. Initialize router state before running this benchmark.`,
     );
   }
   if (!verifierEntryInfo || !isExpectedVerifierEntryData(verifierEntryInfo.data)) {
     throw new Error(
-      `Verifier entry PDA ${verifierEntryPda.toBase58()} is not initialized with the expected Groth16 entry. Run: npx tsx scripts/setup-verifier-localnet.ts`,
+      `Verifier entry PDA ${verifierEntryPda.toBase58()} is not initialized with the expected Groth16 entry. Initialize verifier entry state before running this benchmark.`,
     );
   }
 }
 
 async function ensureProtocolInitialized(
   provider: anchor.AnchorProvider,
-  program: Program<AgencCoordination>,
+  program: CoordinationProgram,
 ): Promise<ProtocolBootstrapResult> {
   const protocolPda = deriveProtocolPda(program.programId);
   const startedAt = Date.now();
@@ -405,7 +404,7 @@ async function ensureProtocolInitialized(
 }
 
 async function registerBenchAgent(params: {
-  program: Program<AgencCoordination>;
+  program: CoordinationProgram;
   protocolPda: PublicKey;
   authority: Keypair;
   agentId: Buffer;
@@ -434,7 +433,7 @@ async function registerBenchAgent(params: {
 }
 
 async function createPrivateTask(params: {
-  program: Program<AgencCoordination>;
+  program: CoordinationProgram;
   protocolPda: PublicKey;
   creator: Keypair;
   creatorAgentPda: PublicKey;
@@ -456,7 +455,7 @@ async function createPrivateTask(params: {
     .createTask(
       Array.from(params.taskId),
       new BN(CAPABILITY_COMPUTE),
-      descriptionBytes,
+      Array.from(descriptionBytes),
       new BN(params.rewardLamports),
       1,
       deadline,
@@ -486,7 +485,7 @@ async function createPrivateTask(params: {
 }
 
 async function claimPrivateTask(params: {
-  program: Program<AgencCoordination>;
+  program: CoordinationProgram;
   protocolPda: PublicKey;
   worker: Keypair;
   workerAgentPda: PublicKey;
@@ -515,7 +514,7 @@ async function claimPrivateTask(params: {
 
 async function completePrivateTaskVersioned(params: {
   connection: anchor.web3.Connection;
-  program: Program<AgencCoordination>;
+  program: CoordinationProgram;
   protocolPda: PublicKey;
   worker: Keypair;
   workerAgentPda: PublicKey;
@@ -697,7 +696,7 @@ async function runRound(params: {
   round: number;
   options: CliOptions;
   provider: anchor.AnchorProvider;
-  program: Program<AgencCoordination>;
+  program: CoordinationProgram;
   protocolPda: PublicKey;
   stakeLamports: number;
   activeImageId: Uint8Array;
@@ -791,32 +790,27 @@ async function runRound(params: {
     }),
   );
 
-  const proofEngine = new ProofEngine({
-    methodId: activeImageId,
-    routerConfig: {
-      routerProgramId: ROUTER_PROGRAM_ID,
-      routerPda: deriveRouterPda(),
-      verifierEntryPda: deriveVerifierEntryPda(),
-      verifierProgramId: VERIFIER_PROGRAM_ID,
-    },
-    proverBackend: {
-      kind: "remote",
-      endpoint: options.proverEndpoint,
-      timeoutMs: options.proverTimeoutMs,
-      headers: options.proverHeaders,
-    },
-    logger,
-  });
-
   const proofInputs = {
     taskPda: createTaskResult.result.taskPda,
     agentPubkey: worker.publicKey,
     output: options.output,
-    salt: proofEngine.generateSalt(),
+    salt: generateSalt(),
     agentSecret: options.agentSecret,
   };
 
-  const generatedProof = await measure(() => proofEngine.generate(proofInputs));
+  const generatedProof = await measure(() =>
+    generateProof(proofInputs, {
+      kind: "remote",
+      endpoint: options.proverEndpoint,
+      timeoutMs: options.proverTimeoutMs,
+      headers: options.proverHeaders,
+    }),
+  );
+  if (!imageIdsEqual(generatedProof.result.imageId, activeImageId)) {
+    throw new Error(
+      "generated proof imageId does not match the active trusted image ID",
+    );
+  }
   logger.info(`[round ${round}] proof generated, submitting private completion`);
 
   const workerProvider = new anchor.AnchorProvider(
@@ -829,12 +823,10 @@ async function runRound(params: {
     program.programId,
   );
 
-  const taskOps = new TaskOperations({
-    program: workerProgram,
-    agentId: workerAgentId,
-    logger,
-  });
-  const task = await taskOps.fetchTask(createTaskResult.result.taskPda);
+  const task = await getTask(
+    asSdkProgram(workerProgram),
+    createTaskResult.result.taskPda,
+  );
   if (!task) {
     throw new Error(
       `task ${createTaskResult.result.taskPda.toBase58()} was not found after creation`,
@@ -859,7 +851,10 @@ async function runRound(params: {
     }),
   );
 
-  const completedTask = await taskOps.fetchTask(createTaskResult.result.taskPda);
+  const completedTask = await getTask(
+    asSdkProgram(workerProgram),
+    createTaskResult.result.taskPda,
+  );
   if (!completedTask) {
     throw new Error(
       `task ${createTaskResult.result.taskPda.toBase58()} was not found after completion`,
@@ -874,7 +869,7 @@ async function runRound(params: {
     workerAgent: registerWorker.result.agentPda.toBase58(),
     taskPda: createTaskResult.result.taskPda.toBase58(),
     claimPda: claimTaskResult.result.claimPda.toBase58(),
-    finalTaskStatus: taskStatusToString(completedTask.status),
+    finalTaskStatus: renderTaskStatus(completedTask.state),
     funding: {
       creator: fundCreator.result,
       worker: fundWorker.result,
@@ -902,7 +897,7 @@ async function runRound(params: {
       createTask: createTaskResult.durationMs,
       claimTask: claimTaskResult.durationMs,
       proofGeneration: generatedProof.durationMs,
-      proofGenerationReported: generatedProof.result.generationTimeMs,
+      proofGenerationReported: generatedProof.result.generationTime,
       submitCompletion: submitCompletion.durationMs,
       total: Date.now() - roundStartedAt,
     },

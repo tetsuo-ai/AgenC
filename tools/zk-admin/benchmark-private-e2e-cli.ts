@@ -63,9 +63,9 @@ const BENCHMARK_HELP_TEXT = [
   "  AGENC_PROVER_API_KEY           Adds x-api-key header automatically",
   '  AGENC_PROVER_HEADERS_JSON      JSON object of additional headers, e.g. {"authorization":"Bearer ..."}',
   "",
-  "Expected local verifier setup:",
-  "  bash scripts/setup-verifier-localnet.sh --mode real",
-  "  npx tsx scripts/setup-verifier-localnet.ts",
+  "Verifier prerequisites:",
+  "  - a verifier-enabled validator or cluster with the router and verifier programs deployed",
+  "  - initialized router PDA and verifier entry state for the trusted Groth16 selector",
 ].join("\n");
 
 function resolveDefaultProverHeaders(): Record<string, string> {

@@ -1488,6 +1488,16 @@ Current status:
     - reserved built-in channel-name protection
     - manifest/channel-key matching
     - pack/install/baseline proof for the public package
+  - the first `agenc-prover` bootstrap is now explicitly phased:
+    - move only the `admin bootstrap slice` first (`zk-config-admin*`, `devnet-preflight`, `protocol-program`, and the supporting package/test/typecheck files)
+    - keep the `shared proof-harness/localnet slice` (`verifier-localnet`, benchmark entrypoints/helpers, root verifier/bootstrap scripts/tests/fixtures) in the current repo until a released shared proof-harness contract or deliberate full ownership transfer exists
+    - keep `scripts/idl/**` protocol-owned throughout that phase
+    - Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the `shared proof-harness/localnet slice` stays with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
+  - that first private bootstrap is now live in [`tetsuo-ai/agenc-prover`](https://github.com/tetsuo-ai/agenc-prover) on `main`:
+    - `admin-tools/` owns the mirrored admin bootstrap slice
+    - the private repo enforces the narrowed slice with `scripts/check-admin-bootstrap-boundary.mjs`
+    - validation there now includes admin-tools typecheck/tests plus Rust `cargo test -p agenc-prover-server` and `cargo build --release -p agenc-prover-server --features production-prover`
+    - AgenC still retains the mirrored admin files until a later cutover/de-authority pass
 - Gate 12 remains blocked until the Gate 11 extraction topology is materially stable.
 
 The next work to execute under this plan is:
@@ -1501,7 +1511,12 @@ The next work to execute under this plan is:
    - keep the local test-only `AGENC_USE_LOCAL_PROTOCOL_TARGET=1` fallback explicit and scoped to unreleased protocol development
    - update active docs and verification records so they stop claiming runtime still owns vendored protocol artifact truth
 3. finish `agenc-plugin-kit` stabilization, certification coverage, and runtime-side de-authority after the first standalone release
-4. extract `agenc-prover` or `agenc-cloud` for private host-side proving and control-plane operations while keeping `agenc-core` private
+4. cut over the private prover admin bootstrap slice from AgenC to `agenc-prover` authority while keeping `agenc-core` private
+   - the first bootstrap is already live in `tetsuo-ai/agenc-prover`
+   - de-authorize the mirrored AgenC admin slice only after the private repo completes a stable release-quality cycle as the canonical owner
+   - keep the `shared proof-harness/localnet slice` (`verifier-localnet`, benchmark entrypoints/helpers, root verifier/bootstrap scripts/tests/fixtures) in the current repo until a released shared proof-harness contract or deliberate full ownership transfer exists
+   - keep `scripts/idl/**` protocol-owned during that phase
+   - Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the `shared proof-harness/localnet slice` stays with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
 5. execute Gate 12 cleanup only after the Gate 11 extraction topology is materially stable
 6. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
 
