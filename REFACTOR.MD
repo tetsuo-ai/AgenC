@@ -11,6 +11,7 @@ Last synced: `2026-03-16`.
 - Gates 0 through 9 have materially established monorepo modularity and produced the required gate artifacts.
 - Gate 10 passed its final exit review on `2026-03-16` for the current split-candidate scope.
 - Gate 11 is now `IN PROGRESS` with a recorded split decision: keep the engine private and publish contracts plus extension sockets.
+- Gate 11 now has two landed execution waves on `2026-03-16`: Wave 1 `agenc-sdk` extraction cutover and Wave 2 `agenc-protocol` trust-surface bootstrap.
 - Gate 12 remains blocked until the Gate 11 repo topology and extraction state are materially stable.
 - Standalone `docs/refactor/gate-*.md` planning documents have been retired; gate status and live evidence now belong here.
 - Audit note: parallel explorer subagents were attempted on `2026-03-16`, but all failed on model usage limits; this sync is therefore based on direct repository evidence.
@@ -48,6 +49,9 @@ Last synced: `2026-03-16`.
   - `mcp` uses `@tetsuo-ai/runtime` and released `@tetsuo-ai/sdk@1.3.1`
   - packaged examples use `@tetsuo-ai/sdk`
   - the root workspace no longer owns `sdk` or `examples/private-task-demo`; those local trees are rollback mirrors only
+- Standalone public repos now exist on `main`:
+  - `tetsuo-ai/agenc-sdk`
+  - `tetsuo-ai/agenc-protocol`
 
 ### 2.2 Gate 10 Exit Review Result
 
@@ -380,6 +384,19 @@ Decision log:
   - `mcp/tsup.config.ts`, `scripts/smoke-test-examples.sh`, `containers/desktop/Dockerfile`, `scripts/pack-smoke.mjs`, and `.github/workflows/package-pack-smoke.yml` no longer assume local SDK build ownership
   - the private monorepo validated against released `@tetsuo-ai/sdk@1.3.1` via `npm run build`, `npm run typecheck`, `npm run test`, `npm run test --workspace=@tetsuo-ai/mcp`, `npm run test --workspace=@tetsuo-ai/desktop-server`, and `npm run pack:smoke`
   - local `sdk/` and `examples/private-task-demo/` trees are retained only as de-authorized rollback mirrors and must remain unpublished
+- `[2026-03-16]` Wave 2 `agenc-protocol` bootstrap landed:
+  - standalone repo `tetsuo-ai/agenc-protocol` exists and bootstrap PR `#1` merged on `main`
+  - the public trust-surface bootstrap scope now lives there:
+    - `programs/agenc-coordination/**`
+    - `programs/agenc-coordination/fuzz/**`
+    - `migrations/**`
+    - `zkvm/guest/**`
+    - `zkvm/Cargo.toml`
+    - `zkvm/Cargo.lock`
+    - `scripts/idl/verifier_router.json`
+    - committed generated artifacts under `artifacts/anchor/`
+  - `anchor build`, `npm run artifacts:refresh`, `npm run artifacts:check`, and Rust format checks passed in the standalone repo
+  - AgenC has not yet cut runtime, SDK test, or root test consumers over to released protocol artifacts
 - `[2026-03-16]` Desktop tool-definition handoff was replaced with the shared `@tetsuo-ai/desktop-tool-contracts` workspace package; runtime and desktop-server now consume the same published contract and desktop-server validates handler/definition parity at startup.
 - `[2026-03-16]` Operator-console/watch packaging was moved to a runtime-owned `agenc-watch` bin backed by `runtime/src/watch/`, and operator-event consumers now resolve the `@tetsuo-ai/runtime/operator-events` package subpath instead of repo-relative built-file lookups.
 - `[2026-03-16]` `npm run typecheck --workspace=@tetsuo-ai/runtime`, `npm run test --workspace=@tetsuo-ai/runtime -- operator-console`, `npm run test --workspace=@tetsuo-ai/desktop-server`, and `npm run pack:smoke:skip-build` all passed with the shared desktop contract package included in the clean install matrix.
@@ -796,7 +813,55 @@ Wave 1 exit signal:
 - the curated public SDK example lives with the SDK repo
 - the SDK API baseline and package docs have moved with the SDK repo
 
-#### 11.10 Gate 11 Exit Signal
+#### 11.10 Wave 2 — `agenc-protocol` Bootstrap Checklist
+
+Wave 2 exists to establish a standalone public trust-surface owner before consumer cutover starts inside the private monorepo.
+
+Wave 2 bootstrap scope:
+- moved to the new `agenc-protocol` repo:
+  - `programs/agenc-coordination/**`
+  - `programs/agenc-coordination/fuzz/**`
+  - `migrations/**`
+  - `zkvm/guest/**`
+  - `zkvm/Cargo.toml`
+  - `zkvm/Cargo.lock`
+  - `scripts/idl/verifier_router.json`
+- committed generated artifacts owned by the new repo:
+  - `artifacts/anchor/idl/agenc_coordination.json`
+  - `artifacts/anchor/types/agenc_coordination.ts`
+  - `artifacts/anchor/manifest.json`
+
+Wave 2 completed:
+1. `tetsuo-ai/agenc-protocol` exists and PR `#1` merged on `main`.
+2. The standalone repo bootstraps the public trust surface without pulling in private runtime/core ownership.
+3. Repo-local artifact automation exists via `scripts/sync-anchor-artifacts.mjs`.
+4. The protocol repo validated with:
+   - `anchor build`
+   - `npm run artifacts:refresh`
+   - `npm run artifacts:check`
+   - `cargo fmt --manifest-path programs/agenc-coordination/Cargo.toml --all --check`
+   - `cargo fmt --manifest-path zkvm/guest/Cargo.toml --all --check`
+
+Not yet cut over inside AgenC:
+- `runtime/idl/**`
+- `runtime/src/types/agenc_coordination.ts`
+- `runtime/scripts/copy-idl.js`
+- root `tests/**` imports from `target/idl/**` or `target/types/**`
+- `sdk/src/__tests__/idl-alignment.test.ts`
+
+Next-slice blockers:
+- `runtime/scripts/copy-idl.js`
+- `runtime/src/idl.ts`
+- `runtime/src/events/idl-drift-check.ts`
+- `runtime/src/types/agenc_coordination.ts`
+- `sdk/src/__tests__/idl-alignment.test.ts`
+- root tests importing `target/types/agenc_coordination.ts`
+
+Wave 2 exit signal:
+- `agenc-protocol` owns the public trust-surface bootstrap, committed generated artifacts, and repo-local refresh/check automation
+- AgenC is ready to start consumer cutover against released protocol artifacts without ambiguity about source-of-truth ownership
+
+#### 11.11 Gate 11 Exit Signal
 
 Gate 11 is complete only when:
 1. The public/private repo topology is implemented, not merely described.

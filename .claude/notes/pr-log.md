@@ -11,3 +11,24 @@
 - **What worked:** The safest extraction path was mirror first, publish from the new repo, then make the monorepo consume the released `@tetsuo-ai/sdk@1.3.1` artifact instead of a local workspace build.
 - **What didn't:** The first local bootstrap left `/home/tetsuo/git/agenc-sdk` as a plain folder instead of a real git worktree, so the repo had to be initialized and pushed before the public links were trustworthy.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1483: refactor(repo): extract agenc-sdk and cut monorepo ownership
+- **Date:** 2026-03-16
+- **Files changed:** root workspace scripts, pack-smoke/CI, Docker build path, consumer package versions, authority docs, SDK mirror de-authorization
+- **What worked:** Validating against released `@tetsuo-ai/sdk@1.3.1` before removing workspace ownership kept the monorepo cutover honest.
+- **What didn't:** Authority drift included `README`, `AGENTS`, `CLAUDE`, version maps, and example guidance, so the monorepo cleanup touched more docs than the package move itself.
+- **Rule added to CLAUDE.md:** no
+
+## PR tetsuo-ai/agenc-protocol#1: feat(repo): bootstrap agenc-protocol trust surface
+- **Date:** 2026-03-16
+- **Files changed:** standalone protocol repo bootstrap, program source, fuzz suite, migrations, public zkVM guest, committed generated artifacts, artifact sync/check automation, CI
+- **What worked:** Mirror-first trust-surface bootstrap avoided runtime/test churn and established the public artifact owner before consumer cutover.
+- **What didn't:** Empty-repo bootstrap required initializing `main` before a normal PR flow worked.
+- **Rule added to CLAUDE.md:** no
+
+## PR #1484: docs(refactor): record agenc-protocol bootstrap wave
+- **Date:** 2026-03-16
+- **Files changed:** `REFACTOR.MD`, `REFACTOR-MASTER-PROGRAM.md`, tracked PR log updates
+- **What worked:** Recording the standalone protocol bootstrap immediately after the repo launch kept Gate 11 from drifting back into vague “extract protocol next” status language.
+- **What didn't:** `.claude/notes` is gitignored in this repo, so the tracked PR log still requires a forced add and the local gotcha/tech-debt notes remain session-local artifacts.
+- **Rule added to CLAUDE.md:** no
