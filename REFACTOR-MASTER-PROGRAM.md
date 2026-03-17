@@ -1468,6 +1468,9 @@ Current status:
 - Gates 0 through 9 have produced their gate artifacts and monorepo modularity proof.
 - Gate 10 passed its final exit review on `2026-03-16` for the current split-candidate scope.
 - Gate 11 is `IN PROGRESS` with a recorded split decision: public contracts and extension sockets, private core and proving/control-plane repos.
+- Gate 11 execution has started materially:
+  - `agenc-sdk` was extracted and the monorepo now consumes the released `@tetsuo-ai/sdk@1.3.1` artifact
+  - `agenc-protocol` now exists as a standalone public trust-surface repo with committed generated artifacts on `main`
 - Gate 12 remains blocked until the Gate 11 extraction topology is materially stable.
 
 The next work to execute under this plan is:
@@ -1476,7 +1479,10 @@ The next work to execute under this plan is:
    - the standalone `agenc-sdk` repo exists and `@tetsuo-ai/sdk@1.3.1` is published from it
    - the AgenC monorepo already consumes the released SDK artifact and no longer owns SDK workspace builds
    - keep the local `sdk/` and `examples/private-task-demo/` trees only as de-authorized rollback mirrors until the next extraction wave is stable, then delete them
-2. extract `agenc-protocol` with `programs/agenc-coordination`, `zkvm/guest`, and public generated artifacts
+2. execute the next `agenc-protocol` slice inside AgenC:
+   - cut AgenC runtime off vendored `runtime/idl/**` and `runtime/src/types/agenc_coordination.ts` authority
+   - move or rewrite SDK/root tests that still import `target/idl/**` or `target/types/**`
+   - replace `runtime/scripts/copy-idl.js` with released protocol artifact consumption
 3. define and extract `agenc-plugin-kit` as the narrow public extension ABI before exposing any broader runtime seam
 4. extract `agenc-prover` or `agenc-cloud` for private host-side proving and control-plane operations while keeping `agenc-core` private
 5. execute Gate 12 cleanup only after the Gate 11 extraction topology is materially stable
