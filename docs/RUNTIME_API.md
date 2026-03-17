@@ -1,12 +1,14 @@
-# Runtime API Quick Reference
+# Internal Runtime API Reference
 
-Practical usage patterns and entry points for `@tetsuo-ai/runtime`. For comprehensive type signatures and field-level documentation, see [CLAUDE.md](../CLAUDE.md).
+Internal reference material for the private-kernel package `@tetsuo-ai/runtime`. This document remains in the public repo for kernel contributors and auditability, but `@tetsuo-ai/runtime` is not a supported public builder target. External builders should use `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and `@tetsuo-ai/plugin-kit`.
+
+Canonical private-kernel distribution and support-window policy lives in [PRIVATE_KERNEL_DISTRIBUTION.md](./PRIVATE_KERNEL_DISTRIBUTION.md).
 
 ## Getting Started
 
 ```bash
-npm install @tetsuo-ai/runtime
-cd runtime && npm run build
+npm --prefix runtime install
+npm --prefix runtime run build
 ```
 
 ```typescript

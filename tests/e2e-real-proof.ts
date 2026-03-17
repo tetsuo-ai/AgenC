@@ -43,7 +43,7 @@ import {
   deriveVerifierProgramDataPda,
   hasExpectedProgramDataAuthority,
   isExpectedVerifierEntryData,
-} from "../tools/zk-admin/verifier-localnet.ts";
+} from "../tools/proof-harness/verifier-localnet.ts";
 
 interface ProofFixture {
   sealBytes: number[];

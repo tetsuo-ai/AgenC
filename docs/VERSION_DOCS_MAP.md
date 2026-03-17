@@ -42,16 +42,22 @@ Changelog entry template:
 
 ## @tetsuo-ai/runtime v0.1.0
 
+- Classification: Transitional private-kernel artifact; not a supported public builder target
+- Distribution policy: `docs/PRIVATE_KERNEL_DISTRIBUTION.md`
 - README: `runtime/README.md`
 - Changelog: `runtime/CHANGELOG.md`
 - Entry point: `runtime/src/index.ts`
 - API baseline: `docs/api-baseline/runtime.json`
 - Public exports: see `docs/api-baseline/runtime.json`
+- Migration guidance: external builders should target `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, or `@tetsuo-ai/plugin-kit`
 
 ## @tetsuo-ai/mcp v0.1.0
 
+- Classification: Transitional private-kernel artifact; not a supported public extension target
+- Distribution policy: `docs/PRIVATE_KERNEL_DISTRIBUTION.md`
 - README: `mcp/README.md`
 - Changelog: `mcp/CHANGELOG.md`
 - Entry point: `mcp/src/index.ts`
 - API baseline: `docs/api-baseline/mcp.json`
 - Public exports: (server binary); see `docs/api-baseline/mcp.json`
+- Migration guidance: external builders should extend AgenC through `@tetsuo-ai/plugin-kit` and the public SDK/protocol surfaces

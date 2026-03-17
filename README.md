@@ -45,8 +45,8 @@
 - [Architecture](#architecture)
 - [Program Instructions](#program-instructions-42)
 - [Zero-Knowledge Privacy](#zero-knowledge-privacy)
-- [Agent Runtime](#agent-runtime)
-- [MCP Server](#mcp-server)
+- [Private Kernel Runtime](#private-kernel-runtime)
+- [Private Kernel MCP](#private-kernel-mcp)
 - [Examples](#examples)
 - [Development](#development)
 - [Contributing](#contributing)
@@ -91,12 +91,14 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 |---------|---------|-------------|
 | [`programs/agenc-coordination`](programs/agenc-coordination/) | n/a | Solana smart contract (Rust/Anchor), 42 instructions, 57 events |
 | [`@tetsuo-ai/sdk`](https://github.com/tetsuo-ai/agenc-sdk) | 1.3.1 | Public TypeScript SDK for tasks, ZK proofs, and SPL tokens; canonical source now lives in the standalone `agenc-sdk` repo |
-| [`@tetsuo-ai/runtime`](runtime/) | 0.1.0 | Agent runtime for LLM, memory, workflows, marketplace logic, and operator tooling |
-| [`@tetsuo-ai/mcp`](mcp/) | 0.1.0 | MCP server for protocol tools consumed by AI assistants |
+| [`@tetsuo-ai/protocol`](https://github.com/tetsuo-ai/agenc-protocol) | 0.1.1 | Public protocol/trust-surface package and released contract artifacts |
+| [`@tetsuo-ai/plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit) | 0.1.1 | Public extension ABI for approved AgenC plugins and adapters |
+| [`@tetsuo-ai/runtime`](runtime/) | 0.1.0 | Private kernel package for operator/runtime development inside AgenC; not a supported public builder API |
+| [`@tetsuo-ai/mcp`](mcp/) | 0.1.0 | Private kernel MCP package; internal operator/developer surface, not a public extension target |
 | [`web`](web/) | n/a | Web UI for chat, dashboard, tasks, skills, desktop VMs, and voice |
 | [`containers/desktop`](containers/desktop/) | n/a | Docker desktop sandbox with Ubuntu/XFCE, VNC, and REST API |
 | [`zkvm`](zkvm/) | n/a | RISC Zero guest/host for private task completion proofs |
-| [`docs-mcp`](docs-mcp/) | n/a | Architecture doc lookups per roadmap issue |
+| [`docs-mcp`](docs-mcp/) | n/a | Private documentation/operator tooling package; internal reference surface only |
 | [`demo-app`](demo-app/) | n/a | React privacy workflow demo |
 | [`mobile`](mobile/) | n/a | Mobile app (Expo/React Native) |
 
@@ -115,6 +117,7 @@ AgenC is in the middle of a whole-repository refactor program. The current sourc
 | Public SDK authority | `@tetsuo-ai/sdk` is now owned and released from [`tetsuo-ai/agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk). The local `sdk/` tree in this repo is a rollback mirror only and must not be treated as canonical release authority. |
 | Public plugin authority | `@tetsuo-ai/plugin-kit` is now owned and released from [`tetsuo-ai/agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit). The local `plugin-kit/` tree in this repo is a rollback mirror only and must not shadow the published package. |
 | Operational control plane | `runtime/` is the live control plane today: daemon lifecycle, gateway, LLM/tool execution, background runs, channels, desktop bridge, observability, and CLI entrypoints. |
+| Private kernel package policy | `@tetsuo-ai/runtime`, `@tetsuo-ai/mcp`, `@tetsuo-ai/docs-mcp`, and `@tetsuo-ai/desktop-tool-contracts` are transitional runtime-side identities only. Long-term public builder surfaces are `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and `@tetsuo-ai/plugin-kit`. |
 | Operator TUI | The operator console/watch subsystem is the current terminal UI. The supported launcher is `agenc`, which boots the daemon if needed and opens the watch console. The runtime-owned watch bin is `runtime/dist/bin/agenc-watch.js`; [`scripts/agenc-watch.mjs`](scripts/agenc-watch.mjs) is a local-dev wrapper only. |
 | Consumer surfaces | `web/`, `mobile/`, `demo-app/`, `examples/`, `tests/`, `containers/desktop/`, and `zkvm/` are all live surfaces with their own package/build/test expectations. |
 | Root package | The repo root is a workspace/control surface only. Use the maintained workspaces and package-level entrypoints rather than inventing root build ownership that no longer exists. |
@@ -126,6 +129,18 @@ If you are touching the live AgenC runtime and operator experience, start in `ru
 ---
 
 ## Quick Start
+
+### Public Builder Entry Points
+
+If you are building against AgenC from outside the private kernel, start with:
+
+- [`@tetsuo-ai/sdk`](https://github.com/tetsuo-ai/agenc-sdk) for TypeScript integration
+- [`@tetsuo-ai/protocol`](https://github.com/tetsuo-ai/agenc-protocol) for released protocol and IDL artifacts
+- [`@tetsuo-ai/plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit) for approved plugin and adapter development
+
+The remainder of this section documents the current private-kernel baseline in this repository. Those runtime-side packages are for internal kernel/operator development and transitional compatibility, not the supported public builder API.
+
+Canonical private-kernel distribution and support-window policy now lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](./docs/PRIVATE_KERNEL_DISTRIBUTION.md).
 
 ### Prerequisites
 
@@ -152,13 +167,14 @@ Semantic memory activates automatically when Ollama is running. No config change
 
 ### Fastest Path to the TUI
 
+This is the internal operator workflow for the current private kernel baseline.
+
 ```bash
 git clone https://github.com/tetsuo-ai/AgenC.git
 cd AgenC
 
-npm --prefix sdk install
-npm --prefix runtime install
-npm --prefix runtime run build
+npm install
+npm run build
 
 # Create ~/.agenc/config.json using the example in "Running the Daemon" below
 node runtime/dist/bin/agenc.js --config ~/.agenc/config.json
@@ -170,27 +186,28 @@ That path is the current supported terminal workflow:
 - let `agenc` ensure the daemon is running
 - open the operator console/watch TUI automatically
 
-### Install Active Packages
+### Install Repo Workspaces
+
+These installs are for contributors working inside the private kernel repo. External builders should not start from `@tetsuo-ai/runtime`, `@tetsuo-ai/mcp`, or `@tetsuo-ai/docs-mcp`.
 
 ```bash
-npm --prefix sdk install
-npm --prefix runtime install
-npm --prefix mcp install
-npm --prefix docs-mcp install
+npm install
 
-# Install app/package dependencies only when you are working in those surfaces
-npm --prefix web install
-npm --prefix mobile install
-npm --prefix demo-app install
+# Use workspace-targeted commands when you are working on a specific private-kernel surface
+npm run build --workspace=@tetsuo-ai/runtime
+npm run build --workspace=@tetsuo-ai/mcp
+npm run build --workspace=@tetsuo-ai/docs-mcp
 ```
 
-### Build Core Packages
+### Build Private Kernel Workspaces
 
 ```bash
-npm --prefix sdk run build
-npm --prefix runtime run build
-npm --prefix mcp run build
-npm --prefix docs-mcp run build
+npm run build:private-kernel
+
+# Or target one workspace directly
+npm run build --workspace=@tetsuo-ai/runtime
+npm run build --workspace=@tetsuo-ai/mcp
+npm run build --workspace=@tetsuo-ai/docs-mcp
 
 # Optional protocol / zk surfaces
 anchor build
@@ -204,9 +221,8 @@ Notes:
 ### Run Core Verification
 
 ```bash
-npm --prefix sdk test
-npm --prefix runtime test
-npm --prefix runtime run typecheck
+npm run test
+npm run typecheck
 
 # Integration / matrix wrappers
 ./scripts/run-phase01-matrix.sh
@@ -914,9 +930,9 @@ await program.methods
 
 ---
 
-## Agent Runtime
+## Private Kernel Runtime
 
-The `@tetsuo-ai/runtime` package provides everything needed to build and run autonomous AI agents.
+`@tetsuo-ai/runtime` is part of the current AgenC private kernel baseline. It remains documented here for internal kernel/operator work and transitional compatibility, but it is not the supported long-term public builder target. External builders should target `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and `@tetsuo-ai/plugin-kit`.
 
 <details>
 <summary><strong>Current runtime module families</strong></summary>
@@ -966,22 +982,11 @@ All providers are lazy-loaded. Only the SDK you use gets imported.
 
 ---
 
-## MCP Server
+## Private Kernel MCP
 
-The `@tetsuo-ai/mcp` package exposes protocol operations as [Model Context Protocol](https://modelcontextprotocol.io/) tools.
+`@tetsuo-ai/mcp` is an internal runtime-side package used by the private kernel and operator tooling. It is not a supported public extension surface. External builders should extend AgenC through `@tetsuo-ai/plugin-kit` and the public SDK/protocol packages instead of depending on the MCP server package directly.
 
-```bash
-# Add to Claude Code
-claude mcp add agenc-dev -- node ./mcp/dist/index.js
-
-# With environment configuration
-claude mcp add agenc-dev \
-  -e SOLANA_RPC_URL=http://localhost:8899 \
-  -e SOLANA_KEYPAIR_PATH=~/.config/solana/id.json \
-  -- node ./mcp/dist/index.js
-```
-
-**Tool categories:** connection, agents, tasks, protocol, disputes, testing, inspector, replay, human-facing, errors.
+Internal contributors can find the repo-local MCP usage and build instructions in [mcp/README.md](mcp/README.md).
 
 <p align="right"><a href="#agenc">back to top</a></p>
 

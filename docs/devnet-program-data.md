@@ -74,7 +74,7 @@ These files exist only on the local machine and are not meant to be committed.
 
 - `zk_config` PDA: `iGP89zNzFpLYAyu12FR4nFj71PfRejVZ8k9NrVKqcvy`
 - `zk_config` bootstrap signature: `55D5y89RbUFXGzAw1r4RjbZSyi5E5Ft41gxL73vsBypwy2fEqHru8z3opwaGMch2XQ6LAPpSRZUedyu3seMJANNM`
-- Active image ID hex: query live state before use with `npm run zk:config --workspace=@tetsuo-ai/zk-admin-tools -- show --rpc-url <devnet-url>`
+- Active image ID hex: query live state before use from the private `agenc-prover` repo with `npm --prefix admin-tools run zk:config -- show --rpc-url <devnet-url>`
 
 ## Runtime-trusted IDs now wired in repo
 

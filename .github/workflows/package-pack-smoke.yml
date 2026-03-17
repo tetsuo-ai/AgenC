@@ -9,12 +9,19 @@ on:
       - '.github/workflows/package-pack-smoke.yml'
       - 'package.json'
       - 'package-lock.json'
+      - 'README.md'
+      - 'docs/RUNTIME_API.md'
       - 'scripts/pack-smoke.mjs'
       - 'scripts/check-plugin-kit-extraction-boundary.mjs'
+      - 'scripts/check-private-kernel-surface.mjs'
       - 'test-fixtures/plugin-kit-channel-adapter/**'
+      - 'contracts/desktop-tool-contracts/**'
       - 'runtime/**'
+      - 'runtime/README.md'
       - 'mcp/**'
+      - 'mcp/README.md'
       - 'docs-mcp/**'
+      - 'docs-mcp/README.md'
       - 'docs/PLUGIN_KIT.md'
       - 'docs/VERSION_DOCS_MAP.md'
   push:
@@ -24,12 +31,19 @@ on:
       - '.github/workflows/package-pack-smoke.yml'
       - 'package.json'
       - 'package-lock.json'
+      - 'README.md'
+      - 'docs/RUNTIME_API.md'
       - 'scripts/pack-smoke.mjs'
       - 'scripts/check-plugin-kit-extraction-boundary.mjs'
+      - 'scripts/check-private-kernel-surface.mjs'
       - 'test-fixtures/plugin-kit-channel-adapter/**'
+      - 'contracts/desktop-tool-contracts/**'
       - 'runtime/**'
+      - 'runtime/README.md'
       - 'mcp/**'
+      - 'mcp/README.md'
       - 'docs-mcp/**'
+      - 'docs-mcp/README.md'
       - 'docs/PLUGIN_KIT.md'
       - 'docs/VERSION_DOCS_MAP.md'
 
@@ -51,8 +65,14 @@ jobs:
       - name: Install workspace dependencies
         run: npm ci
 
+      - name: Build private-kernel packages
+        run: npm run build:private-kernel
+
       - name: Check plugin-kit extraction boundary
         run: npm run check:plugin-kit-boundary
 
+      - name: Check private-kernel surface
+        run: npm run check:private-kernel-surface
+
       - name: Run package pack smoke test
-        run: npm run pack:smoke
+        run: npm run pack:smoke:skip-build

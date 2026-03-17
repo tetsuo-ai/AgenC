@@ -1,6 +1,7 @@
 {
   "name": "@tetsuo-ai/docs-mcp",
   "version": "0.1.0",
+  "private": true,
   "description": "MCP server serving AgenC documentation, contract artifacts, and runtime-scoped helper context to AI agents",
   "main": "./dist/index.cjs",
   "types": "./dist/index.d.cts",
@@ -19,9 +20,6 @@
     "dist",
     "README.md"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",

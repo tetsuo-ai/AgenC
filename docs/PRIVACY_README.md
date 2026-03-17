@@ -61,7 +61,7 @@ Replay is blocked with dual spend records:
 ## Demo surfaces
 
 - `examples/private-task-demo/index.ts`
-- `tools/zk-admin/devnet-preflight.ts`
+- `agenc-prover/admin-tools/devnet-preflight.ts`
 - `demo-app/src/components/steps/Step4GenerateProof.tsx`
 - `demo-app/src/components/steps/Step5VerifyOnChain.tsx`
 - `examples/risc0-proof-demo/index.ts`

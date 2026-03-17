@@ -1,6 +1,7 @@
 {
   "name": "@tetsuo-ai/mcp",
   "version": "0.1.0",
+  "private": true,
   "description": "Model Context Protocol server for AgenC development — exposes protocol operations as MCP tools",
   "main": "./dist/index.cjs",
   "types": "./dist/index.d.cts",
@@ -19,9 +20,6 @@
     "dist",
     "README.md"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "tsup",
     "test": "node --import tsx --test src/**/*.test.ts",
