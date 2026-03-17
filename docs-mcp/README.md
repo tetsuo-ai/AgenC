@@ -1,6 +1,8 @@
 # @tetsuo-ai/docs-mcp
 
-MCP server serving AgenC documentation, contract artifacts, and runtime-scoped helper context to AI agents.
+Private kernel documentation MCP server for AgenC. This package is part of the internal `agenc-core` operator/documentation stack and is not a supported public builder target. External builders should use the public SDK, protocol, and plugin-kit surfaces instead of depending on `@tetsuo-ai/docs-mcp` directly.
+
+Canonical private-kernel distribution and support-window policy lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](../docs/PRIVATE_KERNEL_DISTRIBUTION.md).
 
 ## Overview
 
@@ -31,8 +33,9 @@ Important limits:
 ## Usage
 
 ```bash
-# Build
-cd docs-mcp && npm install && npm run build
+# Internal kernel development
+npm --prefix docs-mcp install
+npm --prefix docs-mcp run build
 
 # Add to Claude Code
 claude mcp add agenc-docs -- node /path/to/AgenC/docs-mcp/dist/index.cjs

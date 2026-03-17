@@ -1,16 +1,19 @@
 # @tetsuo-ai/mcp
 
-Model Context Protocol (MCP) server for AgenC protocol development. Exposes AgenC protocol operations as MCP tools, enabling AI coding assistants to interact directly with agents, tasks, disputes, and escrow state on Solana.
+Private kernel MCP server for AgenC. This package is part of the internal `agenc-core` operator stack and is not a supported public extension target. External builders should extend AgenC through `@tetsuo-ai/plugin-kit` and the public SDK/protocol packages instead of depending on `@tetsuo-ai/mcp` directly.
+
+Canonical private-kernel distribution and support-window policy lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](../docs/PRIVATE_KERNEL_DISTRIBUTION.md).
 
 ## Setup
 
-### Prerequisites
+Internal kernel contributors can work on this package locally with:
 
 ```bash
-cd mcp
-npm install
-npm run build
+npm --prefix mcp install
+npm --prefix mcp run build
 ```
+
+## Repo-local MCP Registration
 
 ## Changelog
 

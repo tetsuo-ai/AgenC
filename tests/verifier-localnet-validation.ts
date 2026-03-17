@@ -8,7 +8,7 @@ import {
   hasExpectedProgramDataAuthority,
   isExpectedVerifierEntryData,
   parseProgramDataAccount,
-} from "../tools/zk-admin/verifier-localnet.ts";
+} from "../tools/proof-harness/verifier-localnet.ts";
 
 function buildProgramDataAccount(authority: PublicKey | null): Buffer {
   const data = Buffer.alloc(authority ? 45 : 13);

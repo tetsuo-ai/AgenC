@@ -1,15 +1,13 @@
 {
-  "name": "@tetsuo-ai/zk-admin-tools",
+  "name": "@tetsuo-ai/proof-harness-tools",
   "version": "1.0.0",
   "private": true,
-  "description": "ZK verifier and protocol administration tooling for AgenC",
+  "description": "Shared verifier-localnet and private proof harness tooling for AgenC",
   "type": "module",
   "scripts": {
     "benchmark:e2e": "tsx benchmark-private-e2e.mts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test ./protocol-program.test.ts ./zk-config-admin-cli.test.ts ./zk-config-admin.command.test.ts ./benchmark-private-e2e.command.test.ts",
-    "zk:config": "tsx zk-config-admin.ts",
-    "devnet:preflight": "tsx devnet-preflight.ts"
+    "test": "node --import tsx --test ./coordination-program.test.ts ./benchmark-private-e2e.command.test.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
@@ -20,7 +18,7 @@
   },
   "devDependencies": {
     "@types/bn.js": "^5.2.0",
-    "typescript": "^5.0.0",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
   }
 }

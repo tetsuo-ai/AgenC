@@ -150,6 +150,11 @@ Explicitly out of scope:
 - private prover extraction is phased: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`, while the `shared proof-harness/localnet slice` remains with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
 - Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the `shared proof-harness/localnet slice` stays with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
 
+Implementation note:
+
+- As of `2026-03-17`, the repo manifests and public-entrypoint docs have been tightened to reflect this boundary: runtime-side packages are marked `private`, public docs route builders to SDK/protocol/plugin-kit, and CI now enforces that posture.
+- The canonical private distribution and support-window policy now lives in [PRIVATE_KERNEL_DISTRIBUTION.md](../../PRIVATE_KERNEL_DISTRIBUTION.md). The repo also carries a checked-in staging contract in `config/private-kernel-distribution.json` plus `scripts/private-kernel-distribution.mjs` so internal publication can be validated from tarball-derived staged artifacts instead of source manifests.
+
 ## Required Follow-On Work
 
 1. Finish `agenc-protocol` consumer cutover so the public trust surface is actually authoritative.

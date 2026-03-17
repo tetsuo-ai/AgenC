@@ -60,3 +60,10 @@
 - **What worked:** Bootstrapping only the approved admin slice into the existing private prover repo kept the Rust proving service intact while establishing a real private home for zk config admin and devnet preflight tooling.
 - **What didn't:** The first merge attempt failed because `agenc-prover/main` had moved and the README had picked up a newer operator runbook, so the branch had to be rebased and the bootstrap section merged cleanly into the newer doc.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1488: refactor(kernel): de-authorize prover admin and wire private registry
+- **Date:** 2026-03-17
+- **Files changed:** `tools/proof-harness/**`, private-kernel package manifests/docs, `scripts/private-registry-*.mjs`, `scripts/private-kernel-distribution*.mjs`, `containers/private-registry/**`, `.github/workflows/private-kernel-registry.yml`, proof-harness boundary workflow/docs
+- **What worked:** Treating the private registry as a real supply-chain boundary forced the right fixes: volume ownership for the non-root Verdaccio container, deterministic service-account bootstrap, authenticated dry-run, and live publish/install rehearsal for the staged private packages.
+- **What didn't:** The first bootstrap attempt was aimed at npm prompt automation, but the actual root cause was server-side `EACCES` on the auth volume and the rehearsal initially measured the wrong failure because the fixture version was a prerelease and the workflow order ran dry-run after live publish.
+- **Rule added to CLAUDE.md:** no

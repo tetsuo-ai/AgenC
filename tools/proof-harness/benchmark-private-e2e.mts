@@ -65,7 +65,7 @@ import {
   createCoordinationProgram,
   keypairToWallet,
   type CoordinationProgram,
-} from "./protocol-program.js";
+} from "./coordination-program.js";
 
 const CAPABILITY_COMPUTE = 1;
 const TASK_TYPE_EXCLUSIVE = 0;

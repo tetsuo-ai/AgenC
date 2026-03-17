@@ -6,7 +6,7 @@ import { PROGRAM_ID } from "@tetsuo-ai/sdk";
 import {
   createCoordinationProgram,
   keypairToWallet,
-} from "./protocol-program.js";
+} from "./coordination-program.js";
 
 test("createCoordinationProgram uses the expected program id", () => {
   const provider = new anchor.AnchorProvider(
