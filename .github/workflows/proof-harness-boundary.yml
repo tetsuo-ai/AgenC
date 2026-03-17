@@ -46,7 +46,7 @@ jobs:
           node-version: 20
 
       - name: Install workspace dependencies
-        run: npm ci
+        run: npm install --no-fund
 
       - name: Check proof-harness boundary
         run: npm run check:proof-harness-boundary

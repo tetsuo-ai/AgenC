@@ -83,7 +83,7 @@ jobs:
         run: test "$(npm --version)" = "11.7.0"
 
       - name: Install workspace dependencies
-        run: npm ci
+        run: npm install --no-fund
 
       - name: Build private-kernel packages
         run: npm run build:private-kernel

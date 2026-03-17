@@ -36,7 +36,7 @@ jobs:
           echo "::add-mask::$PRIVATE_KERNEL_REGISTRY_TOKEN"
 
       - name: Install workspace dependencies
-        run: npm ci
+        run: npm install --no-fund
 
       - name: Build private-kernel packages
         run: npm run build:private-kernel
