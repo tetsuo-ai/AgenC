@@ -1,4 +1,16 @@
-# @tetsuo-ai/plugin-kit
+# plugin-kit rollback mirror
+
+This copy is a temporary non-authoritative rollback mirror kept inside the
+AgenC monorepo during Gate 11 extraction. The canonical public owner is:
+
+- Repo: `https://github.com/tetsuo-ai/agenc-plugin-kit`
+- Package: `@tetsuo-ai/plugin-kit@0.1.1`
+
+The local directory intentionally does not use the canonical npm package name.
+That prevents the monorepo install graph from shadowing the published package
+during extraction and validation.
+
+Do not treat this directory as the publish or API-baseline source of truth.
 
 Public plugin authoring contract for AgenC hosted extensions.
 

@@ -9,12 +9,11 @@ import { execFileSync, spawn } from 'node:child_process';
 const repoRoot = process.cwd();
 const packages = [
   { name: '@tetsuo-ai/desktop-tool-contracts', dir: 'contracts/desktop-tool-contracts' },
-  { name: '@tetsuo-ai/plugin-kit', dir: 'plugin-kit' },
   { name: '@tetsuo-ai/runtime', dir: 'runtime' },
   { name: '@tetsuo-ai/mcp', dir: 'mcp' },
   { name: '@tetsuo-ai/docs-mcp', dir: 'docs-mcp' },
 ];
-const releasedPackages = ['@tetsuo-ai/sdk@1.3.1', '@tetsuo-ai/protocol@0.1.1'];
+const releasedPackages = ['@tetsuo-ai/sdk@1.3.1', '@tetsuo-ai/protocol@0.1.1', '@tetsuo-ai/plugin-kit@0.1.1'];
 
 function run(command, args, cwd) {
   return execFileSync(command, args, {
@@ -204,7 +203,7 @@ async function main() {
       'desktop tool contract ESM bundle',
     );
 
-    logStep('verifying plugin-kit packaged artifacts');
+    logStep('verifying installed plugin-kit artifacts from npm');
     await assertExists(
       path.join(
         tempRoot,
@@ -215,39 +214,6 @@ async function main() {
         'index.cjs',
       ),
       'plugin-kit CommonJS bundle',
-    );
-    await assertExists(
-      path.join(
-        tempRoot,
-        'node_modules',
-        '@tetsuo-ai',
-        'plugin-kit',
-        'dist',
-        'index.mjs',
-      ),
-      'plugin-kit ESM bundle',
-    );
-    await assertExists(
-      path.join(
-        tempRoot,
-        'node_modules',
-        '@tetsuo-ai',
-        'plugin-kit',
-        'dist',
-        'channel-host-matrix.cjs',
-      ),
-      'plugin-kit channel host matrix CommonJS bundle',
-    );
-    await assertExists(
-      path.join(
-        tempRoot,
-        'node_modules',
-        '@tetsuo-ai',
-        'plugin-kit',
-        'dist',
-        'channel-host-matrix.mjs',
-      ),
-      'plugin-kit channel host matrix ESM bundle',
     );
     await assertExists(
       path.join(

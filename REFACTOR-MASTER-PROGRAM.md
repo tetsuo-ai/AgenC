@@ -1480,7 +1480,7 @@ Current status:
   - `agenc-sdk` was extracted and the monorepo now consumes the released `@tetsuo-ai/sdk@1.3.1` artifact
   - `agenc-protocol` now exists as a standalone public trust-surface repo with committed generated artifacts on `main`
   - AgenC completed the first protocol consumer cutover slice against released `@tetsuo-ai/protocol@0.1.1`; vendored runtime protocol artifact authority is gone and local `target/**` protocol assets are now explicit test-only validation inputs
-  - `agenc-plugin-kit` now exists in the monorepo as the narrow public extension ABI package `@tetsuo-ai/plugin-kit`
+  - `agenc-plugin-kit` now exists as a standalone public repo/package; AgenC consumes the released `@tetsuo-ai/plugin-kit@0.1.1` artifact and keeps only a de-authorized local rollback mirror
   - the first supported public extension class is `channel_adapter`
   - AgenC runtime now hosts plugin-backed external channels through a private adapter seam with:
     - package allowlisting via `plugins.trustedPackages`
@@ -1500,11 +1500,10 @@ The next work to execute under this plan is:
    - this cutover landed on `2026-03-16`: runtime now consumes released `@tetsuo-ai/protocol` artifacts, `runtime/idl/**` authority is gone, `runtime/scripts/copy-idl.js` is removed, and root tests use the published package or the explicit `tests/protocol-artifacts.ts` local fallback
    - keep the local test-only `AGENC_USE_LOCAL_PROTOCOL_TARGET=1` fallback explicit and scoped to unreleased protocol development
    - update active docs and verification records so they stop claiming runtime still owns vendored protocol artifact truth
-3. finish `agenc-plugin-kit` Phase 2 stabilization and certification coverage before exposing any broader runtime seam
-4. extract `agenc-plugin-kit` into its standalone public repo after the current host-ABI slice is stable
-5. extract `agenc-prover` or `agenc-cloud` for private host-side proving and control-plane operations while keeping `agenc-core` private
-6. execute Gate 12 cleanup only after the Gate 11 extraction topology is materially stable
-7. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
+3. finish `agenc-plugin-kit` stabilization, certification coverage, and runtime-side de-authority after the first standalone release
+4. extract `agenc-prover` or `agenc-cloud` for private host-side proving and control-plane operations while keeping `agenc-core` private
+5. execute Gate 12 cleanup only after the Gate 11 extraction topology is materially stable
+6. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
 
 No one should start Gate 11 extraction work without preserving the Gate 10 portability guarantees already proven here.
 
