@@ -29,10 +29,7 @@ function createDeps(
     findDaemonProcessesByIdentity: vi.fn().mockResolvedValue([]),
     resolveConsoleEntryPath: vi
       .fn()
-      .mockReturnValue("/repo/scripts/agenc-watch.mjs"),
-    resolveOperatorEventsModulePath: vi
-      .fn()
-      .mockReturnValue("/repo/runtime/dist/operator-events.mjs"),
+      .mockReturnValue("/repo/runtime/dist/bin/agenc-watch.js"),
     spawnProcess: vi.fn(),
     processExecPath: process.execPath,
     cwd: "/repo",
@@ -83,14 +80,12 @@ describe("operator console launcher", () => {
     // daemon starts in the background — the TUI handles reconnection.
     expect(spawnProcess).toHaveBeenCalledWith(
       process.execPath,
-      ["/repo/scripts/agenc-watch.mjs"],
+      ["/repo/runtime/dist/bin/agenc-watch.js"],
       expect.objectContaining({
         stdio: "inherit",
         cwd: "/repo",
         env: expect.objectContaining({
           AGENC_WATCH_WS_URL: "ws://127.0.0.1:3100",
-          AGENC_WATCH_OPERATOR_EVENTS_MODULE:
-            "/repo/runtime/dist/operator-events.mjs",
           AGENC_WATCH_PROJECT_ROOT: "/repo",
           AGENC_WATCH_CLIENT_KEY: expect.stringMatching(
             /^agenc-repo-[a-f0-9]{12}$/,
@@ -125,12 +120,10 @@ describe("operator console launcher", () => {
     expect(runStartCommand).not.toHaveBeenCalled();
     expect(spawnProcess).toHaveBeenCalledWith(
       process.execPath,
-      ["/repo/scripts/agenc-watch.mjs"],
+      ["/repo/runtime/dist/bin/agenc-watch.js"],
       expect.objectContaining({
         env: expect.objectContaining({
           AGENC_WATCH_WS_URL: "ws://127.0.0.1:4100",
-          AGENC_WATCH_OPERATOR_EVENTS_MODULE:
-            "/repo/runtime/dist/operator-events.mjs",
           AGENC_WATCH_PROJECT_ROOT: "/repo",
           AGENC_WATCH_CLIENT_KEY: expect.stringMatching(
             /^agenc-repo-[a-f0-9]{12}$/,
@@ -165,7 +158,7 @@ describe("operator console launcher", () => {
     expect(code).toBe(0);
     expect(spawnProcess).toHaveBeenCalledWith(
       process.execPath,
-      ["/repo/scripts/agenc-watch.mjs"],
+      ["/repo/runtime/dist/bin/agenc-watch.js"],
       expect.objectContaining({
         env: expect.objectContaining({
           AGENC_WATCH_CLIENT_KEY: "manual-watch-key",
@@ -219,7 +212,7 @@ describe("operator console launcher", () => {
     });
     expect(spawnProcess).toHaveBeenCalledWith(
       process.execPath,
-      ["/repo/scripts/agenc-watch.mjs"],
+      ["/repo/runtime/dist/bin/agenc-watch.js"],
       expect.objectContaining({
         env: expect.objectContaining({
           AGENC_WATCH_WS_URL: "ws://127.0.0.1:3100",
@@ -254,7 +247,7 @@ describe("operator console launcher", () => {
     expect(code).toBe(0);
     expect(spawnProcess).toHaveBeenCalledWith(
       process.execPath,
-      ["/repo/scripts/agenc-watch.mjs"],
+      ["/repo/runtime/dist/bin/agenc-watch.js"],
       expect.objectContaining({
         env: expect.objectContaining({
           AGENC_WATCH_WS_URL: "ws://127.0.0.1:3100",
@@ -312,23 +305,6 @@ describe("operator console launcher", () => {
 
     await expect(runOperatorConsole({}, deps)).rejects.toThrow(
       "unable to locate the operator console entrypoint",
-    );
-  });
-
-  it("fails when the built operator event contract cannot be located", async () => {
-    const readPidFile = vi.fn().mockResolvedValue({
-      pid: 7654,
-      port: 3100,
-      configPath: "/tmp/agenc.json",
-    });
-    const deps = createDeps({
-      readPidFile,
-      isProcessAlive: vi.fn().mockReturnValue(true),
-      resolveOperatorEventsModulePath: vi.fn().mockReturnValue(null),
-    });
-
-    await expect(runOperatorConsole({}, deps)).rejects.toThrow(
-      "unable to locate the built operator event contract",
     );
   });
 });

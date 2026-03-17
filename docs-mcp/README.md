@@ -1,15 +1,14 @@
 # @tetsuo-ai/docs-mcp
 
-MCP server serving AgenC documentation, architecture references, and contract artifacts to AI agents.
+MCP server serving AgenC documentation, contract artifacts, and runtime-scoped helper context to AI agents.
 
 ## Overview
 
-This server indexes repo documentation and selected machine-readable contract artifacts as MCP tools, resources, and prompts. It enables AI agents to:
+This server indexes repo documentation and selected machine-readable contract artifacts as MCP tools and resources. It enables AI agents to:
 
 - Search repo docs, planning docs, runtime docs, and contract artifacts
-- Get implementation context for specific roadmap issues
-- View phase dependency graphs and implementation orders
-- Get runtime module templates and coding conventions
+- Read per-file indexed resources from the current repository docs
+- Get runtime module templates and coding conventions when runtime-specific guidance is needed
 
 Indexed corpus:
 
@@ -20,13 +19,14 @@ Indexed corpus:
 - `runtime/benchmarks/**/*.json`
 - `scripts/idl/**/*.json`
 - package-local docs and changelogs under top-level packages, apps, platforms, programs, migrations, and `examples/**` when present
-- root docs: `README.md`, `AGENTS.md`, `CODEX.md`, and `REFACTOR-MASTER-PROGRAM.md` when present
+- root docs: `README.md`, `AGENTS.md`, `CODEX.md`, `REFACTOR.MD`, and `REFACTOR-MASTER-PROGRAM.md` when present
 
 Important limits:
 
 - This server indexes documentation and contract artifacts, not source code.
-- `docs_get_issue_context` and `docs_get_phase_graph` still derive from `docs/architecture/issue-map.json` and `docs/ROADMAP.md`, and currently expose only the legacy runtime-roadmap issue/phase model.
-- `docs_get_module_template` and `docs_get_module_info` are runtime-module helpers, not whole-repository architecture tools.
+- Legacy runtime-roadmap issue/phase prompts, tools, and special aggregate resources are intentionally not registered.
+- Retired roadmap and issue-map docs are not part of the indexed planning surface.
+- `docs_get_module_template`, `docs_get_module_info`, and `docs_get_conventions` are runtime-scoped helpers, not whole-repository architecture tools.
 
 ## Usage
 
@@ -46,18 +46,9 @@ claude mcp add agenc-docs -e DOCS_ROOT=/path/to/AgenC -- node /path/to/AgenC/doc
 | Tool | Description |
 |------|-------------|
 | `docs_search` | Full-text search across repo docs, planning docs, runtime docs, and contract artifacts |
-| `docs_get_issue_context` | Implementation context for a specific legacy runtime-roadmap issue (#1051-#1110) |
-| `docs_get_phase_graph` | Dependency graph + implementation order for a legacy runtime-roadmap phase (1-10) |
-| `docs_get_module_template` | Boilerplate template for creating a new runtime module |
-| `docs_get_module_info` | Architecture details about an existing runtime module |
-| `docs_get_conventions` | Type, testing, and error handling conventions |
-
-## Prompts
-
-| Prompt | Description |
-|--------|-------------|
-| `implement-issue` | 10-step guided implementation workflow for a specific issue |
-| `explore-phase` | Phase exploration before starting implementation |
+| `docs_get_module_template` | Runtime-module boilerplate helper; not whole-repository planning authority |
+| `docs_get_module_info` | Runtime-module architecture helper; not whole-repository planning authority |
+| `docs_get_conventions` | Runtime implementation conventions helper; not whole-repository planning authority |
 
 ## Resources
 
@@ -69,10 +60,10 @@ Indexed docs and contract artifacts are exposed as MCP resources. Resource prefi
 - `agenc-docs://repo/...` for indexed repo-root docs and other indexed non-`docs/` surfaces
 
 Special aggregate resources:
-- `agenc-docs://issue-map` — full issue-map.json
-- `agenc-docs://roadmap` — full ROADMAP.md
 - `agenc-docs://conventions` — all guide docs concatenated
 - `agenc-docs://scope` — indexed scope manifest and current limits
+
+Whole-repository planning authority comes from the indexed docs themselves, especially `REFACTOR.MD` and `REFACTOR-MASTER-PROGRAM.md`, which remain available through ordinary search and resource reads.
 
 ## Environment Variables
 

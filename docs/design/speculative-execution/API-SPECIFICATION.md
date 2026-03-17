@@ -4546,7 +4546,7 @@ import {
   TaskNode,
   TaskStatus,
   SpeculationConfig,
-} from '@agenc/speculation';
+} from '@tetsuo-ai/speculation';
 
 // Create configuration
 const config: SpeculationConfig = {

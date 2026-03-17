@@ -8,7 +8,7 @@ import {
   hasExpectedProgramDataAuthority,
   isExpectedVerifierEntryData,
   parseProgramDataAccount,
-} from "../scripts/verifier-localnet";
+} from "../tools/zk-admin/verifier-localnet.ts";
 
 function buildProgramDataAccount(authority: PublicKey | null): Buffer {
   const data = Buffer.alloc(authority ? 45 : 13);

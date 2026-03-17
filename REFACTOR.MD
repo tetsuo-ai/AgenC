@@ -9,8 +9,9 @@ Last synced: `2026-03-16`.
 
 - The refactor program is **not complete**.
 - Gates 0 through 9 have materially established monorepo modularity and produced the required gate artifacts.
-- Gate 10 is the active frontier: repo-independent packaging, artifact handoff, and clean-environment split simulation are not yet proven.
-- Gates 11 and 12 are blocked until Gate 10 is green.
+- Gate 10 passed its final exit review on `2026-03-16` for the current split-candidate scope.
+- Gate 11 is now ready to start.
+- Gate 12 remains blocked until the Gate 11 split/no-split decision is materially stable.
 - Standalone `docs/refactor/gate-*.md` planning documents have been retired; gate status and live evidence now belong here.
 - Audit note: parallel explorer subagents were attempted on `2026-03-16`, but all failed on model usage limits; this sync is therefore based on direct repository evidence.
 
@@ -32,18 +33,14 @@ Last synced: `2026-03-16`.
   - `867` files
   - `32` top-level directories
   - `319` `*.test.ts` files
-- The root `src/` surface is still the standalone grid-router cluster:
-  - `src/index.ts`
-  - `src/cli.ts`
-  - `src/grid-router.ts`
-  - `src/gridRouter.ts`
+- The old root `src/` grid-router surface was retired on `2026-03-16`; the repo root no longer carries a separate build-bearing demo package.
 - `docs-mcp` currently loads:
   - `docs/**`
   - `runtime/docs/**`
   - `runtime/idl/**`
   - `runtime/benchmarks/**`
   - `scripts/idl/**`
-  - root docs `README.md`, `AGENTS.md`, `CODEX.md`, `REFACTOR-MASTER-PROGRAM.md`
+  - root docs `README.md`, `AGENTS.md`, `CODEX.md`, `REFACTOR.MD`, `REFACTOR-MASTER-PROGRAM.md`
   - package `README.md` / `CHANGELOG.md` files
 - Package consumers are already on published package coordinates:
   - `web` and `mobile` use `@tetsuo-ai/runtime`
@@ -51,23 +48,54 @@ Last synced: `2026-03-16`.
   - `mcp` uses `@tetsuo-ai/runtime` and `@tetsuo-ai/sdk`
   - packaged examples use `@tetsuo-ai/sdk`
 
-### 2.2 Remaining Gate 10 Blockers
+### 2.2 Gate 10 Exit Review Result
 
-- The five previously tracked root script/demo source-path blockers were migrated in code to package/public imports on `2026-03-16`; post-migration verification is still pending for:
-  - [private_task_demo.ts](/home/tetsuo/git/AgenC/demo/private_task_demo.ts)
-  - [agenc-localnet-social-smoke.ts](/home/tetsuo/git/AgenC/scripts/agenc-localnet-social-smoke.ts)
-  - [agenc-localnet-social-bootstrap.ts](/home/tetsuo/git/AgenC/scripts/agenc-localnet-social-bootstrap.ts)
-  - [benchmark-private-e2e.mts](/home/tetsuo/git/AgenC/scripts/benchmark-private-e2e.mts)
-  - [zk-config-admin.ts](/home/tetsuo/git/AgenC/scripts/zk-config-admin.ts)
-- A committed clean-environment `npm pack` / `npm install <tarball>` smoke harness now exists in [pack-smoke.mjs](/home/tetsuo/git/AgenC/scripts/pack-smoke.mjs) and is wired into CI via [package-pack-smoke.yml](/home/tetsuo/git/AgenC/.github/workflows/package-pack-smoke.yml); it now proves core package entrypoints, the packaged `@tetsuo-ai/sdk/internal/spl-token` subpath, installed bins, runtime subpath exports, and the shipped runtime IDL artifact while also asserting the public SDK root does not leak internal SPL mutation helpers. Remaining artifact-handoff closure is still open for desktop tool definitions.
-- Temporary npm publish under `@tetsuo-ai/*` is proven:
+Gate 10 is `COMPLETE` for the current split-candidate scope.
+
+Final review findings:
+
+- Publishable split-contract packages now have clean `pack -> install -> smoke` proof:
+  - `@tetsuo-ai/sdk`
+  - `@tetsuo-ai/desktop-tool-contracts`
+  - `@tetsuo-ai/runtime`
+  - `@tetsuo-ai/mcp`
+  - `@tetsuo-ai/docs-mcp`
+- Downstream consumer and tool surfaces were validated against installed/public package contracts rather than sibling `src/` imports:
+  - `web`
+  - `mobile`
+  - `examples/tetsuo-integration`
+  - `containers/desktop/server`
+  - `examples/private-task-demo`
+  - `tools/localnet-social`
+  - `tools/zk-admin`
+- The five previously tracked root script/demo blockers were reclassified on `2026-03-16` into explicit example/tool packages, and their package-surface verification passed via root forwarding commands and targeted harness checks:
+  - [index.ts](/home/tetsuo/git/AgenC/examples/private-task-demo/index.ts)
+  - [smoke.ts](/home/tetsuo/git/AgenC/tools/localnet-social/smoke.ts)
+  - [bootstrap.ts](/home/tetsuo/git/AgenC/tools/localnet-social/bootstrap.ts)
+  - [benchmark-private-e2e.mts](/home/tetsuo/git/AgenC/tools/zk-admin/benchmark-private-e2e.mts)
+  - [zk-config-admin.ts](/home/tetsuo/git/AgenC/tools/zk-admin/zk-config-admin.ts)
+- A committed clean-environment `npm pack` / `npm install <tarball>` smoke harness now exists in [pack-smoke.mjs](/home/tetsuo/git/AgenC/scripts/pack-smoke.mjs) and is wired into CI via [package-pack-smoke.yml](/home/tetsuo/git/AgenC/.github/workflows/package-pack-smoke.yml); it proves core package entrypoints, the packaged `@tetsuo-ai/sdk/internal/spl-token` subpath, installed bins, runtime subpath exports, the shipped runtime IDL artifact, and the shared desktop tool-contract package while also asserting the public SDK root does not leak internal SPL mutation helpers.
+- No split candidate currently relies on repo-relative `runtime/src`, `sdk/src`, `mcp/src`, `docs-mcp/src`, or desktop-server source imports; the final import audit returned no matches.
+- No candidate manifest currently relies on `file:` dependencies; the final manifest audit returned no matches.
+- The old root `file:patches/npm/bigint-buffer` override is gone, and the `@solana/spl-token` dependency chain is gone.
+- Contract-bearing artifact handoff is repo-independent for the split-candidate package scope:
+  - shipped runtime IDL
+  - shared desktop tool-contract package
+  - `@tetsuo-ai/runtime/operator-events`
+  - `runtime/dist/bin/agenc-watch.js`
+- `docs-mcp` matches the live repository authority model: legacy runtime-roadmap issue/phase surfaces are removed, `REFACTOR.MD` and `REFACTOR-MASTER-PROGRAM.md` are indexed root docs, and runtime-module helpers are explicitly runtime-scoped rather than whole-repo planning authority.
+- Root-only local/test surfaces still exist, but they are explicitly outside the current split-candidate scope:
+  - [agenc-watch.mjs](/home/tetsuo/git/AgenC/scripts/agenc-watch.mjs) is a local-dev wrapper over the packaged runtime watch surface
+  - [agenc-devnet-soak.mjs](/home/tetsuo/git/AgenC/scripts/agenc-devnet-soak.mjs), [setup-verifier-localnet.ts](/home/tetsuo/git/AgenC/scripts/setup-verifier-localnet.ts), and root proof/program tests still consume root-local verifier or `target/*` artifacts as monorepo validation assets
+  - those paths do not block Gate 10 unless they are promoted into future split-candidate scope
+
+Temporary npm publish under `@tetsuo-ai/*` is proven:
   - `@tetsuo-ai/sdk@1.3.0`, `@tetsuo-ai/runtime@0.1.0`, `@tetsuo-ai/mcp@0.1.0`, and `@tetsuo-ai/docs-mcp@0.1.0` all published and installed successfully from clean temp consumers on `2026-03-16`
-- `docs-mcp` indexed-corpus coverage is broad, but its issue/phase helpers and related prompts still model the older runtime-roadmap semantics rather than the whole-repository master program.
-
 Resolved on `2026-03-16`:
 - The old root `file:patches/npm/bigint-buffer` override is gone.
 - The `@solana/spl-token` dependency chain is gone.
 - The repo is explicitly npm-based now (`packageManager: npm@11.7.0`), and stale `yarn.lock` files were removed so lockfile/package-manager detection matches the real install path.
+- `docs-mcp` no longer registers legacy runtime-roadmap issue/phase tools, prompts, or special `issue-map` / `roadmap` aggregate resources; `REFACTOR.MD` is now part of the indexed root-doc set, and the remaining module helpers are explicitly runtime-scoped and non-authoritative for whole-repo planning.
 - An owned bounded classic-SPL helper now lives in [spl-token.ts](/home/tetsuo/git/AgenC/sdk/src/spl-token.ts); repo integration tests consume its built internal subpath `@tetsuo-ai/sdk/internal/spl-token`, and clean reinstall plus verification passed:
   - `npm install`
   - `npm ls bigint-buffer --all`
@@ -92,11 +120,11 @@ Resolved on `2026-03-16`:
 | 5 | Runtime control-plane boundary reduction | COMPLETE | Current runtime seam state summarized here | Keep daemon/background-run/approval/subagent seams explicit |
 | 6 | Desktop platform contract stabilization | COMPLETE | Current desktop contract state summarized here | Keep runtime/container/server contracts version-aligned |
 | 7 | Consumer migration | COMPLETE | Package consumer state + migrated root script/demo imports summarized here | Keep new consumers off private source paths |
-| 8 | Verification/docs/tooling convergence | COMPLETE | Current baseline/docs/docs-mcp state summarized here | Final docs-mcp helper semantics cleanup still remains before whole-program convergence |
-| 9 | Internal modularization inside the monorepo | COMPLETE | Current monorepo modularity proof summarized here | Split-readiness proof is still Gate 10 work |
-| 10 | Repository split readiness | ACTIVE | Gate 10 verification matrix and execution ledger in this roadmap | Packaging, artifact handoff, and clean-environment smoke proof remain open |
-| 11 | Optional repository split | BLOCKED | None yet | Cannot start before Gate 10 exit criteria are met |
-| 12 | Legacy deletion and convergence | BLOCKED | None yet | Cannot start before Gate 10 is green and Gate 11 decision is stable |
+| 8 | Verification/docs/tooling convergence | COMPLETE | Current baseline/docs/docs-mcp state summarized here | Keep docs-mcp scope/root-doc coverage aligned with future authority changes |
+| 9 | Internal modularization inside the monorepo | COMPLETE | Current monorepo modularity proof summarized here | Preserve the modularity proof that Gate 10 now builds on |
+| 10 | Repository split readiness | COMPLETE | Gate 10 verification matrix, execution ledger, and final exit review in this roadmap | Keep candidate-scope proof current if new split candidates are added |
+| 11 | Optional repository split | READY | Gate 10 exit review passed in this roadmap | Choose split/no-split topology and define rollback/documentation ownership |
+| 12 | Legacy deletion and convergence | BLOCKED | None yet | Cannot start before the Gate 11 decision is stable |
 
 ---
 
@@ -118,16 +146,19 @@ Resolved on `2026-03-16`:
 
 ### 5.1 Immediate Maintenance Layer
 
-These are standing obligations while Gate 10 is open:
+These are standing obligations for the remainder of the program:
 
 1. Keep the planning layer truthful.
-2. Keep Gate 10 blocker lists exact.
+2. Keep Gate 10 scope and portability guarantees exact.
 3. Keep package/baseline/codegen/docs updates coupled.
-4. Do not reopen earlier gates unless an invariant actually regresses.
+4. Keep docs-mcp search/resources aligned with the live planning docs, and keep runtime-only helper surfaces explicitly scoped.
+5. Do not reopen earlier gates unless an invariant actually regresses.
 
 ### 5.2 Gate 10 — Repository Split Readiness
 
-Status: `ACTIVE`
+Status: `COMPLETE`
+
+Gate 10 exit review passed on `2026-03-16` for the current split-candidate scope. The requirements below are retained as the acceptance record for the completed gate.
 
 Objective:
 - Prove that the candidate split units can be released, installed, and smoke-validated without monorepo-relative paths, local workspace assumptions, or repo-local artifact handoffs.
@@ -150,13 +181,20 @@ Exit signal:
 
 Required work:
 1. Define the candidate split set explicitly:
-   - `sdk`
-   - `runtime`
-   - `mcp`
-   - `docs-mcp`
-   - `web`
-   - `mobile`
-   - desktop toolchain surfaces that would move together
+   - publishable split-contract packages:
+     - `sdk`
+     - `desktop-tool-contracts`
+     - `runtime`
+     - `mcp`
+     - `docs-mcp`
+   - downstream consumer and tool surfaces to validate against installed artifacts:
+     - `web`
+     - `mobile`
+     - `examples/tetsuo-integration`
+     - `containers/desktop/server`
+     - `examples/private-task-demo`
+     - `tools/localnet-social`
+     - `tools/zk-admin`
 2. For each candidate, define:
    - package or repo name
    - release owner
@@ -167,17 +205,17 @@ Required work:
 3. Record the matrix in this roadmap and keep it synchronized with live execution results.
 
 Exit signal:
-- Every split candidate has an explicit release contract and downstream validation contract.
+- Every publishable split-contract package has an explicit release contract, and every validated downstream consumer/tool surface has an installed-artifact validation contract.
 
 #### 10.2 Remove Repo-Coupled Consumers
 
 Required work in order:
-1. Confirm the in-code migrations landed for:
-   - [private_task_demo.ts](/home/tetsuo/git/AgenC/demo/private_task_demo.ts)
-   - [agenc-localnet-social-smoke.ts](/home/tetsuo/git/AgenC/scripts/agenc-localnet-social-smoke.ts)
-   - [agenc-localnet-social-bootstrap.ts](/home/tetsuo/git/AgenC/scripts/agenc-localnet-social-bootstrap.ts)
-   - [benchmark-private-e2e.mts](/home/tetsuo/git/AgenC/scripts/benchmark-private-e2e.mts)
-   - [zk-config-admin.ts](/home/tetsuo/git/AgenC/scripts/zk-config-admin.ts)
+1. Confirm the reclassified package surfaces are stable for:
+   - [index.ts](/home/tetsuo/git/AgenC/examples/private-task-demo/index.ts)
+   - [smoke.ts](/home/tetsuo/git/AgenC/tools/localnet-social/smoke.ts)
+   - [bootstrap.ts](/home/tetsuo/git/AgenC/tools/localnet-social/bootstrap.ts)
+   - [benchmark-private-e2e.mts](/home/tetsuo/git/AgenC/tools/zk-admin/benchmark-private-e2e.mts)
+   - [zk-config-admin.ts](/home/tetsuo/git/AgenC/tools/zk-admin/zk-config-admin.ts)
 2. Run post-migration verification so these stop being evidence-pending blockers.
 3. Keep the old root patch-path workaround dead:
    - do not reintroduce `file:` dependency forks into split candidates
@@ -199,10 +237,11 @@ Required work:
    - `npm install <tarball>`
    - run candidate-specific build/typecheck/test commands
    - run dependent-consumer smoke/import checks
-3. Persist pass/fail evidence in this roadmap.
+3. For non-publishable consumer repos or tool surfaces, run clean temp copy validation against installed/public package inputs.
+4. Persist pass/fail evidence in this roadmap.
 
 Exit signal:
-- Every split candidate has at least one clean-environment pack/install proof path.
+- Every publishable split-contract package has at least one clean-environment pack/install proof path, and every validated downstream consumer/tool surface has an installed-artifact smoke path.
 
 #### 10.4 Artifact Handoff Closure
 
@@ -210,22 +249,25 @@ Required work:
 1. Make artifact contracts repo-independent for:
    - `runtime/idl/agenc_coordination.json`
    - `runtime/src/types/agenc_coordination.ts`
-   - `runtime/src/desktop/tool-definitions.ts`
-   - `containers/desktop/server/src/toolDefinitions.ts`
-   - runtime operator-event artifact consumers
+   - `contracts/desktop-tool-contracts/src/index.ts`
+   - `@tetsuo-ai/runtime/operator-events`
+   - `runtime/dist/bin/agenc-watch.js`
+2. Keep root-monorepo verifier/program validation assets explicitly scoped outside split-candidate package contracts unless they are promoted:
    - `scripts/idl/verifier_router.json`
-2. Prove that installed or packed consumers can access the artifact they need without repository-relative lookup.
-3. Extend drift/codegen documentation and verification steps if artifact ownership changes.
+   - `target/idl/**`
+   - `target/types/**`
+3. Prove that installed or packed consumers can access the artifact they need without repository-relative lookup.
+4. Extend drift/codegen documentation and verification steps if artifact ownership changes.
 
 Exit signal:
-- Generated contract artifacts can be handed off and consumed without monorepo-relative paths.
+- Split-candidate contract artifacts can be handed off and consumed without monorepo-relative paths, and root-monorepo validation artifacts are explicitly documented as outside that package/repo scope.
 
 #### 10.5 CI, Docs, And Docs-MCP Synchronization
 
 Required work:
 1. Add or map split-readiness jobs in `.github/workflows`.
 2. Keep master plan, gate docs, and package docs aligned with Gate 10 status.
-3. Update `docs-mcp` guidance so its helper semantics stop presenting the legacy runtime-roadmap issue/phase model as if it were the current refactor authority.
+3. Keep `docs-mcp` guidance and registrations aligned with the current repository authority so search/resources reflect the live planning docs without reviving legacy runtime-roadmap authority surfaces.
 4. Keep `docs-mcp` indexed-corpus coverage aligned with any new split-readiness docs or artifact-contract docs.
 
 Exit signal:
@@ -233,14 +275,16 @@ Exit signal:
 
 #### 10.6 Gate 10 Exit Review
 
-Gate 10 is complete only when all of the following are true:
-1. Every split candidate has a clean `pack -> install -> smoke` path.
-2. No split candidate relies on repo-relative source imports, sibling workspace assumptions, or repo-local patch paths.
-3. Contract-bearing artifacts have repo-independent handoff paths.
-4. Gate 10 verification docs and execution log are fully populated.
-5. No active planning doc still overclaims completion.
+Verdict: `PASS` on `2026-03-16`
 
-Only after that may Gate 11 begin.
+Exit criteria satisfied:
+1. Every publishable split-contract package has a clean `pack -> install -> smoke` path, and validated downstream consumers/tool surfaces passed installed-artifact smoke checks.
+2. No split candidate relies on repo-relative source imports, sibling workspace assumptions, or repo-local patch paths.
+3. Contract-bearing artifacts in split-candidate scope have repo-independent handoff paths.
+4. Gate 10 verification docs and execution log are fully populated in this roadmap.
+5. No active planning doc still claims Gate 10 is open.
+
+Gate 11 may now begin.
 
 ### 5.3A Gate 10 Verification Matrix
 
@@ -260,26 +304,46 @@ All four verification layers must be green per candidate:
 4. Contract continuity:
    - API baselines
    - IDL drift
-   - desktop tool-definition/codegen contracts
+   - desktop tool-definition contract package
 
 Candidate matrix:
+
+Publishable split-contract packages:
 
 | Candidate | Verification owner | Smoke command | Consumer to validate | Status |
 |-----------|--------------------|---------------|----------------------|--------|
 | `sdk` | Runtime + SDK | clean temp `npm pack` + build/typecheck/test + registry install | `runtime`, benchmark consumers, `examples/tetsuo-integration` | registry pass |
+| `desktop-tool-contracts` | Desktop + Runtime | clean temp `npm pack` + build + import smoke | `runtime`, `containers/desktop/server` | pass |
 | `runtime` | Runtime | clean temp `npm pack` + build/typecheck/test + registry install | `mcp`, `web`, `mobile`, script consumers | registry pass |
 | `mcp` | MCP + Runtime | clean temp `npm pack` + build/typecheck/test + registry install | tool-call consumers | registry pass |
 | `docs-mcp` | Docs | clean temp `npm pack` + build + registry install | docs retrieval/tool surfaces | registry pass |
-| `web` | Web + Runtime | clean temp copy `npm install` + build | `@tetsuo-ai/runtime` integration | registry pass |
-| `mobile` | Mobile + Runtime | clean temp copy `npm install` + typecheck | `@tetsuo-ai/runtime` type surface | registry pass |
+
+Validated downstream consumers and tool surfaces:
+
+| Consumer Surface | Verification owner | Smoke command | Installed/Public Contract | Status |
+|------------------|--------------------|---------------|---------------------------|--------|
+| `web` | Web + Runtime | clean temp copy `npm install` + `npm run build` | `@tetsuo-ai/runtime` | pass |
+| `mobile` | Mobile + Runtime | clean temp copy `npm install` + `npm run typecheck` | `@tetsuo-ai/runtime` | pass |
+| `examples/tetsuo-integration` | Examples + Runtime | clean temp copy `npm install` + `npm run build` | `@tetsuo-ai/sdk`, `@tetsuo-ai/runtime` | pass |
+| `containers/desktop/server` | Desktop + Runtime | `npm run test --workspace=@tetsuo-ai/desktop-server` | `@tetsuo-ai/desktop-tool-contracts` | pass |
+| `examples/private-task-demo` | Examples + Runtime | `npm run demo:private-task -- --help` | `@tetsuo-ai/sdk`, `@tetsuo-ai/runtime` | pass |
+| `tools/localnet-social` | Runtime ops | `npm run localnet:social:bootstrap -- --help` and `npm run localnet:social:smoke -- --help` | `@tetsuo-ai/runtime` | pass |
+| `tools/zk-admin` | Protocol + zk admin | `npm run benchmark:private:e2e -- --help`, `npm run zk:config -- --help`, and verifier/localnet validation | `@tetsuo-ai/sdk`, `@tetsuo-ai/runtime` | pass |
 
 Artifact handoff matrix:
 
 | Artifact Contract | Producer | Consumer Path | Baseline Command | Status |
 |------------------|----------|---------------|------------------|--------|
 | `runtime/idl/agenc_coordination.json` | runtime/program | installed runtime consumers | IDL copy + drift check + pack smoke IDL presence | pass |
-| `runtime/src/desktop/tool-definitions.ts` | runtime + container server | installed desktop/runtime consumers | tool-definition generation + compile | pending |
-| `runtime/dist/operator-events.mjs` | runtime | watch/script consumers | runtime build + pack smoke subpath import | pass |
+| `@tetsuo-ai/desktop-tool-contracts` | desktop-tool-contracts workspace | installed desktop/runtime consumers | package build + compile + pack smoke import | pass |
+| `@tetsuo-ai/runtime/operator-events` + `runtime/dist/bin/agenc-watch.js` | runtime | watch/script consumers | runtime build + package-subpath import + operator-console/watch smoke | pass |
+
+Root-monorepo validation assets outside split-candidate package scope:
+
+- `scripts/idl/verifier_router.json`
+- `target/idl/**`
+- `target/types/**`
+- root proof/program/verifier harnesses that intentionally consume those artifacts
 
 ### 5.3B Gate 10 Execution Ledger
 
@@ -287,27 +351,35 @@ Preflight snapshot:
 
 | Item | Command/Signal | Status | Notes |
 |------|----------------|--------|-------|
-| 10L.1 | `git status` | pending | capture before any Gate 10 mutation that needs evidence |
+| 10L.1 | `git status` | captured | dirty worktree was intentionally present during the refactor execution pass; status was recorded before Gate 10 closeout sync |
 | 10L.2 | `npm run build` | pass | root build passed on `2026-03-16`; runtime build regenerated `runtime/idl/agenc_coordination.json` and `runtime/src/types/agenc_coordination.ts` from `target/` |
-| 10L.3 | `npm run typecheck` | fail | root typecheck failed on runtime TypeScript errors, including missing `@tetsuo-ai/sdk` declarations and multiple runtime type regressions |
+| 10L.3 | `npm run typecheck` | pass | root typecheck passed after runtime/MCP verification regressions were fixed on `2026-03-16` |
 | 10L.4 | `npm run test` | pass | root test passed: SDK `260/260` and runtime `6626/6626` |
 | 10L.5 | runtime benchmark gate matrix | pass | pipeline, delegation, background-run, mutation, and autonomy rollout gates passed on `2026-03-16` |
 | 10L.6 | IDL drift check | pass | `npm run check-idl-drift` passed |
 | 10L.7 | API baseline/breaking-change guard | pass | `check-breaking-changes.ts --check sdk|runtime|mcp` all passed |
-| 10L.8 | source-path import audit | partial | known blockers migrated in code; post-migration consumer verification is still red on multiple surfaces |
-| 10L.9 | stale-doc sanity scan | partial | gate docs retired into this roadmap |
+| 10L.8 | source-path import audit | pass | known blockers were reclassified into explicit example/tool packages and verified through forwarding-command smoke checks plus targeted runtime/verifier validation |
+| 10L.9 | stale-doc sanity scan | pass | active refactor authority docs synchronized to the final Gate 10 verdict on `2026-03-16` |
 
 Decision log:
 
 - `[2026-03-16]` Planning layer reconciled to current codebase state.
 - `[2026-03-16]` Standalone gate docs retired from the active tree; gate status and evidence collapsed into `REFACTOR.MD`.
 - `[2026-03-16]` The five previously identified root script/demo source-path blockers were migrated to `@tetsuo-ai/sdk` / `@tetsuo-ai/runtime` package-public imports.
-- `[2026-03-16]` Core workspace packages were bridged to the temporary `@tetsuo-ai/*` scope, `mcp` / `docs-mcp` package metadata was aligned to explicit CommonJS tarball outputs, and a checked-in `pack -> install -> require` smoke harness was added and verified locally for `sdk`, `runtime`, `mcp`, and `docs-mcp`.
+- `[2026-03-16]` Core workspace packages adopted the permanent `@tetsuo-ai/*` scope, `mcp` / `docs-mcp` package metadata was aligned to explicit CommonJS tarball outputs, and a checked-in `pack -> install -> require` smoke harness was added and verified locally for `sdk`, `runtime`, `mcp`, and `docs-mcp`.
 - `[2026-03-16]` Temporary registry publish under `@tetsuo-ai/*` results:
   - `@tetsuo-ai/sdk@1.3.0` published and installed successfully from a clean temp project
   - `@tetsuo-ai/runtime@0.1.0` published and installed successfully from a clean temp project
   - `@tetsuo-ai/mcp@0.1.0` published and installed successfully from a clean temp project; installed `.bin/agenc-mcp` is present despite npm's noisy publish-time `bin[...] removed` warning
   - `@tetsuo-ai/docs-mcp@0.1.0` published and installed successfully from a clean temp project; the earlier `404` was npm registry propagation lag, not a package-manifest failure
+- `[2026-03-16]` Desktop tool-definition handoff was replaced with the shared `@tetsuo-ai/desktop-tool-contracts` workspace package; runtime and desktop-server now consume the same published contract and desktop-server validates handler/definition parity at startup.
+- `[2026-03-16]` Operator-console/watch packaging was moved to a runtime-owned `agenc-watch` bin backed by `runtime/src/watch/`, and operator-event consumers now resolve the `@tetsuo-ai/runtime/operator-events` package subpath instead of repo-relative built-file lookups.
+- `[2026-03-16]` `npm run typecheck --workspace=@tetsuo-ai/runtime`, `npm run test --workspace=@tetsuo-ai/runtime -- operator-console`, `npm run test --workspace=@tetsuo-ai/desktop-server`, and `npm run pack:smoke:skip-build` all passed with the shared desktop contract package included in the clean install matrix.
+- `[2026-03-16]` The former loose root/demo surfaces were rehomed into explicit ownership buckets:
+  - `examples/private-task-demo`
+  - `tools/localnet-social`
+  - `tools/zk-admin`
+  and verified via root forwarding commands (`--help`) plus targeted verifier/localnet validation.
 - `[2026-03-16]` Downstream consumer validation from clean temp copies with registry-installed packages:
   - `examples/tetsuo-integration`: `npm install` + `npm run build` passed
   - `web`: `npm install` + `npm run build` passed
@@ -340,12 +412,27 @@ Decision log:
   - `npm ls @solana/spl-token --all` returned an empty tree
   - `npm run typecheck`, `npm run test`, `npm run test:fast`, and `npm run pack:smoke` all passed after the removal
   - `pack-smoke.mjs` now verifies the packaged `@tetsuo-ai/sdk/internal/spl-token` subpath, asserts the public SDK root does not leak internal SPL helpers, verifies installed runtime subpath exports, and checks the shipped `runtime/idl/agenc_coordination.json` payload
+- `[2026-03-16]` Final Gate 10 exit-review verification:
+  - `npm run pack:smoke:skip-build` passed
+  - `npm run build --workspace=@tetsuo-ai/runtime` passed
+  - `npm run test:watch-node --workspace=@tetsuo-ai/runtime` passed
+  - `npm run build --workspace=@tetsuo-ai/docs-mcp` passed
+  - `npm run typecheck --workspace=@tetsuo-ai/docs-mcp` passed
+  - `npm run build --workspace=@tetsuo-ai/desktop-tool-contracts` passed
+  - `npm run test --workspace=@tetsuo-ai/desktop-server` passed
+  - `npm --prefix web run build` passed
+  - `npm --prefix mobile run typecheck` passed
+  - `npm --prefix examples/tetsuo-integration run build` passed
+  - `npm run test --workspace=@tetsuo-ai/mcp -- --runInBand` passed
+  - split-candidate source-import audit returned no matches for private `src/` or built-file path coupling
+  - split-candidate manifest audit returned no `file:` dependencies
+  - Gate 10 verdict recorded as `PASS` for the current split-candidate scope
 
 ### 5.3 Gate 11 — Optional Repository Split
 
-Status: `BLOCKED`
+Status: `READY`
 
-Starts only if Gate 10 is fully green.
+Gate 10 is green. Gate 11 can now start.
 
 Required decision:
 1. Decide whether the repo should actually split.

@@ -8,6 +8,7 @@ import { execFileSync, spawn } from 'node:child_process';
 
 const repoRoot = process.cwd();
 const packages = [
+  { name: '@tetsuo-ai/desktop-tool-contracts', dir: 'contracts/desktop-tool-contracts' },
   { name: '@tetsuo-ai/sdk', dir: 'sdk' },
   { name: '@tetsuo-ai/runtime', dir: 'runtime' },
   { name: '@tetsuo-ai/mcp', dir: 'mcp' },
@@ -107,6 +108,7 @@ async function main() {
     run('npm', ['install', '--no-fund', '--no-audit', ...tarballs], tempRoot);
 
     const smokeSource = [
+      "require('@tetsuo-ai/desktop-tool-contracts');",
       "const sdk = require('@tetsuo-ai/sdk');",
       "const internalSpl = require('@tetsuo-ai/sdk/internal/spl-token');",
       "if (typeof internalSpl.createMint !== 'function') throw new Error('missing createMint export on internal SPL subpath');",
@@ -164,6 +166,30 @@ async function main() {
       'sdk internal SPL type declarations',
     );
 
+    logStep('verifying desktop tool contract packaged artifacts');
+    await assertExists(
+      path.join(
+        tempRoot,
+        'node_modules',
+        '@tetsuo-ai',
+        'desktop-tool-contracts',
+        'dist',
+        'index.cjs',
+      ),
+      'desktop tool contract CommonJS bundle',
+    );
+    await assertExists(
+      path.join(
+        tempRoot,
+        'node_modules',
+        '@tetsuo-ai',
+        'desktop-tool-contracts',
+        'dist',
+        'index.mjs',
+      ),
+      'desktop tool contract ESM bundle',
+    );
+
     logStep('verifying runtime packaged artifacts');
     const runtimeIdlPath = path.join(
       tempRoot,
@@ -189,12 +215,25 @@ async function main() {
         })}`,
       );
     }
+    await assertExists(
+      path.join(
+        tempRoot,
+        'node_modules',
+        '@tetsuo-ai',
+        'runtime',
+        'dist',
+        'bin',
+        'agenc-watch.js',
+      ),
+      'runtime operator console bin',
+    );
 
     logStep('verifying installed dependency tree');
     const treeOutput = run(
       'npm',
       [
         'ls',
+        '@tetsuo-ai/desktop-tool-contracts',
         '@tetsuo-ai/sdk',
         '@tetsuo-ai/runtime',
         '@tetsuo-ai/mcp',

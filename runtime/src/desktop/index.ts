@@ -47,4 +47,4 @@ export {
 export {
   TOOL_DEFINITIONS as DESKTOP_TOOL_DEFINITIONS,
   type DesktopToolDefinition,
-} from "./tool-definitions.js";
+} from "@tetsuo-ai/desktop-tool-contracts";

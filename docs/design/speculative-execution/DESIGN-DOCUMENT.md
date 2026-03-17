@@ -26,7 +26,7 @@ The document covers:
 This document covers the speculative execution feature set within the AgenC agent runtime and its interactions with the Solana on-chain program. The scope includes:
 
 **In Scope:**
-- Runtime speculation engine (`@agenc/runtime` TypeScript package)
+- Runtime speculation engine (`@tetsuo-ai/runtime` TypeScript package)
 - Dependency tracking between tasks
 - Proof generation and deferral queuing
 - Commitment tracking and rollback mechanisms
@@ -183,7 +183,7 @@ Task C claims → Task C computes → Task C generates proof ──────�
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              Agent Runtime (@agenc/runtime)                      │
+│                           Agent Runtime (@tetsuo-ai/runtime)                     │
 │  ┌─────────────────────────────────────────────────────────────────────────────┐ │
 │  │                         SpeculativeExecutionEngine                          │ │
 │  │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌──────────────┐  │ │

@@ -1,0 +1,22 @@
+{
+  "name": "@tetsuo-ai/zk-admin-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ZK verifier and protocol administration tooling for AgenC",
+  "type": "module",
+  "scripts": {
+    "benchmark:e2e": "tsx benchmark-private-e2e.mts",
+    "zk:config": "tsx zk-config-admin.ts",
+    "devnet:preflight": "tsx devnet-preflight.ts"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.98.4",
+    "@tetsuo-ai/runtime": "0.1.0",
+    "@tetsuo-ai/sdk": "1.3.0",
+    "bn.js": "^5.2.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}

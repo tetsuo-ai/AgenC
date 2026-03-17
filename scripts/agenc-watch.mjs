@@ -1,21 +1,14 @@
-import { pathToFileURL } from "node:url";
-import { runWatchApp as defaultRunWatchApp } from "./lib/agenc-watch-app.mjs";
+#!/usr/bin/env node
 
-export async function runAgencWatchCli({ runWatchApp = defaultRunWatchApp, processLike = process } = {}) {
-  try {
-    const exitCode = await runWatchApp();
-    processLike.exit(typeof exitCode === "number" ? exitCode : 0);
-  } catch (error) {
-    const message = error instanceof Error ? error.stack || error.message : String(error);
-    processLike.stderr.write(`${message}\n`);
-    processLike.exit(1);
-  }
-}
+import { pathToFileURL } from "node:url";
+import { runAgencWatchCli as defaultRunAgencWatchCli } from "../runtime/src/watch/entry.mjs";
+
+export { runAgencWatchCli } from "../runtime/src/watch/entry.mjs";
 
 const isMainModule = process.argv[1]
   ? import.meta.url === pathToFileURL(process.argv[1]).href
   : false;
 
 if (isMainModule) {
-  await runAgencWatchCli();
+  await defaultRunAgencWatchCli();
 }

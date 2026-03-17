@@ -141,7 +141,7 @@ export async function configureDesktopRoutingForWebChat(
   // Desktop tools are lazily initialized per session via the router.
   // Add static desktop tool definitions to LLM tools so the model knows
   // the full schemas (parameter names, types, required fields).
-  const { TOOL_DEFINITIONS } = await import("../desktop/tool-definitions.js");
+  const { TOOL_DEFINITIONS } = await import("@tetsuo-ai/desktop-tool-contracts");
   const desktopToolDefs: LLMTool[] = TOOL_DEFINITIONS.filter(
     (def) => def.name !== "screenshot",
   ).map((def) => ({

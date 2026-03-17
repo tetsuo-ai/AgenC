@@ -105,7 +105,6 @@ describe("project-doc", () => {
 
   it("prefers repo-aware guidance when contributor docs and package surfaces exist", async () => {
     const workspace = createWorkspace();
-    mkdirSync(join(workspace, "src"), { recursive: true });
     mkdirSync(join(workspace, "runtime"), { recursive: true });
     mkdirSync(join(workspace, "sdk"), { recursive: true });
     mkdirSync(join(workspace, "mcp"), { recursive: true });
@@ -122,7 +121,7 @@ describe("project-doc", () => {
 
     writeFileSync(
       join(workspace, "package.json"),
-      JSON.stringify({ name: "grid-router-ts" }, null, 2),
+      JSON.stringify({ name: "agenc-monorepo" }, null, 2),
       "utf-8",
     );
     writeFileSync(
@@ -201,7 +200,6 @@ describe("project-doc", () => {
 AgenC is in the middle of a whole-repository refactor program.
 \`runtime/\` is the live control plane today.
 The currently maintained core package build closure is \`sdk/\`, \`runtime/\`, \`mcp/\`, and \`docs-mcp/\`.
-The root \`package.json\` and \`src/\` still expose a legacy surface.
 `,
       "utf-8",
     );
@@ -234,7 +232,6 @@ The root \`package.json\` and \`src/\` still expose a legacy surface.
 
     expect(content).toContain("## Repo State & Canonical Entry Points");
     expect(content).toContain("`runtime/` is the live control plane");
-    expect(content).toContain("root `package.json` and `src/` still expose a legacy surface");
     expect(content).toContain("## Package & Surface Map");
     expect(content).toContain("`programs/agenc-coordination/`");
     expect(content).toContain("`npm --prefix runtime run build`");

@@ -37,6 +37,5 @@ npx tsx examples/<name>/index.ts
 ```
 
 Notes:
-- Some examples have their own `package.json`. If you see a missing dependency error, run `npm install --prefix examples/<name>`.
+- Every runnable example now has its own `package.json` and can be addressed as a workspace package.
 - `demo-app` is built separately under `demo-app/`.
-

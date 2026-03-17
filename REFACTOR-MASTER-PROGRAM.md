@@ -74,7 +74,7 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Runtime | `runtime/` (~392k lines, 32 src directories, ~319 test files, ~6,427 test cases) | agent runtime, daemon, gateway (70+ source files), llm (ChatExecutor split into 15+ modules), workflow, tools, channels, desktop layer, evaluation, observability, init workflow, delegation infrastructure | Refactor around real contracts, not folder mythology |
 | zkVM | `zkvm/`, proof/prover integration in `sdk/` and `scripts/` | guest crate plus proof/prover integration surfaces for private task verification | Establish explicit proof schemas, artifact chains, and verifier contracts |
 | MCP server | `mcp/` | protocol/runtime consumer exposed as MCP tools | Make it a thin consumer over stable contracts |
-| Docs MCP | `docs-mcp/` | architecture/roadmap/issue-map documentation server | Keep it in lockstep with the actual architecture and sequencing model |
+| Docs MCP | `docs-mcp/` | repository documentation and contract-artifact MCP server | Keep it in lockstep with the actual architecture and sequencing model |
 
 ### 4.2 App and Consumer Domains
 
@@ -84,8 +84,7 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Mobile app | `mobile/` | Expo / React Native app | Same requirement as web, with explicit mobile-safe contracts |
 | Demo app | `demo-app/` | React privacy / workflow demo | Convert to thin consumer over stable public surfaces |
 | Examples | `examples/` | runnable and packaged example projects, some with their own manifests and script entrypoints | Reclassify each example by owning domain, contract surface, and verification expectations |
-| Demo scripts | `demo/` | executable demo and smoke scripts | Treat as contract consumers with explicit smoke/build gates |
-| Demo collateral | `demos/` | text or sample collateral | Classify as docs/sample-only or promote into runnable surfaces with owned verification |
+| Example and operator tools | `examples/private-task-demo/`, `tools/localnet-social/`, `tools/zk-admin/` | runnable example, localnet bootstrap/smoke harnesses, and zk admin/benchmark utilities | Treat as explicit consumer/tool surfaces with owned verification commands and package/public imports only |
 
 ### 4.3 Platform and Operational Domains
 
@@ -97,8 +96,8 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Docs | `docs/` | architecture docs, roadmap, runbooks, flow docs, sequencing references | Keep authoritative and synchronized with implementation and docs-mcp |
 | Runtime operational docs | `runtime/docs/` | runtime-specific runbooks, replay docs, observability docs, operational CLI guidance | Keep synchronized with runtime behavior and docs-mcp indexing |
 | Package-local docs and changelogs | `programs/agenc-coordination/README.md`, `runtime/README.md`, `runtime/CHANGELOG.md`, `sdk/README.md`, `sdk/CHANGELOG.md`, `mcp/README.md`, `mcp/CHANGELOG.md`, `docs-mcp/README.md`, `migrations/README.md`, `examples/**/README.md`, plus top-level package/app/platform `README.md` and `CHANGELOG.md` files when present | package-level contracts, release notes, usage docs, migration notes, example-level guidance | Keep aligned with public surfaces and docs-mcp indexing |
-| Contract artifacts and codegen surfaces | `docs/api-baseline/`, `runtime/idl/`, `runtime/benchmarks/`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, `runtime/scripts/generate-desktop-tool-definitions.ts`, `scripts/idl/`, `target/idl/`, `target/types/`, `runtime/src/types/agenc_coordination.ts`, `runtime/src/desktop/tool-definitions.ts`, `containers/desktop/server/src/toolDefinitions.ts` | machine-readable baselines, IDL/schema artifacts, verifier-router artifacts, benchmark manifests, codegen/drift scripts, and generated contract helpers | Treat as first-class architecture and verification surfaces |
-| Scripts | `scripts/` (~79 files: 40+ agenc-watch-* tests, ~31 watch lib modules, soak/autonomy infra, localnet setup, fender/security, deployment validation) | setup, validation, benchmarking, migration, build, operational utilities, operator-console watch TUI and test suite | Convert into explicit build/release/test ownership surfaces |
+| Contract artifacts and codegen surfaces | `docs/api-baseline/`, `runtime/idl/`, `runtime/benchmarks/`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, `contracts/desktop-tool-contracts/`, `scripts/idl/`, `target/idl/`, `target/types/`, `runtime/src/types/agenc_coordination.ts` | machine-readable baselines, IDL/schema artifacts, verifier-router artifacts, benchmark manifests, drift scripts, and shared contract packages | Treat as first-class architecture and verification surfaces |
+| Scripts | `scripts/` (operational utilities, soak/autonomy infra, deployment/security validation, wrappers), `runtime/src/watch/`, and `runtime/tests/watch/` | setup, validation, benchmarking, migration, build, runtime-owned watch implementation, and package-local watch regression coverage | Convert into explicit build/release/test ownership surfaces |
 | Benchmarks | `benchmarks/` | benchmark evidence output for private-proof and related verification runs (`latest.md`, `latest.json`, `index.html`) | Keep benchmark outputs explicit and aligned to verification scope |
 | Migrations | `migrations/` | protocol and data migration support | Version, test, and align with dependency-gated rollout order |
 | CI / repo automation | `.github/`, root scripts, package scripts | release, validation, pipeline gates, workflow orchestration | Must be updated as part of the architecture, not after it |
@@ -108,8 +107,8 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Surface | Current Path | What It Is | Refactor Requirement |
 |---------|--------------|------------|----------------------|
 | Workspace config | `package.json`, `package-lock.json`, `tsconfig.json`, `knip.json` | build graph, dependencies, npm workspace/package-manager behavior, and TypeScript behavior | Keep the workspace coherent through every dependency gate |
-| Root standalone tool surface | `package.json`, `src/`, root CLI/build scripts | build-bearing root code path, currently the standalone grid-router demo surface (`grid-router.ts`/`gridRouter.ts`) classified as separate from canonical AgenC product planning | Explicitly integrate, isolate, or retire it under the refactor program |
-| Root source utilities and JSON/config files | `ansi2png.py`, `agenc-eval-test.cjs`, root JSON/config files | root-level helper code, fixtures, and support configuration | Classify each as product code, test utility, fixture, generated file, or legacy surface |
+| Root standalone tool surface | `package.json`, root CLI/build scripts | workspace-level control surface; the former root `src/` grid-router demo package was retired on `2026-03-16` | Keep the root workspace coherent without reintroducing a second build-bearing app surface |
+| Root source utilities and JSON/config files | `ansi2png.py`, root JSON/config files | root-level helper code, fixtures, and support configuration | Classify each as product code, test utility, fixture, generated file, or local artifact |
 | Local tool cache | `.codebase-index-cache.pkl` | generated cache for local repository graph tooling | Non-architectural local artifact |
 | Build and artifact dirs | `**/dist/`, `**/target/`, `test-ledger/`, `logs/`, `.tmp/`, `.anchor/` | generated or operational outputs | Keep out of architecture decisions except where generation is contract-bearing |
 | Assets and support data | `assets/`, `image*`, `chains.json`, `solana_protocols.json` | media, config, support data, or legacy artifacts | Classify and either attach to owning domains or mark as non-architectural support |
@@ -148,7 +147,7 @@ Direct evidence:
 - `sdk/package.json`, `runtime/package.json`, `mcp/package.json`, and `docs-mcp/package.json` each define the build-bearing scripts for the core TypeScript packages
 - `web/package.json`, `mobile/package.json`, `demo-app/package.json`, `containers/desktop/server/package.json`, and multiple `examples/**/package.json` files define additional build-bearing or launch-bearing surfaces
 - root guidance treats those as core TypeScript packages built and tested independently
-- the current root `package.json` and `src/` are a separate root-grid-router surface and do not authoritatively encode the AgenC package build graph
+- the root workspace no longer carries the separate grid-router demo surface, and it does not authoritatively encode the AgenC package build graph
 - the repo also contains package-bearing consumers and platform builds outside that minimum closure
 
 Implications:
@@ -192,20 +191,20 @@ Implication:
 
 Most public consumers are now on public package surfaces. The previously identified
 root-level demo/script source-path blockers were migrated in code to package/public
-surfaces on `2026-03-16`, but Gate 10 remains open until clean-environment packaging,
-artifact handoff, and split-readiness smoke validation are proven.
+surfaces on `2026-03-16`, and Gate 10 exit review passed the same day once clean-environment packaging,
+artifact handoff, and split-readiness smoke validation were proven for the current split-candidate scope.
 
-Migrated former blockers:
+Reclassified former blockers:
 
-- `demo/private_task_demo.ts`
-- `scripts/agenc-localnet-social-smoke.ts`
-- `scripts/agenc-localnet-social-bootstrap.ts`
-- `scripts/zk-config-admin.ts`
-- `scripts/benchmark-private-e2e.mts`
+- `examples/private-task-demo/index.ts`
+- `tools/localnet-social/smoke.ts`
+- `tools/localnet-social/bootstrap.ts`
+- `tools/zk-admin/zk-config-admin.ts`
+- `tools/zk-admin/benchmark-private-e2e.mts`
 
 Implication:
 
-- the remaining Gate 10 work is no longer basic source-path cleanup in these known files; it is repo-independent release proof.
+- these known files are no longer Gate 10 blockers; any future blocker must be a new split-candidate regression rather than leftover source-path cleanup.
 
 ### 5.5 Docs Are Part Of The Runtime Of The Team
 
@@ -215,9 +214,9 @@ Current facts:
 
 - `docs-mcp` must cover whole-repo docs, runtime docs, the master refactor program, API baselines, IDL/schema artifacts, and benchmark manifests if it is cited as architecture authority
 - package-local docs and changelogs are also part of the authoritative documentation surface when they define public usage, migration, or release behavior
-- `docs-mcp` currently loads `docs/**`, `runtime/docs/**`, `runtime/idl/**`, `runtime/benchmarks/**`, `scripts/idl/**`, selected root docs (`README.md`, `AGENTS.md`, `CODEX.md`, and `REFACTOR-MASTER-PROGRAM.md`), and package-local `README.md` / `CHANGELOG.md` files; not every repo-policy file is indexed
-- `docs-mcp` issue and phase helpers still derive from `docs/architecture/issue-map.json` and `docs/ROADMAP.md`, and today they only model the legacy issue range and a 10-phase runtime roadmap rather than the whole-repository master program
-- `docs-mcp` prompts and helper tools still expose legacy runtime-roadmap semantics for issue and phase exploration rather than the whole-repository master program
+- `docs-mcp` currently loads `docs/**`, `runtime/docs/**`, `runtime/idl/**`, `runtime/benchmarks/**`, `scripts/idl/**`, selected root docs (`README.md`, `AGENTS.md`, `CODEX.md`, `REFACTOR.MD`, and `REFACTOR-MASTER-PROGRAM.md`), and package-local `README.md` / `CHANGELOG.md` files; root-policy coverage remains explicit rather than assumed
+- `docs-mcp` no longer registers legacy runtime-roadmap issue/phase tools, prompts, or special `issue-map` / `roadmap` aggregate resources; the retired roadmap and issue-map docs are removed from the indexed planning surface
+- `docs-mcp` runtime-module helper tools remain available, but they are explicitly runtime-scoped helpers rather than whole-repository planning authority
 - `docs-mcp` remains a documentation server, not a code graph or source-of-truth for code boundaries
 
 Implication:
@@ -251,7 +250,7 @@ The repo already carries machine-readable or generated contract-bearing artifact
 - `target/types/agenc_coordination.ts`
 - `runtime/idl/agenc_coordination.json`
 - `runtime/src/types/agenc_coordination.ts`
-- `runtime/src/desktop/tool-definitions.ts`
+- `contracts/desktop-tool-contracts/src/index.ts`
 - `scripts/idl/verifier_router.json`
 - benchmark manifests and gate fixtures
 - operational/runtime CLI docs that encode supported behavior
@@ -278,21 +277,47 @@ Implications:
 - proof and protocol refactors must keep those harnesses as explicit dependency gates
 - verifier-facing artifacts and real-proof test paths cannot be treated as secondary tooling
 
-### 5.10 Repository Split Readiness Is Not Yet Proven
+### 5.10 Repository Split Readiness Is Proven For The Current Candidate Scope
 
-Current repo packaging and build behavior is mostly versioned, but repo-independent proof is not complete.
+Current repo packaging and build behavior is versioned and repo-independent for the current split-candidate scope.
 
 Current facts:
 
-- all package manifests in `web`, `mobile`, `runtime`, `sdk`, `mcp`, `docs-mcp`, and examples now use published versioned package inputs
-- candidate split candidates still retain local assumptions outside package manifests (for example root-level patch overrides in `package.json`)
-- operational and contract-bearing scripts still consume local build outputs or source-relative compatibility paths and must be validated under split-like conditions before any repo split claim
-- `scripts/` includes several root-only consumers that still import `runtime/src` and `sdk/src` directly by design, and these are explicit Gate 10 blockers for full repo-independence
+- publishable split-contract packages now have clean `pack -> install -> smoke` proof:
+  - `@tetsuo-ai/sdk`
+  - `@tetsuo-ai/desktop-tool-contracts`
+  - `@tetsuo-ai/runtime`
+  - `@tetsuo-ai/mcp`
+  - `@tetsuo-ai/docs-mcp`
+- downstream consumer and tool surfaces were validated against installed/public package contracts:
+  - `web`
+  - `mobile`
+  - `examples/tetsuo-integration`
+  - `containers/desktop/server`
+  - `examples/private-task-demo`
+  - `tools/localnet-social`
+  - `tools/zk-admin`
+- the root `file:patches/npm/bigint-buffer` override is gone, and split-candidate manifests no longer rely on `file:` dependencies
+- the final split-candidate import audit found no repo-relative `runtime/src`, `sdk/src`, `mcp/src`, `docs-mcp/src`, desktop-server source imports, or `runtime/dist/operator-events.mjs` coupling in candidate code
+- contract-bearing split-candidate artifacts now have repo-independent handoff through packaged/runtime-owned surfaces:
+  - shipped runtime IDL
+  - shared desktop tool-contract package
+  - `@tetsuo-ai/runtime/operator-events`
+  - `runtime/dist/bin/agenc-watch.js`
+- `docs-mcp` aligns with the live authority model: legacy runtime-roadmap issue/phase surfaces are deleted, the master refactor docs are indexed root docs, and remaining runtime-module helpers are explicitly runtime-scoped
+- some root-monorepo validation assets remain intentionally local:
+  - `scripts/idl/verifier_router.json`
+  - `target/idl/**`
+  - `target/types/**`
+  - root proof/program/verifier harnesses that consume those assets
+- some root-local wrappers remain intentionally local:
+  - `scripts/agenc-watch.mjs` is a local-dev wrapper over the packaged runtime watch surface
 
 Implications:
 
-- internal modularity alone is not enough to prove repo-split readiness
-- the program must prove publish, pack, install, and smoke-validation behavior without the monorepo layout before any split claim
+- Gate 10 is complete for the current split-candidate scope
+- Gate 11 can begin
+- root-local test and ops assets do not reopen Gate 10 unless they are promoted into future split-candidate scope
 
 ---
 
@@ -365,7 +390,7 @@ These contracts must be made explicit, versioned where needed, and migration-tes
 ### 7.4 Desktop Platform Contracts
 
 - desktop server tool catalog (19 tools: original 13 + process_start/status/stop, text_editor, video_start/video_stop)
-- generated tool-definition pipeline (`toolDefinitions.ts` source of truth → `tool-definitions.ts` runtime mirror via codegen script)
+- shared desktop tool-definition contract package consumed by both runtime and desktop server
 - desktop event model
 - desktop auth token, header, and session identity semantics
 - managed desktop process identity, registry, log, tail, and exit-event semantics (including process_start/status/stop tool contracts)
@@ -383,7 +408,7 @@ These contracts must be made explicit, versioned where needed, and migration-tes
 - runtime public exports
 - sdk public exports
 - mcp tool, resource, and prompt schemas, connection behavior, and operator-role/audit semantics
-- docs-mcp resource, query, prompt, issue-context, phase-graph, module-helper, conventions-helper, and scope-manifest semantics
+- docs-mcp resource, query, module-helper, conventions-helper, scope-manifest, and legacy-authority-guard semantics
 - websocket / webchat protocol surfaces consumed by apps
 - app-safe websocket/socket-client transport contract
 - app-facing gateway status, approval, background-run, and observability read models
@@ -404,7 +429,7 @@ These contracts must be made explicit, versioned where needed, and migration-tes
 - public API baselines
 - generated schema and IDL baselines
 - Anchor-generated `target/idl` / `target/types` artifact-chain continuity
-- named drift and codegen guard surfaces such as `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, and `runtime/scripts/generate-desktop-tool-definitions.ts`
+- named drift and contract guard surfaces such as `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, and the `contracts/desktop-tool-contracts/` package build
 - benchmark corpus, manifests, and gate definitions
 - benchmark and mutation gates
 - background-run quality gates, delegation benchmark gates, pipeline quality gates, and autonomy rollout gates (each a distinct gate surface beyond base benchmark/mutation)
@@ -566,7 +591,7 @@ Scope:
 - `programs/agenc-coordination/**`
 - `sdk/**`
 - `scripts/idl/**`
-- `scripts/zk-config-admin.ts`
+- `tools/zk-admin/zk-config-admin.ts`
 - `target/idl/**`
 - `target/types/**`
 - `tests/upgrades.ts`
@@ -618,7 +643,7 @@ Scope:
 - `zkvm/**`
 - `scripts/idl/**`
 - `scripts/build-mock-verifier-router.sh`
-- `scripts/verifier-localnet.ts`
+- `tools/zk-admin/verifier-localnet.ts`
 - `scripts/setup-verifier-localnet.sh`
 - `scripts/setup-verifier-localnet.ts`
 - `tests/mock-router/**`
@@ -685,7 +710,7 @@ Current-state problem:
 - desktop platform behavior also depends on per-container auth, managed-process identity, and watchdog recovery/reclamation policies
 - desktop/session-router/container lifecycle behavior is materially under-documented relative to the current code surface
 - container now runs Ubuntu 24.04 with 6 supervisord processes (Xvfb, XFCE4, x11vnc, websockify, nvim-headless, rest-server)
-- tool definitions have moved from tools.ts to a separate toolDefinitions.ts (source of truth) with tools.ts as execution engine
+- tool definitions now live in the shared `@tetsuo-ai/desktop-tool-contracts` package, with `tools.ts` as the desktop execution engine and runtime consuming the same published contract
 - TUI guard in session-router blocks 22 interactive terminal apps unless backgrounded
 
 Target end state:
@@ -735,9 +760,8 @@ Current-state problem:
 
 - both are active consumers of runtime, sdk, docs, and roadmap data
 - they are easy to under-model because they look like tooling, but they affect build closure and developer operations directly
-- `docs-mcp` still has runtime-roadmap-specific issue/phase tools and runtime-module-specific helper tools that do not yet represent the full-repository master program
-- `docs-mcp` issue and phase helpers are still concretely pinned to `docs/architecture/issue-map.json`, `docs/ROADMAP.md`, issue numbers `1051-1110`, and phase numbers `1-10`
-- `docs-mcp` prompts still walk users through that legacy runtime-roadmap flow, and its root-doc coverage is selective rather than equivalent to all repo-policy files
+- `docs-mcp` no longer exposes runtime-roadmap-specific issue/phase tools or prompts, but its remaining runtime-module helper tools still need to stay explicitly scoped so they are not mistaken for whole-repository planning authority
+- `docs-mcp` root-doc coverage is explicit rather than equivalent to every repo-policy file, so any new authoritative root doc must be added deliberately to the indexed set
 
 Target end state:
 
@@ -753,9 +777,9 @@ Required seams:
 1. MCP runtime/protocol consumer boundary
 2. Docs-MCP architecture/roadmap resource boundary
 3. Docs-MCP indexed-corpus and scope-manifest boundary
-4. Docs-MCP issue-context and phase-graph migration seam
-5. Docs-MCP prompt and helper-tool migration seam
-6. tool/resource/prompt schema and phase-graph versioning expectations
+4. Docs-MCP legacy runtime-roadmap authority removal seam
+5. Docs-MCP runtime-helper scoping seam
+6. tool/resource/helper schema and scope-manifest versioning expectations
 
 Acceptance gates:
 
@@ -767,9 +791,9 @@ Acceptance gates:
 - docs-mcp indexes the authoritative docs and contract artifacts it claims to represent
 - docs-mcp indexes the package-local docs and changelog surfaces that it claims to represent
 - docs-mcp root policy doc coverage is explicit whenever those docs encode live workflow or architecture behavior
-- docs-mcp legacy issue, phase, and module-helper tools do not overclaim whole-repo authority while still bound to narrower runtime-specific data
-- docs-mcp issue, phase, prompt, and helper-tool surfaces are either migrated to the master-program model or explicitly labeled and documented as legacy runtime-roadmap-only behavior
-- docs-mcp resource, prompt, and helper-tool surfaces have explicit regression or snapshot validation before they are treated as stable contracts
+- docs-mcp runtime-module helper tools do not overclaim whole-repo authority while they remain bound to narrower runtime-specific data
+- docs-mcp does not reintroduce legacy runtime-roadmap issue, phase, or prompt surfaces unless they are rebuilt against the current authoritative planning model
+- docs-mcp resource and helper-tool surfaces have explicit regression or snapshot validation before they are treated as stable contracts
 
 Rollback:
 
@@ -783,20 +807,19 @@ Scope:
 - `mobile/**`
 - `demo-app/**`
 - `examples/**`
-- `demo/**`
-- `demos/**`
+- `tools/**`
 
 Current-state problem:
 
 - app consumers are now routed to public package surfaces for runtime/SDK contracts; private source-path imports remain in a bounded set of scripts and demos
-- remaining direct private source-path consumers are:
-  - `demo/private_task_demo.ts`
-  - `scripts/agenc-localnet-social-smoke.ts`
-  - `scripts/agenc-localnet-social-bootstrap.ts`
-  - `scripts/benchmark-private-e2e.mts`
-  - `scripts/zk-config-admin.ts`
+- reclassified example/operator tool surfaces now live in explicit buckets:
+  - `examples/private-task-demo/index.ts`
+  - `tools/localnet-social/smoke.ts`
+  - `tools/localnet-social/bootstrap.ts`
+  - `tools/zk-admin/benchmark-private-e2e.mts`
+  - `tools/zk-admin/zk-config-admin.ts`
 - packaged examples and runnable examples are not all the same ownership class: some are public-package consumers, some have their own manifests and build/start scripts, and some are root-driven samples
-- `demo-app`, `demo/`, `demos/`, and `examples/` are different migration classes and cannot be handled as one consumer bucket
+- `demo-app`, `examples/`, and `tools/` are different migration classes and cannot be handled as one consumer bucket
 
 Target end state:
 
@@ -843,7 +866,7 @@ Scope:
 - package-local docs and changelogs
 - `scripts/**`
 - `.github/**`
-- root package, root `src/**`, and TypeScript config
+- root package, root TypeScript config, and any root source-bearing leftovers that appear during the program
 - package scripts and matrix commands
 - migration scripts
 
@@ -852,16 +875,16 @@ Current-state problem:
 - these surfaces are often treated as a trailing concern, but they currently define the build, test, bootstrap, benchmark, mutation, and deployment reality of the repo
 - docs-mcp is also coupled to docs and roadmap assets
 - package-local docs and changelogs can drift away from the public surfaces they describe
-- the root package and root `src/**` are build-bearing, and the current root surface is a concrete headless/pathfinding/CLI demo rather than a purely abstract placeholder
+- the root package remains a build-bearing workspace control surface, and any new root app/demo code would immediately reintroduce the exact ambiguity this program is eliminating
 - scripts, smoke harnesses, and upgrade procedures already embody the repo-wide execution graph and cannot be treated as late cleanup
 - canonical CI contract ownership is distributed across package scripts and operational expectations, with `.github/workflows` currently reduced to targeted workflow entrypoints
 - current enforcement truth lives in package scripts, repo scripts, package-local harnesses, and `.github/workflows/private-proof-benchmark-pages.yml` as a dedicated proof/benchmark gate
 - some scripts and smoke/admin harnesses currently bypass public runtime and SDK surfaces and act as shadow consumers of private internals
-- `scripts/` now contains ~79 files: 40+ `agenc-watch-*.test.mjs` test files, ~31 `agenc-watch-*` lib modules, soak/autonomy infrastructure, localnet setup, fender/security scanning, and deployment validation scripts
-- the operator-console/watch surface is now a modularized subsystem under `scripts/lib/agenc-watch-*.mjs` with a thin entrypoint at `scripts/agenc-watch.mjs`, its own dedicated tests, and runtime-built helper coupling
-- built runtime artifacts such as `runtime/dist/operator-events.mjs` already act as compatibility inputs for operational tooling and must be modeled as contract-bearing outputs where they cross package boundaries
-- oversized non-runtime artifacts such as `scripts/lib/agenc-watch-app.mjs` and `tests/test_1.ts` are also part of the refactor backlog and cannot be ignored just because they sit outside `runtime/src`
-- concrete drift and codegen guard scripts already act as architecture gates today, including `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, and `runtime/scripts/generate-desktop-tool-definitions.ts`
+- `scripts/` now contains operational utilities, soak/autonomy infrastructure, localnet setup, fender/security scanning, deployment validation, and wrapper entrypoints; the runtime-owned watch implementation lives under `runtime/src/watch/`, and its package-local regression suite lives under `runtime/tests/watch/`
+- the operator-console/watch surface is now a runtime-owned subsystem under `runtime/src/watch/` with a packaged `agenc-watch` bin and a local-dev wrapper at `scripts/agenc-watch.mjs`
+- exported runtime surfaces such as `@tetsuo-ai/runtime/operator-events` and the packaged `agenc-watch` bin act as compatibility inputs for operational tooling and must be modeled as contract-bearing outputs where they cross package boundaries
+- oversized runtime/watch artifacts such as `runtime/src/watch/agenc-watch-app.mjs` and giant test surfaces such as `tests/test_1.ts` are also part of the refactor backlog and cannot be ignored just because they sit outside `runtime/src/gateway`
+- concrete drift and contract guards already act as architecture gates today, including `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, and the `contracts/desktop-tool-contracts/` package build
 
 Target end state:
 
@@ -890,11 +913,11 @@ Required seams:
 
 Operator-console checkpoint for this seam:
 
-- `scripts/agenc-watch.mjs` is only the CLI entrypoint; `scripts/lib/agenc-watch-app.mjs` is the real composition root now in scope for decomposition under the oversized non-runtime artifact map
+- `scripts/agenc-watch.mjs` is only the local-dev wrapper; `runtime/src/watch/agenc-watch-app.mjs` is the real composition root now in scope for decomposition under the oversized runtime/watch artifact map
 - the target is an explicit operator-console/watch subsystem over watch-local modules, not a false package split claim before runtime CLI and build consumers are decoupled
 - command dispatch, terminal input state machines, websocket/bootstrap lifecycle, and top-level frame assembly must move behind explicit watch-local module boundaries before this artifact can be considered structurally complete
-- runtime operator-event normalization and the built `runtime/dist/operator-events.mjs` artifact are part of the live compatibility surface and must be explicitly migrated before any standalone-package or repo-split claim
-- any future standalone-package or repo-split claim for the operator console is blocked until runtime CLI entrypoint coupling, built-runtime helper coupling, and workspace-index/runtime-path assumptions are all explicitly migrated
+- runtime operator-event normalization and the exported `@tetsuo-ai/runtime/operator-events` subpath are part of the live compatibility surface and must be explicitly migrated before any standalone-package or repo-split claim
+- any future standalone-package or repo-split claim for the operator console is blocked until runtime CLI packaging, operator-event contract consumption, and workspace-index/runtime-path assumptions are all explicitly migrated
 
 Acceptance gates:
 
@@ -902,7 +925,7 @@ Acceptance gates:
 - repo-wide verification remains explicit for app packages, packaged examples, desktop server, Anchor/program, zkVM/proof, and other build-bearing surfaces touched by the gate
 - docs, package-local docs/changelogs, root policy docs indexed by docs-mcp, and docs-mcp update in the same gate as the architecture or public surface they describe
 - no smoke, admin, bootstrap, or validation script imports private runtime or SDK source files directly unless it is explicitly classified as refactor-local tooling with an owned compatibility contract
-- named drift and codegen guards such as `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, and `runtime/scripts/generate-desktop-tool-definitions.ts` remain green or are explicitly version-migrated in the same gate
+- named drift and contract guards such as `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, and the `contracts/desktop-tool-contracts/` package remain green or are explicitly version-migrated in the same gate
 - the operator-console/watch subsystem has an explicit compatibility contract for runtime operator events and built helper artifacts
 - the root standalone tool/app surface is explicitly classified and no giant orphaned test, script, or root build surface remains unexplained
 
@@ -920,7 +943,7 @@ Current-state problem:
 
 - package extraction is easy to confuse with actual modularity
 - candidate split units are not yet proven under clean, published-artifact only conditions (pack/install/smoke/release)
-- the earlier root-level local patch override (`file:patches/npm/bigint-buffer`) was removed on `2026-03-16` by replacing the `@solana/spl-token` dependency chain with an owned SDK token helper; remaining Gate 10 work is artifact handoff and operational-script repo-independence proof
+- the earlier root-level local patch override (`file:patches/npm/bigint-buffer`) was removed on `2026-03-16` by replacing the `@solana/spl-token` dependency chain with an owned SDK token helper; Gate 10 no longer depends on that path, and remaining program work moved on to Gate 11 split/no-split planning
 - several operational scripts still depend on local artifact paths and non-published runtime/script internals, which can block true repo-independent handoff
 
 Target end state:
@@ -979,7 +1002,7 @@ Must produce:
 - ownership map for every domain in Section 4
 - classification for stray root surfaces
 - classification for the root standalone tool/app surface and whether it is canonical, isolated, or legacy
-- classification of root `src/` modules and duplicate router implementations (`grid-router.ts` vs `gridRouter.ts`)
+- classification of the former root `src/` modules and duplicate root router implementations
 - canonical root workspace/build authority map
 - list of active generated artifacts and codegen pipelines
 - list of public consumers and known private-import consumers
@@ -1012,14 +1035,14 @@ Must produce:
 - operational/build/CI/docs inventory
 - package-local doc and changelog inventory
 - docs-mcp indexed-corpus inventory and coverage gap list
-- docs-mcp resource/prompt/helper validation-gap inventory
+- docs-mcp resource/helper validation-gap inventory
 - public API baseline inventory
 - generated schema and IDL baseline inventory
 - `target/idl` and `target/types` artifact-chain inventory
 - named drift/codegen guard inventory
 - fuzz, mock-router, verifier-localnet, real-proof, and proof-fixture harness inventory
 - benchmark/gate and operational-doc inventory
-- giant artifact decomposition inventory for `runtime/src/gateway/daemon*`, `runtime/src/llm/chat-executor*`, `runtime/src/desktop/session-router.ts`, `runtime/src/desktop/manager.ts`, `containers/desktop/server/src/tools.ts`, `scripts/lib/agenc-watch-app.mjs`, `tests/test_1.ts`, and any similarly dominant blockers discovered in Gate 0 classification
+- giant artifact decomposition inventory for `runtime/src/gateway/daemon*`, `runtime/src/llm/chat-executor*`, `runtime/src/desktop/session-router.ts`, `runtime/src/desktop/manager.ts`, `containers/desktop/server/src/tools.ts`, `runtime/src/watch/agenc-watch-app.mjs`, `tests/test_1.ts`, and any similarly dominant blockers discovered in Gate 0 classification
 
 Exit gate:
 
@@ -1039,7 +1062,7 @@ Must include:
 - app-safe websocket/socket-client transport ownership clarification
 - script-safe runtime/protocol/sdk helper surfaces for smoke, bootstrap, admin, and validation workflows
 - MCP and docs-mcp dependency audit focused on hidden private-surface usage
-- docs-mcp authority guard so legacy issue/phase/prompt/helper surfaces are migrated or explicitly labeled runtime-roadmap-only and non-authoritative for the master program
+- docs-mcp authority guard so legacy issue/phase/prompt surfaces stay removed and runtime-helper surfaces remain explicitly scoped and non-authoritative for the master program
 
 Exit gate:
 
@@ -1194,7 +1217,7 @@ Must include:
 - generated schema and IDL baseline enforcement
 - benchmark/mutation gate ownership
 - docs and docs-mcp sync
-- docs-mcp resource/prompt/helper regression or snapshot validation
+- docs-mcp resource/helper regression or snapshot validation
 - migration tooling and rollback graph
 - consumer verification matrix enforcement for `web` build/unit/e2e, `mobile` validation, `demo-app` build, `demo` smoke, and packaged examples
 - completion of any remaining repo-wide verification entries that were introduced earlier but not yet enforced centrally
@@ -1341,7 +1364,7 @@ Mitigation:
 
 Risk:
 
-- architecture docs, roadmap, and docs-mcp become false authority during the refactor, including legacy issue/phase/module-helper tools that overclaim scope or keep exposing a stale 10-phase runtime-roadmap model
+- architecture docs, roadmap, and docs-mcp become false authority during the refactor, including runtime-helper surfaces that overclaim scope or any reintroduced legacy issue/phase tooling that drifts from the current repository authority
 
 Mitigation:
 
@@ -1361,7 +1384,7 @@ Mitigation:
 
 Risk:
 
-- oversized files like daemon/chat-executor, `scripts/lib/agenc-watch-app.mjs`, and giant test surfaces such as `tests/test_1.ts` block progress indefinitely
+- oversized files like daemon/chat-executor, `runtime/src/watch/agenc-watch-app.mjs`, and giant test surfaces such as `tests/test_1.ts` block progress indefinitely
 
 Mitigation:
 
@@ -1381,11 +1404,11 @@ Mitigation:
 
 Risk:
 
-- the root package and root `src/**` are classified as a separate tool surface (`grid-router.ts`/`gridRouter.ts` demo), so they are not canonical AgenC product code; delaying that surface’s lifecycle action is still a risk if it remains mixed with product planning
+- reintroducing build-bearing product code at the repo root would blur the workspace contract and recreate the retired legacy surface problem
 
 Mitigation:
 
-- force Gate 0 classification of the root standalone tool/app surface and require explicit treatment in the workspace and build graph before later gates depend on it
+- keep root ownership limited to workspace orchestration, shared scripts, and explicit package entrypoints
 
 ---
 
@@ -1401,16 +1424,16 @@ The following are explicitly forbidden:
 - assuming apps are protected by a façade while they still import `runtime/src` directly
 - assuming operational scripts are “just tooling” while they still import `runtime/src` or `sdk/src` directly
 - parking `mcp` or `docs-mcp` while still claiming core package build closure
-- parking docs while docs-mcp still serves outdated architecture and phase graphs
+- parking docs while docs-mcp drifts from the indexed authoritative planning docs
 - treating docs-mcp as whole-repo authority without a current scope manifest and indexed-corpus audit
-- pretending docs-mcp issue or phase tools describe the whole refactor while they still expose legacy runtime-roadmap semantics
+- treating runtime-scoped docs-mcp helper tools as if they define whole-repository refactor authority
 - claiming the repo is green while app, desktop-server, Anchor, zkVM, or other build-bearing surfaces are red
 - pushing Solana- or Anchor-dependent types into zero-dependency core layers
 - changing proof or protocol schemas without versioned migration strategy
 - delaying CI, benchmarks, mutation gates, codegen, or migration scripts to a final polish gate
 - changing published or consumer-facing surfaces without updating API baselines, IDL/schema artifacts, or other machine-readable contract files
 - deleting public exports or compatibility layers before all consumers migrate
-- treating the root package and root `src/**` as harmless leftovers before they are explicitly classified
+- treating newly introduced root build-bearing source code as harmless leftovers instead of blocking and classifying it immediately
 
 ---
 
@@ -1419,17 +1442,18 @@ The following are explicitly forbidden:
 Current status:
 
 - Gates 0 through 9 have produced their gate artifacts and monorepo modularity proof.
-- Gate 10 remains open until repo-independent packaging, artifact handoff, and clean-environment smoke validation are proven.
-- Gates 11 and 12 remain blocked on Gate 10.
+- Gate 10 passed its final exit review on `2026-03-16` for the current split-candidate scope.
+- Gate 11 is ready.
+- Gate 12 remains blocked until the Gate 11 split/no-split decision is materially stable.
 
 The next work to execute under this plan is:
 
-1. close any remaining Gate 10 blockers (repo-independent publishability, remaining local-script coupling, and repo-independent handoff behavior)
-2. execute Gate 10 repository-split readiness and publication smoke matrix
-3. if Gate 10 is green, execute Gate 11 optional repository split planning and execution with explicit rollback
-4. execute Gate 12 cleanup only after 10 and 11 decisions are materially stable
+1. execute Gate 11 optional repository split planning and execution with explicit rollback, docs authority, and CI migration if the repo will actually split
+2. if the decision is **no split**, record monorepo modularity as the chosen steady state and move directly to Gate 12
+3. execute Gate 12 cleanup only after the Gate 11 decision is materially stable
+4. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
 
-No one should start by splitting repos or moving desktop into its own package unless all preconditions in Gate 10 are met.
+No one should start Gate 11 extraction work without preserving the Gate 10 portability guarantees already proven here.
 
 ---
 

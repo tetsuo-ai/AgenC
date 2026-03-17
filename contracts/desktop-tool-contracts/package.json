@@ -1,0 +1,42 @@
+{
+  "name": "@tetsuo-ai/desktop-tool-contracts",
+  "version": "0.1.0",
+  "description": "Canonical desktop tool-definition contract shared by AgenC runtime and desktop server",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "author": "Tetsuo AI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tetsuo-ai/AgenC",
+    "directory": "contracts/desktop-tool-contracts"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "module"
+}

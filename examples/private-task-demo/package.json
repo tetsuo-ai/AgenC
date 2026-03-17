@@ -1,0 +1,17 @@
+{
+  "name": "@tetsuo-ai/private-task-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Private task demo using the AgenC SDK router payload flow",
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts"
+  },
+  "dependencies": {
+    "@tetsuo-ai/sdk": "1.3.0",
+    "@solana/web3.js": "^1.98.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}

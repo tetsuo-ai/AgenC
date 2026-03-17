@@ -7,7 +7,7 @@ This guide covers how runtime modules integrate with each other and the broader 
 `AgentRuntime` is the top-level lifecycle wrapper:
 
 ```typescript
-import { AgentRuntime } from '@agenc/runtime';
+import { AgentRuntime } from '@tetsuo-ai/runtime';
 
 const runtime = new AgentRuntime({
   connection,
@@ -47,7 +47,7 @@ await runtime.stop();
 `AgentBuilder` provides fluent API for constructing runtime with dependencies:
 
 ```typescript
-import { AgentBuilder } from '@agenc/runtime';
+import { AgentBuilder } from '@tetsuo-ai/runtime';
 
 const agent = new AgentBuilder()
   // Core config
@@ -127,7 +127,7 @@ export class AgentBuilder {
 `UnifiedTelemetryCollector` is passed to all module constructors:
 
 ```typescript
-import { UnifiedTelemetryCollector } from '@agenc/runtime';
+import { UnifiedTelemetryCollector } from '@tetsuo-ai/runtime';
 
 // Create collector
 const collector = new UnifiedTelemetryCollector({
@@ -153,7 +153,7 @@ collector.record({
 });
 
 // Tests use NoopTelemetryCollector
-import { NoopTelemetryCollector } from '@agenc/runtime';
+import { NoopTelemetryCollector } from '@tetsuo-ai/runtime';
 const noopCollector = new NoopTelemetryCollector();
 ```
 
@@ -168,7 +168,7 @@ const noopCollector = new NoopTelemetryCollector();
 `PolicyEngine` enforces budgets and access control:
 
 ```typescript
-import { PolicyEngine } from '@agenc/runtime';
+import { PolicyEngine } from '@tetsuo-ai/runtime';
 
 const policy = new PolicyEngine({
   budgets: {
@@ -202,7 +202,7 @@ await policy.execute('task_execution', async () => {
 `EventMonitor` subscribes to on-chain events:
 
 ```typescript
-import { EventMonitor } from '@agenc/runtime';
+import { EventMonitor } from '@tetsuo-ai/runtime';
 
 const monitor = new EventMonitor(program, {
   logger,
@@ -244,7 +244,7 @@ await monitor.stop();
 `ConnectionManager` is a singleton, passed to all modules:
 
 ```typescript
-import { ConnectionManager } from '@agenc/runtime';
+import { ConnectionManager } from '@tetsuo-ai/runtime';
 
 const manager = new ConnectionManager({
   endpoints: [
@@ -282,7 +282,7 @@ const module2 = new DisputeOperations({ connection, ... });
 Use factory functions from `runtime/src/idl.ts`:
 
 ```typescript
-import { createProgram, createReadOnlyProgram, IDL } from '@agenc/runtime';
+import { createProgram, createReadOnlyProgram, IDL } from '@tetsuo-ai/runtime';
 
 // With wallet (for transactions)
 const program = createProgram(provider, programId);
@@ -374,7 +374,7 @@ export * from './your-module.js';
 export * from './your-module/index.js';
 ```
 
-**Result:** All types, errors, and classes exported from `@agenc/runtime`.
+**Result:** All types, errors, and classes exported from `@tetsuo-ai/runtime`.
 
 ## Shared Utilities
 

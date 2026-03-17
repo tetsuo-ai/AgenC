@@ -962,7 +962,7 @@ describe("system.bash tool", () => {
       const tool = createBashTool();
 
       const result = await tool.execute({
-        command: "cat src/gridRouter.ts | tail -n 60",
+        command: "cat packages/core/gridRouter.ts | tail -n 60",
         args: [],
       });
 

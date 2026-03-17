@@ -1,12 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { loadDocs } from './loader.js';
 import { SearchIndex } from './search.js';
-import { IssueResolver } from './issue-resolver.js';
 import { registerSearchTools } from './tools/search.js';
-import { registerIssueTools } from './tools/issues.js';
-import { registerPhaseTools } from './tools/phases.js';
 import { registerModuleTools } from './tools/modules.js';
-import { registerPrompts } from './prompts/implementation.js';
 
 function buildResourceUri(docPath: string): string {
   if (docPath.startsWith('docs/architecture/')) {
@@ -57,13 +53,14 @@ function buildScopeManifest(loaded: ReturnType<typeof loadDocs>): string {
   lines.push('- `runtime/benchmarks/**/*.json`');
   lines.push('- `scripts/idl/**/*.json`');
   lines.push('- package-local docs and changelogs under top-level packages, apps, platforms, programs, migrations, and `examples/**` when present');
-  lines.push('- root docs: `README.md`, `AGENTS.md`, `CODEX.md`, `REFACTOR-MASTER-PROGRAM.md` when present');
+  lines.push('- root docs: `README.md`, `AGENTS.md`, `CODEX.md`, `REFACTOR.MD`, `REFACTOR-MASTER-PROGRAM.md` when present');
   lines.push('');
   lines.push('## Important limits');
   lines.push('');
   lines.push('- This server indexes documentation and contract artifacts, not source code.');
-  lines.push('- Roadmap issue and phase tools still depend on `docs/architecture/issue-map.json` and `docs/ROADMAP.md`, and currently expose only the legacy runtime-roadmap issue/phase model.');
-  lines.push('- Module template/info tools remain runtime-module helpers rather than whole-repository architecture tools.');
+  lines.push('- Legacy runtime-roadmap issue/phase prompts, tools, and special aggregate resources are intentionally not registered.');
+  lines.push('- Retired roadmap and issue-map docs are not part of the indexed planning surface.');
+  lines.push('- Module template/info/conventions tools remain runtime-scoped helpers and are not whole-repository planning authority.');
 
   return lines.join('\n');
 }
@@ -80,14 +77,6 @@ export function createServer(): McpServer {
   // Build search index
   const searchIndex = new SearchIndex();
   searchIndex.build(loaded.docs);
-
-  // Create issue resolver
-  const resolver = new IssueResolver(
-    loaded.issues,
-    loaded.issueMapRaw,
-    loaded.roadmapContent,
-    loaded.docs,
-  );
 
   // Register resources — each doc file as an MCP resource
   for (const [docPath, entry] of loaded.docs) {
@@ -118,35 +107,6 @@ export function createServer(): McpServer {
     }),
   );
 
-  // Special aggregate resources
-  if (loaded.issueMapRaw) {
-    server.resource(
-      'issue-map',
-      'agenc-docs://issue-map',
-      { description: 'Full issue-map.json — machine-readable index of all 58 roadmap issues' },
-      async (uri) => ({
-        contents: [{
-          uri: uri.href,
-          text: JSON.stringify(loaded.issueMapRaw, null, 2),
-        }],
-      }),
-    );
-  }
-
-  if (loaded.roadmapContent) {
-    server.resource(
-      'roadmap',
-      'agenc-docs://roadmap',
-      { description: 'Full ROADMAP.md — source document for all phase guides' },
-      async (uri) => ({
-        contents: [{
-          uri: uri.href,
-          text: loaded.roadmapContent,
-        }],
-      }),
-    );
-  }
-
   // Conventions aggregate
   const guideEntries = [...loaded.docs.values()].filter((e) => e.category === 'guide');
   if (guideEntries.length > 0) {
@@ -166,12 +126,7 @@ export function createServer(): McpServer {
 
   // Register tools
   registerSearchTools(server, searchIndex);
-  registerIssueTools(server, resolver);
-  registerPhaseTools(server, resolver);
   registerModuleTools(server, loaded.docs);
-
-  // Register prompts
-  registerPrompts(server);
 
   return server;
 }
