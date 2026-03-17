@@ -334,7 +334,7 @@ Validated downstream consumers and tool surfaces:
 | `containers/desktop/server` | Desktop + Runtime | `npm run test --workspace=@tetsuo-ai/desktop-server` | `@tetsuo-ai/desktop-tool-contracts` | pass |
 | `examples/private-task-demo` | Examples + SDK | `npm run start --prefix examples/private-task-demo -- --help` | `@tetsuo-ai/sdk` | pass |
 | `tools/localnet-social` | Runtime ops | `npm run localnet:social:bootstrap -- --help` and `npm run localnet:social:smoke -- --help` | `@tetsuo-ai/runtime` | pass |
-| `tools/zk-admin` | Protocol + zk admin | `npm run benchmark:private:e2e -- --help`, `npm run zk:config -- --help`, and verifier/localnet validation | `@tetsuo-ai/sdk`, `@tetsuo-ai/runtime` | pass |
+| `tools/zk-admin` | Protocol + zk admin | `npm run benchmark:private:e2e -- --help`, `npm run zk:config -- --help`, and verifier/localnet validation | `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and the AgenC-local verifier/localnet harness | pass |
 
 Artifact handoff matrix:
 
@@ -526,11 +526,12 @@ This map is the canonical ownership plan for the current tree. Mixed folders mus
 | `demo-app/**` | `agenc-core` | Private | Internal/demo product surface |
 | `examples/**` other than `examples/private-task-demo/**` | `agenc-core` by default | Private unless rewritten | Additional SDK-only examples may be promoted later, but only after explicit ownership and verification are assigned |
 | `tools/localnet-social/**` | `agenc-core` | Private | Runtime/operator bootstrap and smoke tooling |
-| `tools/zk-admin/**` | `agenc-prover` | Private | Prover/protocol admin and benchmark ops remain private in v1 |
+| `tools/zk-admin/zk-config-admin*.ts`, `tools/zk-admin/devnet-preflight.ts`, `tools/zk-admin/protocol-program.ts`, and the supporting package/test/typecheck files for that admin surface | `agenc-prover` first bootstrap | Private | `admin bootstrap slice`: first private bootstrap may move only zk-config/protocol admin tooling and the files required to validate it independently |
+| `tools/zk-admin/verifier-localnet.ts`, `tools/zk-admin/benchmark-private-e2e*.ts`, `scripts/setup-verifier-localnet.*`, `scripts/run-e2e-zk-local.sh`, `scripts/agenc-localnet-soak-launch.sh`, `scripts/generate-real-proof.ts`, `scripts/check-deployment-readiness.*`, `tests/e2e-real-proof.ts`, `tests/verifier-localnet-validation.ts`, `tests/mock-router/**`, and `tests/fixtures/real-groth16-proof.json` | Retain in `AgenC` until shared contract exists | Private/shared transitional | `shared proof-harness/localnet slice`: stays with the current repo until a released/shared proof-harness contract or deliberate full ownership transfer exists |
 | `zkvm/host/**` | `agenc-prover` | Private | Host-side proof generation and proving operations |
 | `benchmarks/**` | `agenc-prover` | Private | Benchmark evidence stays with proving/control-plane ops unless an explicit public benchmark program is created |
 | `tests/**` | Drain by owner repo | Mixed transitional | Do not preserve a shared cross-repo root test tree; move tests into the repo that owns the contract being verified |
-| `scripts/idl/**` | `agenc-protocol` | Public/internal-to-protocol | Protocol codegen and IDL support must follow protocol ownership |
+| `scripts/idl/**` | `agenc-protocol` | Public/internal-to-protocol | Protocol codegen and IDL support remain protocol-owned even while the verifier/localnet harness stays shared elsewhere |
 | `scripts/**` remaining | Drain by owner repo | Mixed transitional | Runtime/watch/dev wrappers -> `agenc-core`; prover/deploy/benchmark ops -> `agenc-prover`; no mixed `scripts/` root after extraction |
 | `docs/**` and root `README.md` / `REFACTOR*.md` | Drain by owner repo | Mixed transitional | Package/protocol/runtime docs move with the owning repo; whole-program split docs remain internal until extraction stabilizes |
 
@@ -654,11 +655,19 @@ The extraction sequence is intentionally conservative:
    - public IDL/generated artifacts
    - protocol migrations
 5. Create `agenc-plugin-kit` third as a narrow public extension repo with certification harness and starter templates.
-6. Extract `agenc-prover` fourth, including:
-   - `zkvm/host`
-   - proving services
-   - `tools/zk-admin`
-   - benchmark/proving ops
+6. Extract `agenc-prover` fourth in phases:
+   - first bootstrap only the `admin bootstrap slice`:
+     - `zkvm/host`
+     - proving services
+     - `tools/zk-admin/zk-config-admin*.ts`
+     - `tools/zk-admin/devnet-preflight.ts`
+     - `tools/zk-admin/protocol-program.ts`
+     - the supporting package/test/typecheck files required to validate that admin tooling independently
+   - keep the `shared proof-harness/localnet slice` in the current repo until a released/shared proof-harness contract or deliberate full ownership transfer exists:
+     - `tools/zk-admin/verifier-localnet.ts`
+     - `tools/zk-admin/benchmark-private-e2e*.ts`
+     - root verifier/bootstrap scripts/tests/fixtures
+     - protocol-owned `scripts/idl/**`
 7. Keep `agenc-core` together as the private kernel:
    - `runtime`
    - `mcp`
@@ -972,6 +981,43 @@ Gate 11 is complete only when:
 - pack/install/baseline proof now covers the standalone `@tetsuo-ai/plugin-kit` package, and AgenC boundary checks verify the monorepo no longer treats `plugin-kit/` as a workspace or local authority
 
 Phase 2 does **not** yet make runtime private by decree. It only establishes the narrow public extension ABI and the private host adapter seam required before later runtime-side visibility tightening.
+
+#### 11.15 Current Phase 3 Status
+
+`[2026-03-16]` The first `agenc-prover` bootstrap is now explicitly phased rather than treated as a monolithic `tools/zk-admin` move.
+
+Bootstrap status:
+- the canonical private repo is [`tetsuo-ai/agenc-prover`](https://github.com/tetsuo-ai/agenc-prover)
+- the first private bootstrap landed there on `main` as `admin-tools/` via `tetsuo-ai/agenc-prover#25`
+- the private repo now validates that slice with:
+  - `npm --prefix admin-tools run typecheck`
+  - `npm --prefix admin-tools run test`
+  - `node scripts/check-admin-bootstrap-boundary.mjs`
+  - `cargo test -p agenc-prover-server`
+  - `cargo build --release -p agenc-prover-server --features production-prover`
+- AgenC still retains the current `tools/zk-admin` admin files as a mirror-first bootstrap source; no source deletion or de-authority cutover has happened yet
+
+Authorized first-bootstrap scope:
+- the `admin bootstrap slice` only:
+  - [zk-config-admin.ts](/home/tetsuo/git/AgenC/tools/zk-admin/zk-config-admin.ts)
+  - [zk-config-admin-cli.ts](/home/tetsuo/git/AgenC/tools/zk-admin/zk-config-admin-cli.ts)
+  - [devnet-preflight.ts](/home/tetsuo/git/AgenC/tools/zk-admin/devnet-preflight.ts)
+  - [protocol-program.ts](/home/tetsuo/git/AgenC/tools/zk-admin/protocol-program.ts)
+  - the package/test/typecheck assets required to validate that admin surface independently
+
+Explicitly deferred from the first bootstrap:
+- the `shared proof-harness/localnet slice`:
+  - [verifier-localnet.ts](/home/tetsuo/git/AgenC/tools/zk-admin/verifier-localnet.ts)
+  - [benchmark-private-e2e.mts](/home/tetsuo/git/AgenC/tools/zk-admin/benchmark-private-e2e.mts) and its benchmark-specific helpers
+  - root verifier/bootstrap scripts and proof/localnet tests
+  - local proof fixtures and mock-router assets
+- [scripts/idl/](/home/tetsuo/git/AgenC/scripts/idl) remains protocol-owned during this phase; it is not part of the deferred AgenC-local harness bucket
+
+Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the `shared proof-harness/localnet slice` stays with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
+
+Scope note:
+- current CI and boundary checks validate `tools/zk-admin` portability and independence from `@tetsuo-ai/runtime`, but they do **not** yet encode this narrower file-slice split mechanically. This section is the authority for the first bootstrap envelope.
+- the new `agenc-prover` repo now encodes the narrowed bootstrap mechanically for its own admin package through `scripts/check-admin-bootstrap-boundary.mjs`, but AgenC still carries the broader mirror/workspace while cutover remains pending.
 
 ### 5.4 Gate 12 — Legacy Deletion And Convergence
 

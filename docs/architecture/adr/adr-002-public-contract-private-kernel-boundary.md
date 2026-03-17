@@ -147,11 +147,14 @@ Explicitly out of scope:
 - runtime-side packages require a managed deprecation path rather than an instant visibility flip
 - `plugin-kit` must be built as a real product surface before runtime visibility is tightened
 - some current docs and package metadata now need to be treated as transitional and corrected in later Gate 11 phases
+- private prover extraction is phased: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`, while the `shared proof-harness/localnet slice` remains with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
+- Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the `shared proof-harness/localnet slice` stays with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
 
 ## Required Follow-On Work
 
 1. Finish `agenc-protocol` consumer cutover so the public trust surface is actually authoritative.
 2. Build `agenc-plugin-kit` with a versioned host compatibility matrix and certification harness.
-3. Move private packages to a dedicated internal distribution path with validated auth for developers, CI, containers, and deployment.
-4. Add deprecation notices, support-window policy, and migration docs for already-public runtime-side packages.
-5. Rewrite public docs so builders are directed to SDK, protocol, and plugin-kit only.
+3. Define and validate the released/shared proof-harness contract before moving verifier/localnet benchmark harnesses out of the current repo.
+4. Move private packages to a dedicated internal distribution path with validated auth for developers, CI, containers, and deployment.
+5. Add deprecation notices, support-window policy, and migration docs for already-public runtime-side packages.
+6. Rewrite public docs so builders are directed to SDK, protocol, and plugin-kit only.

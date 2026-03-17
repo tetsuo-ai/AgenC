@@ -53,3 +53,10 @@
 - **What worked:** Adding a narrow starter template and release-history surface early made the public repo feel like a maintained product surface instead of a raw extracted package.
 - **What didn't:** The follow-up hardening commit initially landed on local `main`, so it had to be moved onto a dedicated feature branch before pushing.
 - **Rule added to CLAUDE.md:** no
+
+## PR tetsuo-ai/agenc-prover#25: feat(admin-tools): bootstrap prover admin slice
+- **Date:** 2026-03-16
+- **Files changed:** `admin-tools/**`, private repo CI, boundary check, README/.gitignore/.dockerignore hardening
+- **What worked:** Bootstrapping only the approved admin slice into the existing private prover repo kept the Rust proving service intact while establishing a real private home for zk config admin and devnet preflight tooling.
+- **What didn't:** The first merge attempt failed because `agenc-prover/main` had moved and the README had picked up a newer operator runbook, so the branch had to be rebased and the bootstrap section merged cleanly into the newer doc.
+- **Rule added to CLAUDE.md:** no

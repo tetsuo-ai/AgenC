@@ -1,0 +1,49 @@
+name: ZK Admin Boundary
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/zk-admin-boundary.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "tools/zk-admin/**"
+      - "scripts/check-prover-extraction-boundary.mjs"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/zk-admin-boundary.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "tools/zk-admin/**"
+      - "scripts/check-prover-extraction-boundary.mjs"
+
+jobs:
+  zk-admin-boundary:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Check prover extraction boundary
+        run: npm run check:prover-boundary
+
+      - name: Typecheck zk-admin workspace
+        run: npm run typecheck --workspace=@tetsuo-ai/zk-admin-tools
+
+      - name: Test zk-admin workspace
+        run: npm run test --workspace=@tetsuo-ai/zk-admin-tools
