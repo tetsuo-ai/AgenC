@@ -15,7 +15,6 @@ const PACKAGE_DOC_ROOTS = [
   'sdk',
   'mcp',
   'docs-mcp',
-  'plugin-kit',
   'migrations',
   'examples',
   'programs',

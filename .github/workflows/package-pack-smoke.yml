@@ -10,11 +10,13 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'scripts/pack-smoke.mjs'
-      - 'plugin-kit/**'
+      - 'scripts/check-plugin-kit-extraction-boundary.mjs'
       - 'test-fixtures/plugin-kit-channel-adapter/**'
       - 'runtime/**'
       - 'mcp/**'
       - 'docs-mcp/**'
+      - 'docs/PLUGIN_KIT.md'
+      - 'docs/VERSION_DOCS_MAP.md'
   push:
     branches:
       - main
@@ -23,11 +25,13 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'scripts/pack-smoke.mjs'
-      - 'plugin-kit/**'
+      - 'scripts/check-plugin-kit-extraction-boundary.mjs'
       - 'test-fixtures/plugin-kit-channel-adapter/**'
       - 'runtime/**'
       - 'mcp/**'
       - 'docs-mcp/**'
+      - 'docs/PLUGIN_KIT.md'
+      - 'docs/VERSION_DOCS_MAP.md'
 
 jobs:
   pack-smoke:
@@ -46,6 +50,9 @@ jobs:
 
       - name: Install workspace dependencies
         run: npm ci
+
+      - name: Check plugin-kit extraction boundary
+        run: npm run check:plugin-kit-boundary
 
       - name: Run package pack smoke test
         run: npm run pack:smoke

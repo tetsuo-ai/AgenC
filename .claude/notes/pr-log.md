@@ -32,3 +32,24 @@
 - **What worked:** Recording the standalone protocol bootstrap immediately after the repo launch kept Gate 11 from drifting back into vague “extract protocol next” status language.
 - **What didn't:** `.claude/notes` is gitignored in this repo, so the tracked PR log still requires a forced add and the local gotcha/tech-debt notes remain session-local artifacts.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1485: refactor(plugin-kit): bootstrap public host ABI
+- **Date:** 2026-03-16
+- **Files changed:** `plugin-kit/**`, runtime plugin host seam, protocol artifact cutover in runtime/tests, pack-smoke and breaking-change gates, Gate 11 authority docs
+- **What worked:** Landing the public `plugin-kit` contract and the private runtime host seam together kept the ABI and the host enforcement rules in one coherent wave.
+- **What didn't:** The root `npm run test` gate initially failed because stale runtime IDL validation tests still described the old vendored-artifact model, so the protocol wording and tests had to be synchronized before the branch was truly green.
+- **Rule added to CLAUDE.md:** no
+
+## PR tetsuo-ai/agenc-plugin-kit#1: feat(repo): bootstrap standalone agenc-plugin-kit
+- **Date:** 2026-03-16
+- **Files changed:** standalone plugin-kit package source, compatibility matrix, certification tests, API baseline script, pack-smoke script, CI/publish workflows
+- **What worked:** Bootstrapping the public repo before cutting AgenC over kept the contract owner and the private host implementation properly separated.
+- **What didn't:** The repo already existed with only an auto-init README, so the bootstrap had to adopt that state instead of assuming a clean repo creation path.
+- **Rule added to CLAUDE.md:** no
+
+## PR tetsuo-ai/agenc-plugin-kit#3: docs(repo): add plugin-kit starter and changelog
+- **Date:** 2026-03-16
+- **Files changed:** `CHANGELOG.md`, `templates/channel-adapter-starter/**`, README starter guidance, CODEOWNERS
+- **What worked:** Adding a narrow starter template and release-history surface early made the public repo feel like a maintained product surface instead of a raw extracted package.
+- **What didn't:** The follow-up hardening commit initially landed on local `main`, so it had to be moved onto a dedicated feature branch before pushing.
+- **Rule added to CLAUDE.md:** no

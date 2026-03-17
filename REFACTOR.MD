@@ -950,8 +950,11 @@ Gate 11 is complete only when:
 
 #### 11.14 Current Phase 2 Status
 
-`[2026-03-16]` Phase 2 `plugin-kit` bootstrap is now live inside the monorepo:
-- [plugin-kit/](/home/tetsuo/git/AgenC/plugin-kit) exists as the public `@tetsuo-ai/plugin-kit` package with:
+`[2026-03-16]` Phase 2 `plugin-kit` extraction is now materially live:
+- the canonical public repo is [`tetsuo-ai/agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit)
+- AgenC now consumes the released `@tetsuo-ai/plugin-kit@0.1.1` artifact from npm rather than a monorepo workspace/package link
+- [plugin-kit/](/home/tetsuo/git/AgenC/plugin-kit) remains only as a de-authorized rollback mirror with a non-canonical package identity so it cannot shadow the published package
+- the standalone public package owns:
   - manifest validation
   - a versioned channel-host compatibility matrix
   - certification helpers
@@ -966,7 +969,7 @@ Gate 11 is complete only when:
   - restricted to package specifiers and explicit subpaths
   - blocked from shadowing reserved built-in channel names
   - required to match `manifest.channel_name` to the configured channel key
-- pack/install/baseline proof now covers `@tetsuo-ai/plugin-kit`
+- pack/install/baseline proof now covers the standalone `@tetsuo-ai/plugin-kit` package, and AgenC boundary checks verify the monorepo no longer treats `plugin-kit/` as a workspace or local authority
 
 Phase 2 does **not** yet make runtime private by decree. It only establishes the narrow public extension ABI and the private host adapter seam required before later runtime-side visibility tightening.
 

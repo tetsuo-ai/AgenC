@@ -1,7 +1,9 @@
 {
-  "name": "@tetsuo-ai/plugin-kit",
-  "version": "0.1.0",
-  "description": "Public plugin authoring contract for AgenC hosted extensions",
+  "name": "@tetsuo-ai/plugin-kit-rollback-mirror",
+  "version": "0.1.1-mirror.0",
+  "private": true,
+  "description": "Non-authoritative rollback mirror for @tetsuo-ai/plugin-kit during Gate 11 extraction",
+  "packageManager": "npm@11.7.0",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -27,9 +29,6 @@
     "dist",
     "README.md"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "tsup && node ./scripts/copy-channel-host-matrix.mjs",
     "typecheck": "tsc --noEmit",
@@ -39,8 +38,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tetsuo-ai/AgenC",
-    "directory": "plugin-kit"
+    "url": "https://github.com/tetsuo-ai/agenc-plugin-kit"
+  },
+  "homepage": "https://github.com/tetsuo-ai/agenc-plugin-kit#readme",
+  "bugs": {
+    "url": "https://github.com/tetsuo-ai/agenc-plugin-kit/issues"
   },
   "devDependencies": {
     "@types/node": "^25.4.0",
