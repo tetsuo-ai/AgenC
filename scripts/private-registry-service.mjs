@@ -2,6 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { chmod, copyFile, mkdir, rm } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
@@ -130,6 +131,8 @@ function buildRuntime(options) {
   const storageVolume = `${BASE_STORAGE_VOLUME}-${options.instance}`;
   const authVolume = `${BASE_AUTH_VOLUME}-${options.instance}`;
   const configPath = configPathByMode[options.mode];
+  const runtimeConfigDir = path.join(repoRoot, ".tmp", "private-registry", options.instance);
+  const mountedConfigPath = path.join(runtimeConfigDir, `${options.mode}-config.yaml`);
 
   return {
     mode: options.mode,
@@ -140,6 +143,8 @@ function buildRuntime(options) {
     storageVolume,
     authVolume,
     configPath,
+    runtimeConfigDir,
+    mountedConfigPath,
     image: DEFAULT_IMAGE,
   };
 }
@@ -262,6 +267,12 @@ function summarizeState(runtime, inspectObject) {
   };
 }
 
+async function prepareMountedConfig(runtime) {
+  await mkdir(runtime.runtimeConfigDir, { recursive: true });
+  await copyFile(runtime.configPath, runtime.mountedConfigPath);
+  await chmod(runtime.mountedConfigPath, 0o644);
+}
+
 async function startRegistry(runtime) {
   const inspectObject = dockerInspectObject(runtime.containerName);
   if (inspectObject?.State?.Running) {
@@ -279,6 +290,7 @@ async function startRegistry(runtime) {
   ensureVolume(runtime.storageVolume);
   ensureVolume(runtime.authVolume);
   initializeWritableVolumes(runtime);
+  await prepareMountedConfig(runtime);
 
   docker([
     "run",
@@ -302,7 +314,7 @@ async function startRegistry(runtime) {
     "-v",
     `${runtime.authVolume}:/verdaccio/auth`,
     "-v",
-    `${runtime.configPath}:/verdaccio/conf/config.yaml:ro`,
+    `${runtime.mountedConfigPath}:/verdaccio/conf/config.yaml:ro`,
     runtime.image,
     "--listen",
     `0.0.0.0:${CONTAINER_PORT}`,
@@ -323,10 +335,11 @@ function stopRegistry(runtime) {
   return summarizeState(runtime, inspectObject);
 }
 
-function resetRegistry(runtime) {
+async function resetRegistry(runtime) {
   removeContainerIfExists(runtime.containerName);
   removeVolumeIfExists(runtime.storageVolume);
   removeVolumeIfExists(runtime.authVolume);
+  await rm(runtime.runtimeConfigDir, { force: true, recursive: true });
   return summarizeState(runtime, null);
 }
 
@@ -416,7 +429,7 @@ async function main() {
       break;
     }
     case "reset":
-      printOutput(resetRegistry(runtime), options.json);
+      printOutput(await resetRegistry(runtime), options.json);
       break;
     case "logs":
       logsRegistry(runtime, options.follow);

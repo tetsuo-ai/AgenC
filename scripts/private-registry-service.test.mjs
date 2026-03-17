@@ -33,6 +33,7 @@ test("buildRuntime namespaces container and volume names by instance", () => {
   assert.equal(runtime.storageVolume, "agenc-private-registry-storage-demo");
   assert.equal(runtime.authVolume, "agenc-private-registry-auth-demo");
   assert.equal(runtime.registryUrl, "http://127.0.0.1:4988");
+  assert.match(runtime.mountedConfigPath, /\.tmp\/private-registry\/demo\/locked-config\.yaml$/);
 });
 
 test("buildVolumeInitScript prepares Verdaccio-owned auth and storage mounts", () => {

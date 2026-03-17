@@ -1,0 +1,64 @@
+name: Private Kernel Cloudsmith Validation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  private-kernel-cloudsmith:
+    runs-on: ubuntu-latest
+    environment: private-kernel-cloudsmith
+    permissions:
+      contents: read
+    env:
+      PRIVATE_KERNEL_REGISTRY_URL: https://npm.cloudsmith.io/agenc/private-kernel/
+      PRIVATE_KERNEL_REGISTRY_TOKEN: ${{ secrets.PRIVATE_KERNEL_REGISTRY_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Pin npm
+        run: npm install --global npm@11.7.0
+
+      - name: Verify npm version
+        run: test "$(npm --version)" = "11.7.0"
+
+      - name: Fail fast if Cloudsmith token is missing
+        run: |
+          if [ -z "${PRIVATE_KERNEL_REGISTRY_TOKEN:-}" ]; then
+            echo "::error::Missing PRIVATE_KERNEL_REGISTRY_TOKEN in the private-kernel-cloudsmith environment."
+            exit 1
+          fi
+          echo "::add-mask::$PRIVATE_KERNEL_REGISTRY_TOKEN"
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Build private-kernel packages
+        run: npm run build:private-kernel
+
+      - name: Check private-kernel surface
+        run: npm run check:private-kernel-surface
+
+      - name: Validate canonical private-kernel distribution config
+        run: npm run check:private-kernel-distribution
+
+      - name: Run private registry script tests
+        run: npm run test:private-registry-scripts
+
+      - name: Stage private-kernel distribution artifacts
+        run: npm run stage:private-kernel-distribution
+
+      - name: Dry-run private-kernel distribution against Cloudsmith
+        run: npm run dry-run:private-kernel-distribution
+
+      - name: Rehearse Cloudsmith fixture publish, view, and install
+        run: |
+          node scripts/private-registry-rehearsal.mjs \
+            --fixture-only \
+            --registry-url "$PRIVATE_KERNEL_REGISTRY_URL"

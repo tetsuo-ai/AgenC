@@ -54,27 +54,28 @@ That split is intentional:
 
 ## Backend contract
 
-The backend contract is intentionally registry-agnostic:
+The permanent hosted backend is Cloudsmith:
 
-- registry type: npm-compatible private registry
-- required config:
-  - registry URL
-  - internal scope
-  - auth token environment variable
-  - CI auth mode
-  - manual publish auth mode
+- hosted repository: `agenc/private-kernel`
+- npm endpoint: `https://npm.cloudsmith.io/agenc/private-kernel/`
 
-The current repo-owned reference implementation is a local/CI Verdaccio-backed
-registry path. That operational setup is documented in:
+The repo also keeps a local/CI reference backend on Verdaccio for untrusted PR
+validation and backend-independent rehearsal. That operational setup is
+documented in:
 
 - [PRIVATE_REGISTRY_SETUP.md](/home/tetsuo/git/AgenC/docs/PRIVATE_REGISTRY_SETUP.md)
 
-That reference path is now implemented and validated locally/CI for:
+The Verdaccio reference path is implemented and validated locally/CI for:
 
 - service-account bootstrap
 - authenticated `npm publish --dry-run`
 - private fixture publish/view/install
 - staged private-kernel publish/install rehearsal
+
+The Cloudsmith hosted path is the production/private distribution target. It is
+validated through the protected hosted workflow:
+
+- [private-kernel-cloudsmith.yml](/home/tetsuo/git/AgenC/.github/workflows/private-kernel-cloudsmith.yml)
 
 The checked-in reference config lives at:
 
@@ -99,12 +100,23 @@ Required configuration:
 - scope registry mapping comes from the checked-in distribution config
 - checked-in manifests remain `private: true`
 - only staged artifacts become publishable
+- hosted credential owner must be a service-scoped Cloudsmith account, not a
+  personal token
+- hosted GitHub auth must come from the protected `private-kernel-cloudsmith`
+  environment
 
 CI behavior is explicit:
 
 - `required`: missing or rejected auth is a hard failure
 - `optional-skip`: dry-run staging remains green, but the dry-run publish step
   exits with a machine-readable skip reason
+
+Important:
+
+- `optional-skip` is for general workflows that must remain safe on untrusted
+  PRs
+- the protected Cloudsmith hosted workflow hard-fails before execution if
+  `PRIVATE_KERNEL_REGISTRY_TOKEN` is missing
 
 Supported skip/failure reason codes:
 
@@ -170,10 +182,10 @@ Current review date:
 
 Sunset criteria:
 
-1. a real internal registry namespace is provisioned for the dedicated internal
-   scope
-2. the staged private-kernel packages complete a fully authenticated dry-run
-   publish cycle
+1. the protected Cloudsmith hosted validation succeeds against
+   `agenc/private-kernel` with a service-scoped credential
+2. Cloudsmith service-account auth, GitHub environment protection, and token
+   rotation policy are documented and active
 3. runtime-side transition notices are replaced with final private distribution
    and migration documentation
 

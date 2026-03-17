@@ -21,6 +21,7 @@ function parseArgs(argv, env = process.env) {
     scope: env.PRIVATE_KERNEL_PRIVATE_SCOPE || "@tetsuo-ai-private",
     token: env.PRIVATE_KERNEL_REGISTRY_TOKEN || null,
     stageRoot: env.PRIVATE_KERNEL_STAGE_ROOT ? path.resolve(repoRoot, env.PRIVATE_KERNEL_STAGE_ROOT) : defaultStageRoot,
+    fixtureOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -41,6 +42,9 @@ function parseArgs(argv, env = process.env) {
       case "--stage-root":
         index += 1;
         options.stageRoot = path.resolve(repoRoot, argv[index]);
+        break;
+      case "--fixture-only":
+        options.fixtureOnly = true;
         break;
       default:
         throw new Error(`unknown argument: ${argument}`);
@@ -142,15 +146,17 @@ async function runRehearsal(options) {
         }),
         "public scope uplink npm view",
       );
-      const privatePrePublishView = runNpm(
-        ["view", "@tetsuo-ai-private/runtime", "version", "--registry", options.registryUrl],
-        {
-          cwd: repoRoot,
-          env,
-        },
-      );
-      if ((privatePrePublishView.status ?? 1) === 0) {
-        throw new Error("private scope unexpectedly resolved before staged publish");
+      if (!options.fixtureOnly) {
+        const privatePrePublishView = runNpm(
+          ["view", "@tetsuo-ai-private/runtime", "version", "--registry", options.registryUrl],
+          {
+            cwd: repoRoot,
+            env,
+          },
+        );
+        if ((privatePrePublishView.status ?? 1) === 0) {
+          throw new Error("private scope unexpectedly resolved before staged publish");
+        }
       }
 
       await createFixturePackage(publicFixtureDir, {
@@ -194,28 +200,30 @@ async function runRehearsal(options) {
         "private fixture install",
       );
 
-      for (const pkg of stageManifest.packages) {
-        const stagedDir = path.join(repoRoot, pkg.stagedDir);
-        assertNpm(
-          runNpm(["publish", "--registry", options.registryUrl], { cwd: stagedDir, env }),
-          `staged publish ${pkg.stagedName}`,
-        );
-      }
-
-      assertNpm(runNpm(["init", "-y"], { cwd: stagedInstallDir, env }), "staged consumer npm init");
-
       const stagedConsumers = ["@tetsuo-ai-private/mcp", "@tetsuo-ai-private/desktop-server"].filter((name) =>
         stageManifest.packages.some((pkg) => pkg.stagedName === name),
       );
 
-      for (const packageName of stagedConsumers) {
-        assertNpm(
-          runNpm(["install", packageName, "--registry", options.registryUrl], {
-            cwd: stagedInstallDir,
-            env,
-          }),
-          `staged consumer install ${packageName}`,
-        );
+      if (!options.fixtureOnly) {
+        for (const pkg of stageManifest.packages) {
+          const stagedDir = path.join(repoRoot, pkg.stagedDir);
+          assertNpm(
+            runNpm(["publish", "--registry", options.registryUrl], { cwd: stagedDir, env }),
+            `staged publish ${pkg.stagedName}`,
+          );
+        }
+
+        assertNpm(runNpm(["init", "-y"], { cwd: stagedInstallDir, env }), "staged consumer npm init");
+
+        for (const packageName of stagedConsumers) {
+          assertNpm(
+            runNpm(["install", packageName, "--registry", options.registryUrl], {
+              cwd: stagedInstallDir,
+              env,
+            }),
+            `staged consumer install ${packageName}`,
+          );
+        }
       }
 
       process.stdout.write(
@@ -223,8 +231,9 @@ async function runRehearsal(options) {
           {
             registryUrl: options.registryUrl,
             fixtureVersion,
+            fixtureOnly: options.fixtureOnly,
             privateFixtureName,
-            stagedConsumers,
+            stagedConsumers: options.fixtureOnly ? [] : stagedConsumers,
           },
           null,
           2,
