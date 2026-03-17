@@ -11,7 +11,7 @@ import {
   SystemProgram,
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
-import { AgencCoordination } from "../target/types/agenc_coordination";
+import type { AgencCoordination } from "-ai/protocol";
 import { deriveProgramDataPda } from "./test-utils";
 
 describe("minimal-debug", () => {

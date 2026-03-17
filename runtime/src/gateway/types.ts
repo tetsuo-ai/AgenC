@@ -244,9 +244,18 @@ export interface GatewayMemoryConfig {
 }
 
 export interface GatewayChannelConfig {
-  type: string;
-  enabled: boolean;
+  type?: string;
+  enabled?: boolean;
   [key: string]: unknown;
+}
+
+export interface GatewayTrustedPluginPackageConfig {
+  packageName: string;
+  allowedSubpaths?: string[];
+}
+
+export interface GatewayPluginsConfig {
+  trustedPackages?: GatewayTrustedPluginPackageConfig[];
 }
 
 export interface GatewayAgentConfig {
@@ -615,6 +624,7 @@ export interface GatewayConfig {
   llm?: GatewayLLMConfig;
   memory?: GatewayMemoryConfig;
   channels?: Record<string, GatewayChannelConfig>;
+  plugins?: GatewayPluginsConfig;
   logging?: GatewayLoggingConfig;
   auth?: GatewayAuthConfig;
   voice?: GatewayVoiceConfig;

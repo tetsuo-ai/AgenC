@@ -8,6 +8,8 @@
     "runtime",
     "mcp",
     "docs-mcp",
+    "plugin-kit",
+    "test-fixtures/plugin-kit-channel-adapter",
     "web",
     "mobile",
     "demo-app",
@@ -26,14 +28,15 @@
     "tools/zk-admin"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@tetsuo-ai/runtime && npm run build --workspace=@tetsuo-ai/mcp && npm run build --workspace=@tetsuo-ai/docs-mcp",
+    "build": "npm run build --workspace=@tetsuo-ai/plugin-kit && npm run build --workspace=@tetsuo-ai/runtime && npm run build --workspace=@tetsuo-ai/mcp && npm run build --workspace=@tetsuo-ai/docs-mcp",
+    "build:plugin-kit": "npm run build --workspace=@tetsuo-ai/plugin-kit",
     "build:runtime": "npm run build --workspace=@tetsuo-ai/runtime",
     "build:mcp": "npm run build --workspace=@tetsuo-ai/mcp",
     "pack:smoke": "npm run build && node scripts/pack-smoke.mjs",
     "pack:smoke:skip-build": "node scripts/pack-smoke.mjs",
-    "test": "npm run test --workspace=@tetsuo-ai/runtime",
+    "test": "npm run test --workspace=@tetsuo-ai/plugin-kit && npm run test --workspace=@tetsuo-ai/runtime",
     "test:fast": "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test-create-task.ts tests/test-claim-task.ts tests/test-lifecycle.ts tests/test-state-machine.ts tests/test-authority.ts tests/test-audit-gaps.ts tests/test-escrow.ts tests/test-disputes.ts tests/test-reputation-stake.ts tests/test-concurrency.ts tests/test-invariants.ts tests/test-reputation-gate.ts tests/agent-feed.ts",
-    "typecheck": "npm run typecheck --workspace=@tetsuo-ai/runtime && npm run typecheck --workspace=@tetsuo-ai/mcp",
+    "typecheck": "npm run typecheck --workspace=@tetsuo-ai/plugin-kit && npm run typecheck --workspace=@tetsuo-ai/runtime && npm run typecheck --workspace=@tetsuo-ai/mcp",
     "example:autonomous-agent": "npm run start --workspace=@tetsuo-ai/example-autonomous-agent --",
     "example:dispute-arbiter": "npm run start --workspace=@tetsuo-ai/example-dispute-arbiter --",
     "example:event-dashboard": "npm run start --workspace=@tetsuo-ai/example-event-dashboard --",
@@ -52,6 +55,7 @@
     "rollup": "^4.59.0"
   },
   "dependencies": {
+    "@tetsuo-ai/protocol": "0.1.1",
     "markdown-it": "^14.1.1",
     "tsx": "^4.7.0",
     "ws": "^8.19.0"

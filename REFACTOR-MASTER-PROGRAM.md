@@ -96,7 +96,7 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Docs | `docs/` | architecture docs, roadmap, runbooks, flow docs, sequencing references | Keep authoritative and synchronized with implementation and docs-mcp |
 | Runtime operational docs | `runtime/docs/` | runtime-specific runbooks, replay docs, observability docs, operational CLI guidance | Keep synchronized with runtime behavior and docs-mcp indexing |
 | Package-local docs and changelogs | `programs/agenc-coordination/README.md`, `runtime/README.md`, `runtime/CHANGELOG.md`, `sdk/README.md`, `sdk/CHANGELOG.md`, `mcp/README.md`, `mcp/CHANGELOG.md`, `docs-mcp/README.md`, `migrations/README.md`, `examples/**/README.md`, plus top-level package/app/platform `README.md` and `CHANGELOG.md` files when present | package-level contracts, release notes, usage docs, migration notes, example-level guidance | Keep aligned with public surfaces and docs-mcp indexing |
-| Contract artifacts and codegen surfaces | `docs/api-baseline/`, `runtime/idl/`, `runtime/benchmarks/`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, `contracts/desktop-tool-contracts/`, `scripts/idl/`, `target/idl/`, `target/types/`, `runtime/src/types/agenc_coordination.ts` | machine-readable baselines, IDL/schema artifacts, verifier-router artifacts, benchmark manifests, drift scripts, and shared contract packages | Treat as first-class architecture and verification surfaces |
+| Contract artifacts and codegen surfaces | `docs/api-baseline/`, `runtime/benchmarks/`, `runtime/scripts/check-idl-drift.ts`, `contracts/desktop-tool-contracts/`, `scripts/idl/`, `target/idl/`, `target/types/`, `runtime/src/types/agenc_coordination.ts`, and the released `@tetsuo-ai/protocol` artifact surface | machine-readable baselines, IDL/schema artifacts, verifier-router artifacts, benchmark manifests, drift scripts, compatibility shims, and shared contract packages | Treat as first-class architecture and verification surfaces |
 | Scripts | `scripts/` (operational utilities, soak/autonomy infra, deployment/security validation, wrappers), `runtime/src/watch/`, and `runtime/tests/watch/` | setup, validation, benchmarking, migration, build, runtime-owned watch implementation, and package-local watch regression coverage | Convert into explicit build/release/test ownership surfaces |
 | Benchmarks | `benchmarks/` | benchmark evidence output for private-proof and related verification runs (`latest.md`, `latest.json`, `index.html`) | Keep benchmark outputs explicit and aligned to verification scope |
 | Migrations | `migrations/` | protocol and data migration support | Version, test, and align with dependency-gated rollout order |
@@ -246,9 +246,9 @@ The repo already carries machine-readable or generated contract-bearing artifact
 - `docs/api-baseline/runtime.json`
 - `docs/api-baseline/sdk.json`
 - `docs/api-baseline/mcp.json`
+- released protocol artifacts from `@tetsuo-ai/protocol`
 - `target/idl/agenc_coordination.json`
 - `target/types/agenc_coordination.ts`
-- `runtime/idl/agenc_coordination.json`
 - `runtime/src/types/agenc_coordination.ts`
 - `contracts/desktop-tool-contracts/src/index.ts`
 - `scripts/idl/verifier_router.json`
@@ -430,7 +430,7 @@ These contracts must be made explicit, versioned where needed, and migration-tes
 - public API baselines
 - generated schema and IDL baselines
 - Anchor-generated `target/idl` / `target/types` artifact-chain continuity
-- named drift and contract guard surfaces such as `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, and the `contracts/desktop-tool-contracts/` package build
+- named drift and contract guard surfaces such as `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, the released `@tetsuo-ai/protocol` artifact contract, and the `contracts/desktop-tool-contracts/` package build
 - benchmark corpus, manifests, and gate definitions
 - benchmark and mutation gates
 - background-run quality gates, delegation benchmark gates, pipeline quality gates, and autonomy rollout gates (each a distinct gate surface beyond base benchmark/mutation)
@@ -885,7 +885,7 @@ Current-state problem:
 - the operator-console/watch surface is now a runtime-owned subsystem under `runtime/src/watch/` with a packaged `agenc-watch` bin and a local-dev wrapper at `scripts/agenc-watch.mjs`
 - exported runtime surfaces such as `@tetsuo-ai/runtime/operator-events` and the packaged `agenc-watch` bin act as compatibility inputs for operational tooling and must be modeled as contract-bearing outputs where they cross package boundaries
 - oversized runtime/watch artifacts such as `runtime/src/watch/agenc-watch-app.mjs` and giant test surfaces such as `tests/test_1.ts` are also part of the refactor backlog and cannot be ignored just because they sit outside `runtime/src/gateway`
-- concrete drift and contract guards already act as architecture gates today, including `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, and the `contracts/desktop-tool-contracts/` package build
+- concrete drift and contract guards already act as architecture gates today, including `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, the released `@tetsuo-ai/protocol` artifact contract, and the `contracts/desktop-tool-contracts/` package build
 
 Target end state:
 
@@ -926,7 +926,7 @@ Acceptance gates:
 - repo-wide verification remains explicit for app packages, packaged examples, desktop server, Anchor/program, zkVM/proof, and other build-bearing surfaces touched by the gate
 - docs, package-local docs/changelogs, root policy docs indexed by docs-mcp, and docs-mcp update in the same gate as the architecture or public surface they describe
 - no smoke, admin, bootstrap, or validation script imports private runtime or SDK source files directly unless it is explicitly classified as refactor-local tooling with an owned compatibility contract
-- named drift and contract guards such as `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, `runtime/scripts/copy-idl.js`, and the `contracts/desktop-tool-contracts/` package remain green or are explicitly version-migrated in the same gate
+- named drift and contract guards such as `scripts/check-breaking-changes.ts`, `runtime/scripts/check-idl-drift.ts`, the released `@tetsuo-ai/protocol` artifact contract, and the `contracts/desktop-tool-contracts/` package remain green or are explicitly version-migrated in the same gate
 - the operator-console/watch subsystem has an explicit compatibility contract for runtime operator events and built helper artifacts
 - the root standalone tool/app surface is explicitly classified and no giant orphaned test, script, or root build surface remains unexplained
 
@@ -1287,6 +1287,7 @@ Must include:
 - exact folder-to-repo ownership mapping
 - public/private package distribution policy
 - `agenc-plugin-kit` v1 manifest, lifecycle, and certification contract
+- explicit `plugin-kit` host ABI versioning and compatibility policy owned by `agenc-core`
 - migration of repository metadata, issue and docs authority, and consumer install paths to the chosen repo topology
 - explicit rollback path back to the monorepo release topology
 - deprecation/migration handling for runtime-side packages that should no longer be treated as public long-term contracts
@@ -1297,6 +1298,8 @@ Guardrails:
 - `contracts/desktop-tool-contracts` stays internal/private unless a separate external use case is explicitly proven
 - public examples must be SDK-only or plugin-kit-only; examples needing private runtime internals remain private
 - `zkvm/guest` belongs with the public protocol/trust surface; `zkvm/host` and remote prover operations remain private
+- the current `AgenC` repo is the frozen `agenc-core` baseline for Gate 11 unless a later fallback mirror is explicitly invoked
+- runtime-side package names already published publicly are transitional artifacts only and require explicit deprecation plus migration handling before any visibility tightening
 
 Exit gate:
 
@@ -1468,9 +1471,23 @@ Current status:
 - Gates 0 through 9 have produced their gate artifacts and monorepo modularity proof.
 - Gate 10 passed its final exit review on `2026-03-16` for the current split-candidate scope.
 - Gate 11 is `IN PROGRESS` with a recorded split decision: public contracts and extension sockets, private core and proving/control-plane repos.
+- Gate 11 Phase 0 boundary lock is now recorded in [ADR-002](docs/architecture/adr/adr-002-public-contract-private-kernel-boundary.md):
+  - public `agenc-sdk`, `agenc-protocol`, `agenc-plugin-kit`
+  - private `agenc-core`, `agenc-prover`/`agenc-cloud`
+  - `AgenC` frozen as the `agenc-core` baseline
+  - `plugin-kit` host ABI and runtime-side package deprecation policy are mandatory parts of the program, not optional follow-up cleanup
 - Gate 11 execution has started materially:
   - `agenc-sdk` was extracted and the monorepo now consumes the released `@tetsuo-ai/sdk@1.3.1` artifact
   - `agenc-protocol` now exists as a standalone public trust-surface repo with committed generated artifacts on `main`
+  - AgenC completed the first protocol consumer cutover slice against released `@tetsuo-ai/protocol@0.1.1`; vendored runtime protocol artifact authority is gone and local `target/**` protocol assets are now explicit test-only validation inputs
+  - `agenc-plugin-kit` now exists in the monorepo as the narrow public extension ABI package `@tetsuo-ai/plugin-kit`
+  - the first supported public extension class is `channel_adapter`
+  - AgenC runtime now hosts plugin-backed external channels through a private adapter seam with:
+    - package allowlisting via `plugins.trustedPackages`
+    - explicit allowed subpaths
+    - reserved built-in channel-name protection
+    - manifest/channel-key matching
+    - pack/install/baseline proof for the public package
 - Gate 12 remains blocked until the Gate 11 extraction topology is materially stable.
 
 The next work to execute under this plan is:
@@ -1480,13 +1497,14 @@ The next work to execute under this plan is:
    - the AgenC monorepo already consumes the released SDK artifact and no longer owns SDK workspace builds
    - keep the local `sdk/` and `examples/private-task-demo/` trees only as de-authorized rollback mirrors until the next extraction wave is stable, then delete them
 2. execute the next `agenc-protocol` slice inside AgenC:
-   - cut AgenC runtime off vendored `runtime/idl/**` and `runtime/src/types/agenc_coordination.ts` authority
-   - move or rewrite SDK/root tests that still import `target/idl/**` or `target/types/**`
-   - replace `runtime/scripts/copy-idl.js` with released protocol artifact consumption
-3. define and extract `agenc-plugin-kit` as the narrow public extension ABI before exposing any broader runtime seam
-4. extract `agenc-prover` or `agenc-cloud` for private host-side proving and control-plane operations while keeping `agenc-core` private
-5. execute Gate 12 cleanup only after the Gate 11 extraction topology is materially stable
-6. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
+   - this cutover landed on `2026-03-16`: runtime now consumes released `@tetsuo-ai/protocol` artifacts, `runtime/idl/**` authority is gone, `runtime/scripts/copy-idl.js` is removed, and root tests use the published package or the explicit `tests/protocol-artifacts.ts` local fallback
+   - keep the local test-only `AGENC_USE_LOCAL_PROTOCOL_TARGET=1` fallback explicit and scoped to unreleased protocol development
+   - update active docs and verification records so they stop claiming runtime still owns vendored protocol artifact truth
+3. finish `agenc-plugin-kit` Phase 2 stabilization and certification coverage before exposing any broader runtime seam
+4. extract `agenc-plugin-kit` into its standalone public repo after the current host-ABI slice is stable
+5. extract `agenc-prover` or `agenc-cloud` for private host-side proving and control-plane operations while keeping `agenc-core` private
+6. execute Gate 12 cleanup only after the Gate 11 extraction topology is materially stable
+7. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
 
 No one should start Gate 11 extraction work without preserving the Gate 10 portability guarantees already proven here.
 

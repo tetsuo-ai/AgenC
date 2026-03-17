@@ -1,0 +1,121 @@
+{
+  "package": "@tetsuo-ai/plugin-kit",
+  "version": "0.1.0",
+  "generatedAt": "2026-03-17T04:43:32.574Z",
+  "entryPoint": "plugin-kit/src/index.ts",
+  "exports": [
+    {
+      "name": "certifyChannelAdapterModule",
+      "kind": "function",
+      "signature": "(params: { readonly moduleExports: unknown; readonly config?: unknown; }): ChannelAdapterCertificationResult"
+    },
+    {
+      "name": "CHANNEL_ADAPTER_HOST_API_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "CHANNEL_ADAPTER_PLUGIN_API_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "CHANNEL_ADAPTER_PLUGIN_TYPE",
+      "kind": "const"
+    },
+    {
+      "name": "CHANNEL_ADAPTER_SCHEMA_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "CHANNEL_HOST_COMPATIBILITY_MATRIX",
+      "kind": "const"
+    },
+    {
+      "name": "ChannelAdapter",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelAdapterCertificationIssue",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelAdapterCertificationResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelAdapterContext",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelAdapterLogger",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelAdapterManifest",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelAdapterModuleExports",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelConfigValidationResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelHostCompatibilityEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelInboundAttachment",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelInboundMessage",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelManifestValidationIssue",
+      "kind": "interface"
+    },
+    {
+      "name": "ChannelOutboundMessage",
+      "kind": "interface"
+    },
+    {
+      "name": "findChannelHostCompatibilityEntry",
+      "kind": "function",
+      "signature": "(params: { plugin_type: string; plugin_api_version: string; host_api_version: string; }): ChannelHostCompatibilityEntry | undefined"
+    },
+    {
+      "name": "isChannelHostCompatibilitySupported",
+      "kind": "function",
+      "signature": "(params: { plugin_type: string; plugin_api_version: string; host_api_version: string; }): boolean"
+    },
+    {
+      "name": "PluginCertificationError",
+      "kind": "class"
+    },
+    {
+      "name": "PluginCompatibilityStatus",
+      "kind": "type"
+    },
+    {
+      "name": "PluginKitError",
+      "kind": "class"
+    },
+    {
+      "name": "PluginManifestValidationError",
+      "kind": "class"
+    },
+    {
+      "name": "resolveChannelAdapterModuleExports",
+      "kind": "function",
+      "signature": "(moduleExports: unknown): ChannelAdapterModuleExports | null"
+    },
+    {
+      "name": "validateChannelAdapterManifest",
+      "kind": "function",
+      "signature": "(value: unknown): readonly ChannelManifestValidationIssue[]"
+    }
+  ]
+}

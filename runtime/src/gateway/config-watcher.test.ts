@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateGatewayConfig } from "./config-watcher.js";
+import { diffGatewayConfig, validateGatewayConfig } from "./config-watcher.js";
 
 function makeConfig(desktop?: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -154,6 +154,170 @@ describe("validateGatewayConfig desktop resource limits", () => {
 
 });
 
+describe("validateGatewayConfig plugin channel hosting", () => {
+  it("accepts trusted package allowlists and plugin channel entries", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      plugins: {
+        trustedPackages: [
+          {
+            packageName: "@tetsuo-ai/plugin-kit-channel-fixture",
+            allowedSubpaths: ["slack"],
+          },
+        ],
+      },
+      channels: {
+        "fixture-slack": {
+          type: "plugin",
+          moduleSpecifier: "@tetsuo-ai/plugin-kit-channel-fixture/slack",
+          config: {
+            token: "abc",
+          },
+        },
+      },
+    });
+
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects unsafe plugin module specifiers", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      channels: {
+        custom: {
+          type: "plugin",
+          moduleSpecifier: "file:../../evil.mjs",
+        },
+      },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "channels.custom.moduleSpecifier must be a bare package specifier like @scope/name or @scope/name/subpath",
+    );
+  });
+
+  it("rejects invalid trusted package names and subpaths", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      plugins: {
+        trustedPackages: [
+          {
+            packageName: "../evil",
+            allowedSubpaths: ["../escape"],
+          },
+        ],
+      },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "plugins.trustedPackages[0].packageName must be a bare package name like @scope/name",
+    );
+    expect(result.errors).toContain(
+      "plugins.trustedPackages[0].allowedSubpaths[0] must be a relative package subpath like channels/slack",
+    );
+  });
+
+  it("rejects plugin wrappers on reserved built-in channel names", () => {
+    const result = validateGatewayConfig({
+      ...makeConfig(),
+      channels: {
+        slack: {
+          type: "plugin",
+          moduleSpecifier: "@tetsuo-ai/plugin-kit-channel-fixture/slack",
+        },
+      },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      'channels.slack.type cannot be "plugin" for reserved built-in channel "slack"',
+    );
+  });
+});
+
+describe("validateGatewayConfig plugin host policy", () => {
+  it("accepts plugin trust policy and plugin-backed channel wrapper fields", () => {
+    const config = makeConfig();
+    config.plugins = {
+      trustedPackages: [
+        {
+          packageName: "@tetsuo-ai/plugin-kit-channel-example",
+          allowedSubpaths: ["runtime"],
+        },
+      ],
+    };
+    config.channels = {
+      discord: {
+        type: "discord",
+        token: "secret",
+      },
+      custom: {
+        type: "plugin",
+        moduleSpecifier: "@tetsuo-ai/plugin-kit-channel-example/runtime",
+        config: {
+          endpoint: "https://example.com/webhook",
+        },
+      },
+    };
+
+    const result = validateGatewayConfig(config);
+
+    expect(result.valid).toBe(true);
+  });
+
+  it("treats missing channel enabled as valid for legacy compatibility", () => {
+    const config = makeConfig();
+    config.channels = {
+      telegram: {
+        token: "secret-token",
+      },
+    };
+
+    const result = validateGatewayConfig(config);
+
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects invalid plugin trust policy and plugin channel wrapper fields", () => {
+    const config = makeConfig();
+    config.plugins = {
+      trustedPackages: [
+        {
+          packageName: "",
+          allowedSubpaths: [123],
+        },
+      ],
+    } as any;
+    config.channels = {
+      custom: {
+        type: "plugin",
+        moduleSpecifier: "   ",
+        enabled: "yes",
+        config: "not-an-object",
+      },
+    } as any;
+
+    const result = validateGatewayConfig(config);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "plugins.trustedPackages[0].packageName must be a non-empty string",
+    );
+    expect(result.errors).toContain(
+      "plugins.trustedPackages[0].allowedSubpaths[0] must be a relative package subpath like channels/slack",
+    );
+    expect(result.errors).toContain("channels.custom.enabled must be a boolean");
+    expect(result.errors).toContain(
+      'channels.custom.moduleSpecifier must be a non-empty string when type is "plugin"',
+    );
+    expect(result.errors).toContain(
+      "channels.custom.config must be an object when provided",
+    );
+  });
+});
+
 describe("validateGatewayConfig workspace host path", () => {
   it("accepts a non-empty workspace.hostPath string", () => {
     const config = makeConfig();
@@ -174,6 +338,34 @@ describe("validateGatewayConfig workspace host path", () => {
     expect(result.errors).toContain(
       "workspace.hostPath must be a non-empty string",
     );
+  });
+});
+
+describe("diffGatewayConfig restart-only channel/plugin surfaces", () => {
+  it("marks channels and plugins changes as unsafe", () => {
+    const oldConfig = makeConfig() as any;
+    const newConfig = {
+      ...makeConfig(),
+      plugins: {
+        trustedPackages: [
+          { packageName: "@tetsuo-ai/plugin-kit-channel-fixture" },
+        ],
+      },
+      channels: {
+        "fixture-slack": {
+          type: "plugin",
+          enabled: true,
+          moduleSpecifier: "@tetsuo-ai/plugin-kit-channel-fixture/slack",
+        },
+      },
+    } as any;
+
+    const diff = diffGatewayConfig(oldConfig, newConfig);
+
+    expect(diff.unsafe).toContain("plugins.trustedPackages");
+    expect(diff.unsafe).toContain("channels.fixture-slack.type");
+    expect(diff.unsafe).toContain("channels.fixture-slack.enabled");
+    expect(diff.unsafe).toContain("channels.fixture-slack.moduleSpecifier");
   });
 });
 

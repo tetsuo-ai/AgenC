@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { AGENC_COORDINATION_IDL } from '@tetsuo-ai/protocol';
 import {
   // Constants
   RuntimeErrorCodes,
@@ -38,10 +37,7 @@ interface IdlErrorEntry {
   msg: string;
 }
 
-const idlPath = resolve(process.cwd(), 'idl', 'agenc_coordination.json');
-const idlErrors = (
-  JSON.parse(readFileSync(idlPath, 'utf8')) as { errors?: IdlErrorEntry[] }
-).errors ?? [];
+const idlErrors = (AGENC_COORDINATION_IDL as { errors?: IdlErrorEntry[] }).errors ?? [];
 const idlErrorMap = new Map(idlErrors.map((entry) => [entry.name, entry]));
 const idlCodes = idlErrors.map((entry) => entry.code);
 const idlMinCode = Math.min(...idlCodes);

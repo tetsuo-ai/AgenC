@@ -17,7 +17,7 @@ import {
   LAMPORTS_PER_SOL,
   SendTransactionError,
 } from "@solana/web3.js";
-import { AgencCoordination } from "../target/types/agenc_coordination";
+import type { AgencCoordination } from "-ai/protocol";
 import {
   createLiteSVMContext,
   fundAccount,

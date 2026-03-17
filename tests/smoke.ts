@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { PublicKey, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { assert, expect } from "chai";
 import BN from "bn.js";
-import type { AgencCoordination } from "../runtime/src/types/agenc_coordination";
+import type { AgencCoordination } from "-ai/protocol";
 import {
   CAPABILITY_COMPUTE,
   CAPABILITY_STORAGE,

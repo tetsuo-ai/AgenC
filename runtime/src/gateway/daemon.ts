@@ -54,7 +54,6 @@ import {
 } from "./daemon-trace.js";
 import type { ResolvedTraceLoggingConfig } from "./daemon-trace.js";
 import { WebChatChannel } from "../channels/webchat/plugin.js";
-import type { TelegramChannel } from "../channels/telegram/plugin.js";
 import { WorkspaceManager } from "./workspace.js";
 import {
   resolveHostWorkspacePath,
@@ -191,16 +190,11 @@ import {
   PipelineExecutor,
 } from "../workflow/pipeline.js";
 import { ConnectionManager } from "../connection/manager.js";
-import type { DiscordChannel } from "../channels/discord/plugin.js";
-import type { SlackChannel } from "../channels/slack/plugin.js";
-import type { WhatsAppChannel } from "../channels/whatsapp/plugin.js";
-import type { SignalChannel } from "../channels/signal/plugin.js";
-import type { MatrixChannel } from "../channels/matrix/plugin.js";
 import type { ChannelPlugin } from "./channel.js";
 import {
-  wireTelegram as wireTelegramChannel,
   wireExternalChannels as wireExternalChannelsStandalone,
   type ChannelWiringDeps,
+  type ExternalChannelRegistry,
 } from "./channel-wiring.js";
 import type { ProactiveCommunicator } from "./proactive.js";
 import { ToolRouter, type ToolRoutingDecision } from "./tool-routing.js";
@@ -1011,13 +1005,7 @@ export class DaemonManager {
   private _webChatInboundHandler:
     | ((msg: GatewayMessage) => Promise<void>)
     | null = null;
-  private _telegramChannel: TelegramChannel | null = null;
-  private _discordChannel: DiscordChannel | null = null;
-  private _slackChannel: SlackChannel | null = null;
-  private _whatsAppChannel: WhatsAppChannel | null = null;
-  private _signalChannel: SignalChannel | null = null;
-  private _matrixChannel: MatrixChannel | null = null;
-  private _imessageChannel: ChannelPlugin | null = null;
+  private readonly _externalChannels: ExternalChannelRegistry = new Map();
   private _proactiveCommunicator: ProactiveCommunicator | null = null;
   private _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private _heartbeatScheduler:
@@ -1546,100 +1534,111 @@ export class DaemonManager {
     );
 
     await gateway.start();
+    this.gateway = gateway;
     this.initializeObservabilityService(gatewayConfig.logging);
-
-    // Start desktop sandbox manager before wiring WebChat (commands need it)
-    if (gatewayConfig.desktop?.enabled) {
-      try {
-        const [{ DesktopSandboxManager }, { DesktopSandboxWatchdog }] =
-          await Promise.all([
-            import("../desktop/manager.js"),
-            import("../desktop/health.js"),
-          ]);
-        this._desktopManager = new DesktopSandboxManager(
-          gatewayConfig.desktop,
-          {
-            logger: this.logger,
-            workspacePath: hostWorkspacePath,
-            workspaceAccess: "readwrite",
-            workspaceMountPath: "/workspace",
-            hostUid:
-              typeof process.getuid === "function"
-                ? process.getuid()
-                : undefined,
-            hostGid:
-              typeof process.getgid === "function"
-                ? process.getgid()
-                : undefined,
-          },
-        );
-        await this._desktopManager.start();
-        this._desktopWatchdog = new DesktopSandboxWatchdog(
-          this._desktopManager,
-          {
-            intervalMs: gatewayConfig.desktop.healthCheckIntervalMs,
-            logger: this.logger,
-          },
-        );
-        this._desktopWatchdog.start();
-      } catch (err) {
-        this._desktopWatchdog?.stop();
-        this._desktopWatchdog = null;
-        this.logger.warn?.("Desktop sandbox manager failed to start:", err);
-      }
-    }
-
-    // Wire up WebChat channel with LLM pipeline
-    await this.wireWebChat(gateway, gatewayConfig);
-
-    // Wire up Telegram channel if configured
-    // Wire up all other external channels (Discord, Slack, WhatsApp, Signal, Matrix, iMessage)
-    const channelDeps = this._buildChannelWiringDeps();
-    if (gatewayConfig.channels?.telegram) {
-      this._telegramChannel = await wireTelegramChannel(gatewayConfig, channelDeps);
-    }
-    const extChannels = await wireExternalChannelsStandalone(gatewayConfig, channelDeps);
-    this._discordChannel = extChannels.discordChannel;
-    this._slackChannel = extChannels.slackChannel;
-    this._whatsAppChannel = extChannels.whatsAppChannel;
-    this._signalChannel = extChannels.signalChannel;
-    this._matrixChannel = extChannels.matrixChannel;
-    this._imessageChannel = extChannels.imessageChannel;
-
-    // Wire up autonomous features (curiosity, self-learning, meta-planner, proactive comms)
-    await this.wireAutonomousFeatures(gatewayConfig);
-
-    // Wire up subsystems (marketplace, social module)
-    await this.wireMarketplace(gatewayConfig);
-    await this.wireSocial(gatewayConfig);
+    const pendingExternalChannels: ExternalChannelRegistry = new Map();
 
     try {
-      await writePidFile(
-        {
-          pid: process.pid,
-          port: gatewayConfig.gateway.port,
-          configPath: this.configPath,
-        },
-        this.pidPath,
+      // Start desktop sandbox manager before wiring WebChat (commands need it)
+      if (gatewayConfig.desktop?.enabled) {
+        try {
+          const [{ DesktopSandboxManager }, { DesktopSandboxWatchdog }] =
+            await Promise.all([
+              import("../desktop/manager.js"),
+              import("../desktop/health.js"),
+            ]);
+          this._desktopManager = new DesktopSandboxManager(
+            gatewayConfig.desktop,
+            {
+              logger: this.logger,
+              workspacePath: hostWorkspacePath,
+              workspaceAccess: "readwrite",
+              workspaceMountPath: "/workspace",
+              hostUid:
+                typeof process.getuid === "function"
+                  ? process.getuid()
+                  : undefined,
+              hostGid:
+                typeof process.getgid === "function"
+                  ? process.getgid()
+                  : undefined,
+            },
+          );
+          await this._desktopManager.start();
+          this._desktopWatchdog = new DesktopSandboxWatchdog(
+            this._desktopManager,
+            {
+              intervalMs: gatewayConfig.desktop.healthCheckIntervalMs,
+              logger: this.logger,
+            },
+          );
+          this._desktopWatchdog.start();
+        } catch (err) {
+          this._desktopWatchdog?.stop();
+          this._desktopWatchdog = null;
+          this.logger.warn?.("Desktop sandbox manager failed to start:", err);
+        }
+      }
+
+      // Wire up WebChat channel with LLM pipeline
+      await this.wireWebChat(gateway, gatewayConfig);
+
+      // Wire up all enabled external channels through the unified registry path
+      const channelDeps = this._buildChannelWiringDeps();
+      const extChannels = await wireExternalChannelsStandalone(
+        gatewayConfig,
+        channelDeps,
       );
+      for (const [name, channel] of extChannels) {
+        pendingExternalChannels.set(name, channel);
+      }
+      for (const [name, channel] of extChannels) {
+        gateway.registerChannel(channel);
+        this._externalChannels.set(name, channel);
+        pendingExternalChannels.delete(name);
+      }
+
+      // Wire up autonomous features (curiosity, self-learning, meta-planner, proactive comms)
+      await this.wireAutonomousFeatures(gatewayConfig);
+
+      // Wire up subsystems (marketplace, social module)
+      await this.wireMarketplace(gatewayConfig);
+      await this.wireSocial(gatewayConfig);
+
+      try {
+        await writePidFile(
+          {
+            pid: process.pid,
+            port: gatewayConfig.gateway.port,
+            configPath: this.configPath,
+          },
+          this.pidPath,
+        );
+      } catch (error) {
+        throw new GatewayLifecycleError(
+          `Failed to write PID file: ${toErrorMessage(error)}`,
+        );
+      }
+
+      this.startedAt = Date.now();
+      this.setupSignalHandlers();
+
+      this.logger.info("Daemon started", {
+        pid: process.pid,
+        port: gatewayConfig.gateway.port,
+      });
     } catch (error) {
-      await gateway.stop();
-      await this.destroySubAgentInfrastructure();
-      this._subAgentRuntimeConfig = null;
-      this.clearDelegationRuntimeServices();
-      throw new GatewayLifecycleError(
-        `Failed to write PID file: ${toErrorMessage(error)}`,
-      );
+      this._externalChannels.clear();
+      try {
+        await this.stop();
+      } catch (stopError) {
+        this.logger.error("Daemon startup rollback failed:", stopError);
+      }
+      if (error instanceof GatewayLifecycleError) {
+        throw error;
+      }
+      throw new GatewayLifecycleError(`Failed to start daemon: ${toErrorMessage(error)}`);
     }
-
-    this.gateway = gateway;
-    this.startedAt = Date.now();
-    this.setupSignalHandlers();
-
-    this.logger.info("Daemon started", {
-      pid: process.pid,
-      port: gatewayConfig.gateway.port,
-    });
   }
 
   /**
@@ -3060,6 +3059,19 @@ export class DaemonManager {
     };
   }
 
+  private async _stopChannelRegistry(
+    channels: ReadonlyMap<string, ChannelPlugin>,
+  ): Promise<void> {
+    const entries = [...channels.entries()].reverse();
+    for (const [name, channel] of entries) {
+      try {
+        await channel.stop();
+      } catch (error) {
+        this.logger.warn?.(`Failed to stop external channel '${name}':`, error);
+      }
+    }
+  }
+
   private _buildFeatureWiringContext(): FeatureWiringContext {
     return {
       logger: this.logger,
@@ -3081,13 +3093,7 @@ export class DaemonManager {
       goalManager: this._goalManager as any,
       desktopExecutor: this._desktopExecutor as any,
       mcpManager: this._mcpManager as any,
-      telegramChannel: this._telegramChannel as any,
-      discordChannel: this._discordChannel as any,
-      slackChannel: this._slackChannel as any,
-      whatsAppChannel: this._whatsAppChannel as any,
-      signalChannel: this._signalChannel as any,
-      matrixChannel: this._matrixChannel as any,
-      imessageChannel: this._imessageChannel as any,
+      externalChannels: new Map(this._externalChannels),
       llmProviders: this._llmProviders,
       gatewayLogging: this.gateway?.config.logging,
       resolveActiveHostWorkspacePath: (config) =>
@@ -5952,36 +5958,6 @@ export class DaemonManager {
       this._goalManager = null;
       // Clear proactive communicator
       this._proactiveCommunicator = null;
-      // Stop external channels (reverse order of wiring)
-      if (this._imessageChannel !== null) {
-        await this._imessageChannel.stop();
-        this._imessageChannel = null;
-      }
-      if (this._matrixChannel !== null) {
-        await this._matrixChannel.stop();
-        this._matrixChannel = null;
-      }
-      if (this._signalChannel !== null) {
-        await this._signalChannel.stop();
-        this._signalChannel = null;
-      }
-      if (this._whatsAppChannel !== null) {
-        await this._whatsAppChannel.stop();
-        this._whatsAppChannel = null;
-      }
-      if (this._slackChannel !== null) {
-        await this._slackChannel.stop();
-        this._slackChannel = null;
-      }
-      if (this._discordChannel !== null) {
-        await this._discordChannel.stop();
-        this._discordChannel = null;
-      }
-      // Stop Telegram channel
-      if (this._telegramChannel !== null) {
-        await this._telegramChannel.stop();
-        this._telegramChannel = null;
-      }
       // Stop WebChat channel before gateway
       this.detachSubAgentLifecycleBridge();
       if (this._webChatChannel !== null) {
@@ -5998,7 +5974,10 @@ export class DaemonManager {
       if (this.gateway !== null) {
         await this.gateway.stop();
         this.gateway = null;
+      } else {
+        await this._stopChannelRegistry(this._externalChannels);
       }
+      this._externalChannels.clear();
       await this.disposeObservabilityService();
       await removePidFile(this.pidPath);
       this.removeSignalHandlers();

@@ -111,7 +111,7 @@ Create initialization script `scripts/initialize.ts`:
 ```typescript
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { AgencCoordination } from "../target/types/agenc_coordination";
+import type { AgencCoordination } from "@tetsuo-ai/protocol";
 
 async function main() {
   const provider = anchor.AnchorProvider.env();

@@ -33,7 +33,7 @@ export interface CoordinationErrorEntry {
 
 /**
  * Complete mapping of on-chain error codes to typed metadata.
- * Generated from target/idl/agenc_coordination.json.
+ * Generated from the canonical protocol IDL now published via `@tetsuo-ai/protocol`.
  */
 export const COORDINATION_ERROR_MAP: Record<number, CoordinationErrorEntry> = {
   6000: {

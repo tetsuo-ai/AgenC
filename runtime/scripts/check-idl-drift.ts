@@ -24,7 +24,7 @@ function printUsage(): void {
     'Usage: check-idl-drift',
     '',
     'Checks runtime event contracts in runtime/src/events/idl-contract.ts',
-    'against runtime/idl/agenc_coordination.json.',
+    'against the published @tetsuo-ai/protocol IDL contract.',
     '',
     'Exit status:',
     '  0 - contract matches IDL schema',

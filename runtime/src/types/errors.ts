@@ -230,7 +230,7 @@ export type RuntimeErrorCode =
 
 /**
  * Numeric error codes matching the Anchor program's CoordinationError enum.
- * Source of truth: runtime/idl/agenc_coordination.json (errors[]).
+ * Source of truth: `@tetsuo-ai/protocol` (`AGENC_COORDINATION_IDL.errors`).
  */
 export const AnchorErrorCodes = {
   AgentAlreadyRegistered: 6000,

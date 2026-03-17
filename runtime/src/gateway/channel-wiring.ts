@@ -13,6 +13,7 @@ import type { LLMMessage, ToolHandler } from "../llm/types.js";
 import type { MemoryBackend } from "../memory/types.js";
 import type { Logger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/async.js";
+import { isRecord } from "../utils/type-guards.js";
 import type { GatewayConfig } from "./types.js";
 import type { ResolvedTraceLoggingConfig } from "./daemon-trace.js";
 import {
@@ -37,6 +38,7 @@ import { MatrixChannel } from "../channels/matrix/plugin.js";
 import { formatForChannel } from "./format.js";
 import { executeTextChannelTurn } from "./daemon-text-channel-turn.js";
 import type { ToolRoutingDecision } from "./tool-routing.js";
+import { loadConfiguredPluginChannel } from "../plugins/channel-loader.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -102,17 +104,52 @@ export interface ChannelWiringDeps {
 }
 
 // ---------------------------------------------------------------------------
-// Channel wiring result — returned fields the daemon needs to store
+// External channel registry
 // ---------------------------------------------------------------------------
 
-export interface ChannelWiringResult {
-  telegramChannel: TelegramChannel | null;
-  discordChannel: DiscordChannel | null;
-  slackChannel: SlackChannel | null;
-  whatsAppChannel: WhatsAppChannel | null;
-  signalChannel: SignalChannel | null;
-  matrixChannel: MatrixChannel | null;
-  imessageChannel: ChannelPlugin | null;
+export type ExternalChannelRegistry = Map<string, ChannelPlugin>;
+
+function isChannelConfigEnabled(config: unknown): boolean {
+  return isRecord(config) && config.enabled !== false;
+}
+
+function isPluginChannelConfig(config: unknown): config is {
+  readonly type: "plugin";
+  readonly config?: Record<string, unknown>;
+} {
+  return isRecord(config) && config.type === "plugin";
+}
+
+async function registerGatewayChannel(
+  gateway: Gateway | null,
+  channel: ChannelPlugin,
+): Promise<void> {
+  if (!gateway) return;
+  try {
+    gateway.registerChannel(channel);
+  } catch (error) {
+    try {
+      await channel.stop();
+    } catch {
+      // Best-effort cleanup after failed registration.
+    }
+    throw error;
+  }
+}
+
+async function stopExternalChannelRegistry(
+  channels: ExternalChannelRegistry,
+  logger: Logger,
+): Promise<void> {
+  const entries = [...channels.entries()].reverse();
+  for (const [name, channel] of entries) {
+    try {
+      await channel.stop();
+    } catch (error) {
+      logger.warn?.(`Failed to stop external channel '${name}' during rollback:`, error);
+    }
+  }
+  channels.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +161,7 @@ export async function wireTelegram(
   deps: ChannelWiringDeps,
 ): Promise<TelegramChannel | null> {
   const telegramConfig = config.channels?.telegram;
-  if (!telegramConfig) return null;
+  if (!telegramConfig || !isChannelConfigEnabled(telegramConfig)) return null;
 
   const escapeHtml = (text: string): string =>
     text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -349,6 +386,7 @@ export async function wireTelegram(
     config: telegramConfig as unknown as Record<string, unknown>,
   });
   await telegram.start();
+  await registerGatewayChannel(deps.gateway, telegram);
   deps.logger.info("Telegram channel wired");
   return telegram;
 }
@@ -510,6 +548,7 @@ export async function wireExternalChannel(
     config: channelConfig,
   });
   await channel.start();
+  await registerGatewayChannel(deps.gateway, channel);
   deps.logger.info(`${channelName} channel wired`);
 }
 
@@ -518,84 +557,71 @@ export async function wireExternalChannel(
 // ---------------------------------------------------------------------------
 
 /**
- * Wire all configured external channels (Discord, Slack, WhatsApp, Signal, Matrix, iMessage).
- * Each channel is wrapped in try/catch so one failure doesn't block the others.
- *
- * Returns references to the created channel plugins so the daemon can store them.
+ * Wire all enabled external channels (Telegram, Discord, Slack, WhatsApp,
+ * Signal, Matrix, iMessage) into one registry map.
  */
 export async function wireExternalChannels(
   config: GatewayConfig,
   deps: ChannelWiringDeps,
-): Promise<ChannelWiringResult> {
+): Promise<ExternalChannelRegistry> {
   const channels = config.channels ?? {};
+  const result: ExternalChannelRegistry = new Map();
+  try {
+    const telegram = await wireTelegram(config, deps);
+    if (telegram) {
+      result.set("telegram", telegram);
+    }
 
-  const result: ChannelWiringResult = {
-    telegramChannel: null,
-    discordChannel: null,
-    slackChannel: null,
-    whatsAppChannel: null,
-    signalChannel: null,
-    matrixChannel: null,
-    imessageChannel: null,
-  };
+    // Standard channel plugins — identical wiring pattern
+    const standardChannels: Array<{
+      key: string;
+      name: string;
+      create: (cfg: unknown) => ChannelPlugin;
+    }> = [
+      {
+        key: "discord",
+        name: "discord",
+        create: (cfg) =>
+          new DiscordChannel(
+            cfg as ConstructorParameters<typeof DiscordChannel>[0],
+          ),
+      },
+      {
+        key: "slack",
+        name: "slack",
+        create: (cfg) =>
+          new SlackChannel(
+            cfg as ConstructorParameters<typeof SlackChannel>[0],
+          ),
+      },
+      {
+        key: "whatsapp",
+        name: "whatsapp",
+        create: (cfg) =>
+          new WhatsAppChannel(
+            cfg as ConstructorParameters<typeof WhatsAppChannel>[0],
+          ),
+      },
+      {
+        key: "signal",
+        name: "signal",
+        create: (cfg) =>
+          new SignalChannel(
+            cfg as ConstructorParameters<typeof SignalChannel>[0],
+          ),
+      },
+      {
+        key: "matrix",
+        name: "matrix",
+        create: (cfg) =>
+          new MatrixChannel(
+            cfg as ConstructorParameters<typeof MatrixChannel>[0],
+          ),
+      },
+    ];
 
-  // Standard channel plugins — identical wiring pattern
-  const standardChannels: Array<{
-    key: string;
-    name: string;
-    create: (cfg: unknown) => ChannelPlugin;
-    field: keyof Omit<ChannelWiringResult, "telegramChannel" | "imessageChannel">;
-  }> = [
-    {
-      key: "discord",
-      name: "discord",
-      create: (cfg) =>
-        new DiscordChannel(
-          cfg as ConstructorParameters<typeof DiscordChannel>[0],
-        ),
-      field: "discordChannel",
-    },
-    {
-      key: "slack",
-      name: "slack",
-      create: (cfg) =>
-        new SlackChannel(
-          cfg as ConstructorParameters<typeof SlackChannel>[0],
-        ),
-      field: "slackChannel",
-    },
-    {
-      key: "whatsapp",
-      name: "whatsapp",
-      create: (cfg) =>
-        new WhatsAppChannel(
-          cfg as ConstructorParameters<typeof WhatsAppChannel>[0],
-        ),
-      field: "whatsAppChannel",
-    },
-    {
-      key: "signal",
-      name: "signal",
-      create: (cfg) =>
-        new SignalChannel(
-          cfg as ConstructorParameters<typeof SignalChannel>[0],
-        ),
-      field: "signalChannel",
-    },
-    {
-      key: "matrix",
-      name: "matrix",
-      create: (cfg) =>
-        new MatrixChannel(
-          cfg as ConstructorParameters<typeof MatrixChannel>[0],
-        ),
-      field: "matrixChannel",
-    },
-  ];
-
-  for (const { key, name, create, field } of standardChannels) {
-    if (!channels[key]) continue;
-    try {
+    for (const { key, name, create } of standardChannels) {
+      if (!channels[key] || !isChannelConfigEnabled(channels[key])) continue;
       const plugin = create(channels[key]);
       await wireExternalChannel(
         plugin,
@@ -604,15 +630,14 @@ export async function wireExternalChannels(
         channels[key] as unknown as Record<string, unknown>,
         deps,
       );
-      result[field] = plugin as any;
-    } catch (err) {
-      deps.logger.error(`Failed to wire ${name} channel:`, err);
+      result.set(name, plugin);
     }
-  }
 
-  // iMessage: macOS only, lazy-loaded
-  if (channels.imessage && process.platform === "darwin") {
-    try {
+    // iMessage: macOS only, lazy-loaded
+    if (channels.imessage && isChannelConfigEnabled(channels.imessage)) {
+      if (process.platform !== "darwin") {
+        throw new Error("iMessage channel requires macOS");
+      }
       const { IMessageChannel } =
         await import("../channels/imessage/plugin.js");
       const imessage = new IMessageChannel();
@@ -623,11 +648,35 @@ export async function wireExternalChannels(
         channels.imessage as unknown as Record<string, unknown>,
         deps,
       );
-      result.imessageChannel = imessage;
-    } catch (err) {
-      deps.logger.error("Failed to wire iMessage channel:", err);
+      result.set("imessage", imessage);
     }
-  }
 
-  return result;
+    for (const [channelName, channelConfig] of Object.entries(channels)) {
+      if (
+        !isChannelConfigEnabled(channelConfig) ||
+        !isPluginChannelConfig(channelConfig)
+      ) {
+        continue;
+      }
+
+      const loaded = await loadConfiguredPluginChannel({
+        channelName,
+        channelConfig,
+        trustedPackages: config.plugins?.trustedPackages,
+      });
+      await wireExternalChannel(
+        loaded.channel,
+        loaded.manifest.channel_name,
+        config,
+        (channelConfig.config ?? {}) as Record<string, unknown>,
+        deps,
+      );
+      result.set(loaded.manifest.channel_name, loaded.channel);
+    }
+
+    return result;
+  } catch (error) {
+    await stopExternalChannelRegistry(result, deps.logger);
+    throw error;
+  }
 }

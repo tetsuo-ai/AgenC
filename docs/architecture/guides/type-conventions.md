@@ -157,11 +157,10 @@ Use `Idl` for raw JSON, `AgencCoordination` for `Program<T>` generics:
 
 ```typescript
 import { Idl, Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from './types/agenc_coordination.js';
-import idlJson from '../idl/agenc_coordination.json';
+import { AGENC_COORDINATION_IDL, type AgencCoordination } from '@tetsuo-ai/protocol';
 
-// Raw JSON (snake_case fields)
-export const IDL: Idl = idlJson as Idl;
+// Raw JSON (snake_case fields) from the canonical published protocol package
+export const IDL: Idl = AGENC_COORDINATION_IDL as Idl;
 
 // Program generic (camelCase methods)
 export function createProgram(provider: AnchorProvider): Program<AgencCoordination> {

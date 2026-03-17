@@ -50,7 +50,7 @@ describe("validateIdl", () => {
       } as unknown as Idl;
 
       expect(() => validateIdl(idlMissingAddress)).toThrow(
-        'IDL is missing program address. The IDL file may be corrupted or from an older Anchor version. Run "anchor build" to regenerate the IDL.',
+        "IDL is missing program address. The published protocol artifact may be corrupted or outdated.",
       );
     });
 
@@ -100,7 +100,7 @@ describe("validateIdl", () => {
       } as unknown as Idl;
 
       expect(() => validateIdl(idlEmptyInstructions)).toThrow(
-        'IDL has no instructions. The IDL file may be corrupted. Run "anchor build" to regenerate the IDL.',
+        "IDL has no instructions. The published protocol artifact may be corrupted or outdated.",
       );
     });
 
@@ -142,7 +142,7 @@ describe("validateIdl", () => {
   });
 
   describe("error message content", () => {
-    it("address error suggests running anchor build", () => {
+    it("address error points at the published protocol artifact", () => {
       const idlMissingAddress = {
         metadata: { name: "test" },
         instructions: [{ name: "test" }],
@@ -152,12 +152,12 @@ describe("validateIdl", () => {
         validateIdl(idlMissingAddress);
         expect.fail("Should have thrown");
       } catch (e) {
-        expect((e as Error).message).toContain("anchor build");
-        expect((e as Error).message).toContain("older Anchor version");
+        expect((e as Error).message).toContain("published protocol artifact");
+        expect((e as Error).message).toContain("corrupted or outdated");
       }
     });
 
-    it("instructions error suggests running anchor build", () => {
+    it("instructions error points at the published protocol artifact", () => {
       const idlEmptyInstructions = {
         address: "test",
         metadata: { name: "test" },
@@ -168,8 +168,8 @@ describe("validateIdl", () => {
         validateIdl(idlEmptyInstructions);
         expect.fail("Should have thrown");
       } catch (e) {
-        expect((e as Error).message).toContain("anchor build");
-        expect((e as Error).message).toContain("corrupted");
+        expect((e as Error).message).toContain("published protocol artifact");
+        expect((e as Error).message).toContain("corrupted or outdated");
       }
     });
   });

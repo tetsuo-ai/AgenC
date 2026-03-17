@@ -25,6 +25,7 @@ Architecture reference for AgenC protocol and runtime surfaces. These docs are i
 | Document | Description |
 |----------|-------------|
 | [adr/adr-001-durable-task-runtime.md](adr/adr-001-durable-task-runtime.md) | Canonical durable task runtime contract, lifecycle semantics, and invariants |
+| [adr/adr-002-public-contract-private-kernel-boundary.md](adr/adr-002-public-contract-private-kernel-boundary.md) | Gate 11 boundary decision: public contracts and plugin ABI, private kernel and proving/control plane |
 
 ### Flow Diagrams
 
