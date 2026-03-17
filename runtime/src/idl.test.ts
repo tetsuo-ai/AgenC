@@ -5,8 +5,8 @@
 import { describe, it, expect } from 'vitest';
 import { Connection, PublicKey, Keypair, Transaction } from '@solana/web3.js';
 import { AnchorProvider, Wallet } from '@coral-xyz/anchor';
+import { AGENC_COORDINATION_IDL } from '@tetsuo-ai/protocol';
 import { PROGRAM_ID } from '@tetsuo-ai/sdk';
-import rawIdlJson from '../idl/agenc_coordination.json';
 import {
   IDL,
   createProgram,
@@ -25,7 +25,7 @@ describe('IDL exports', () => {
   });
 
   it('keeps the checked-in runtime IDL aligned with PROGRAM_ID', () => {
-    expect(rawIdlJson.address).toBe(PROGRAM_ID.toBase58());
+    expect(AGENC_COORDINATION_IDL.address).toBe(PROGRAM_ID.toBase58());
   });
 
   it('has expected metadata', () => {

@@ -1574,6 +1574,32 @@ describe("config loading", () => {
     expect(diff.unsafe).toContain("gateway.port");
   });
 
+  it("diffGatewayConfig treats channels and plugin trust policy as restart-only", () => {
+    const oldConfig = makeConfig({
+      channels: {
+        telegram: {
+          token: "secret-a",
+        } as any,
+      },
+    });
+    const newConfig = makeConfig({
+      channels: {
+        telegram: {
+          token: "secret-a",
+          enabled: false,
+        } as any,
+      },
+      plugins: {
+        trustedPackages: [{ packageName: "@tetsuo-ai/example-plugin" }],
+      } as any,
+    });
+
+    const diff = diffGatewayConfig(oldConfig, newConfig);
+
+    expect(diff.unsafe).toContain("channels.telegram.enabled");
+    expect(diff.unsafe).toContain("plugins.trustedPackages");
+  });
+
   it("ConfigWatcher debounces rapid changes", async () => {
     const configPath = join(tmpDir, "config.json");
     await writeFile(configPath, JSON.stringify(makeConfig()));

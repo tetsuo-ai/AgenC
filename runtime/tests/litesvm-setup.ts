@@ -18,9 +18,10 @@ import {
 } from '@solana/web3.js';
 import * as bs58Module from 'bs58';
 import { fileURLToPath } from 'node:url';
-import type { AgencCoordination } from '../src/types/agenc_coordination.js';
+import type { AgencCoordination } from '@tetsuo-ai/protocol';
 import { extendLiteSVMConnectionProxy } from '../../tests/litesvm-connection-proxy.ts';
 import { syncAgencProgramBinary } from '../../tests/litesvm-program-artifact.ts';
+import { loadProtocolIdl } from '../../tests/protocol-artifacts.ts';
 import {
   BPF_LOADER_UPGRADEABLE_ID,
   resolveBs58Codec,
@@ -132,7 +133,7 @@ export function createRuntimeTestContext(): RuntimeTestContext {
 
   // Use canonical workspace instruction shapes and ensure the corresponding
   // program binary is loaded at the IDL-declared address.
-  const idl = require('../../target/idl/agenc_coordination.json');
+  const idl = loadProtocolIdl();
   const canonicalProgramId = new PublicKey(idl.address);
   if (!svm.getAccount(canonicalProgramId)) {
     const programBinaryPath = fileURLToPath(

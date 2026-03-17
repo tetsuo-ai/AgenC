@@ -20,9 +20,12 @@ import {
 import * as bs58Module from "bs58";
 import * as fs from "fs";
 import * as path from "path";
-import type { AgencCoordination } from "../target/types/agenc_coordination.ts";
 import { extendLiteSVMConnectionProxy } from "./litesvm-connection-proxy.ts";
 import { syncAgencProgramBinary } from "./litesvm-program-artifact.ts";
+import {
+  loadProtocolIdl,
+  type AgencCoordination,
+} from "./protocol-artifacts.ts";
 import {
   BPF_LOADER_UPGRADEABLE_ID,
   resolveBs58Codec,
@@ -57,8 +60,7 @@ export function createLiteSVMContext(opts?: {
   // the IDL-declared address so the client, PDA derivations, and on-chain
   // execution all target the same program id.
   const svm = fromWorkspace(".");
-  const idlPath = path.resolve(process.cwd(), "target", "idl", "agenc_coordination.json");
-  const idl = JSON.parse(fs.readFileSync(idlPath, "utf-8")) as {
+  const idl = loadProtocolIdl() as {
     address: string;
   };
   const canonicalProgramId = new PublicKey(idl.address);

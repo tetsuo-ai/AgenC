@@ -9,11 +9,12 @@ import { execFileSync, spawn } from 'node:child_process';
 const repoRoot = process.cwd();
 const packages = [
   { name: '@tetsuo-ai/desktop-tool-contracts', dir: 'contracts/desktop-tool-contracts' },
+  { name: '@tetsuo-ai/plugin-kit', dir: 'plugin-kit' },
   { name: '@tetsuo-ai/runtime', dir: 'runtime' },
   { name: '@tetsuo-ai/mcp', dir: 'mcp' },
   { name: '@tetsuo-ai/docs-mcp', dir: 'docs-mcp' },
 ];
-const releasedPackages = ['@tetsuo-ai/sdk@1.3.1'];
+const releasedPackages = ['@tetsuo-ai/sdk@1.3.1', '@tetsuo-ai/protocol@0.1.1'];
 
 function run(command, args, cwd) {
   return execFileSync(command, args, {
@@ -115,10 +116,19 @@ async function main() {
       "require('@tetsuo-ai/desktop-tool-contracts');",
       "const sdk = require('@tetsuo-ai/sdk');",
       "const internalSpl = require('@tetsuo-ai/sdk/internal/spl-token');",
+      "const pluginKit = require('@tetsuo-ai/plugin-kit');",
+      "const channelHostMatrixModule = require('@tetsuo-ai/plugin-kit/channel-host-matrix');",
+      "const channelHostMatrixJson = require('@tetsuo-ai/plugin-kit/channel-host-matrix.json');",
+      "const protocol = require('@tetsuo-ai/protocol');",
       "if (typeof internalSpl.createMint !== 'function') throw new Error('missing createMint export on internal SPL subpath');",
       "if (typeof internalSpl.createAssociatedTokenAccountInstruction !== 'function') throw new Error('missing ATA instruction export on internal SPL subpath');",
       "const leakedSplHelpers = ['createMint', 'mintTo', 'createAssociatedTokenAccount', 'createAssociatedTokenAccountInstruction', 'createInitializeMint2Instruction', 'createMintToInstruction'].filter((key) => key in sdk);",
       "if (leakedSplHelpers.length > 0) throw new Error(`internal SPL helpers leaked onto the public SDK surface: ${leakedSplHelpers.join(', ')}`);",
+      "if (typeof pluginKit.certifyChannelAdapterModule !== 'function') throw new Error('missing plugin-kit certification export');",
+      "const channelHostMatrix = Array.isArray(channelHostMatrixModule) ? channelHostMatrixModule : channelHostMatrixModule.channel_host_matrix ?? channelHostMatrixModule.default;",
+      "if (!Array.isArray(channelHostMatrix) || channelHostMatrix.length === 0) throw new Error('missing channel-host-matrix subpath export');",
+      "if (!Array.isArray(channelHostMatrixJson) || channelHostMatrixJson.length === 0) throw new Error('missing channel-host-matrix json export');",
+      "if (!protocol.AGENC_COORDINATION_IDL || !protocol.AGENC_PROTOCOL_MANIFEST) throw new Error('missing protocol exports');",
       "require('@tetsuo-ai/runtime');",
       "require('@tetsuo-ai/runtime/browser');",
       "require('@tetsuo-ai/runtime/operator-events');",
@@ -194,27 +204,85 @@ async function main() {
       'desktop tool contract ESM bundle',
     );
 
-    logStep('verifying runtime packaged artifacts');
-    const runtimeIdlPath = path.join(
+    logStep('verifying plugin-kit packaged artifacts');
+    await assertExists(
+      path.join(
+        tempRoot,
+        'node_modules',
+        '@tetsuo-ai',
+        'plugin-kit',
+        'dist',
+        'index.cjs',
+      ),
+      'plugin-kit CommonJS bundle',
+    );
+    await assertExists(
+      path.join(
+        tempRoot,
+        'node_modules',
+        '@tetsuo-ai',
+        'plugin-kit',
+        'dist',
+        'index.mjs',
+      ),
+      'plugin-kit ESM bundle',
+    );
+    await assertExists(
+      path.join(
+        tempRoot,
+        'node_modules',
+        '@tetsuo-ai',
+        'plugin-kit',
+        'dist',
+        'channel-host-matrix.cjs',
+      ),
+      'plugin-kit channel host matrix CommonJS bundle',
+    );
+    await assertExists(
+      path.join(
+        tempRoot,
+        'node_modules',
+        '@tetsuo-ai',
+        'plugin-kit',
+        'dist',
+        'channel-host-matrix.mjs',
+      ),
+      'plugin-kit channel host matrix ESM bundle',
+    );
+    await assertExists(
+      path.join(
+        tempRoot,
+        'node_modules',
+        '@tetsuo-ai',
+        'plugin-kit',
+        'dist',
+        'channel-host-matrix.json',
+      ),
+      'plugin-kit channel host matrix JSON artifact',
+    );
+
+    logStep('verifying published protocol packaged artifacts');
+    const protocolIdlPath = path.join(
       tempRoot,
       'node_modules',
       '@tetsuo-ai',
-      'runtime',
-      'idl',
+      'protocol',
+      'src',
+      'generated',
       'agenc_coordination.json',
     );
-    await assertExists(runtimeIdlPath, 'runtime IDL');
-    const runtimeIdl = JSON.parse(await readFile(runtimeIdlPath, 'utf8'));
+    await assertExists(protocolIdlPath, 'published protocol IDL');
+    const protocolIdl = JSON.parse(await readFile(protocolIdlPath, 'utf8'));
     if (
-      runtimeIdl?.metadata?.name !== 'agenc_coordination' ||
-      !Array.isArray(runtimeIdl?.instructions) ||
-      runtimeIdl.instructions.length === 0
+      protocolIdl?.metadata?.name !== 'agenc_coordination' ||
+      !Array.isArray(protocolIdl?.instructions) ||
+      protocolIdl.instructions.length === 0
     ) {
       throw new Error(
-        `unexpected runtime IDL payload at ${runtimeIdlPath}: ${JSON.stringify({
-          name: runtimeIdl?.metadata?.name ?? null,
-          instructionCount: Array.isArray(runtimeIdl?.instructions)
-            ? runtimeIdl.instructions.length
+        `unexpected published protocol IDL payload at ${protocolIdlPath}: ${JSON.stringify({
+          name: protocolIdl?.metadata?.name ?? null,
+          instructionCount: Array.isArray(protocolIdl?.instructions)
+            ? protocolIdl.instructions.length
             : null,
         })}`,
       );
@@ -239,6 +307,8 @@ async function main() {
         'ls',
         '@tetsuo-ai/desktop-tool-contracts',
         '@tetsuo-ai/sdk',
+        '@tetsuo-ai/plugin-kit',
+        '@tetsuo-ai/protocol',
         '@tetsuo-ai/runtime',
         '@tetsuo-ai/mcp',
         '@tetsuo-ai/docs-mcp',

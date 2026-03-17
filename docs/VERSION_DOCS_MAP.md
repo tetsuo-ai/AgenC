@@ -31,6 +31,13 @@ Changelog entry template:
 - API baseline: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/docs/api-baseline/sdk.json`
 - Public exports: see `https://github.com/tetsuo-ai/agenc-sdk/blob/main/docs/api-baseline/sdk.json`
 
+## @tetsuo-ai/plugin-kit v0.1.0
+
+- README: `plugin-kit/README.md`
+- Entry point: `plugin-kit/src/index.ts`
+- API baseline: `docs/api-baseline/plugin-kit.json`
+- Public exports: see `docs/api-baseline/plugin-kit.json`
+
 ## @tetsuo-ai/runtime v0.1.0
 
 - README: `runtime/README.md`

@@ -27,8 +27,25 @@ vi.mock("../utils/logger.js", () => {
 // Mock gateway.js to avoid @coral-xyz/anchor dependency chain
 vi.mock("./gateway.js", () => {
   const MockGateway = vi.fn(class MockGateway {
+    private readonly channels = new Map<string, any>();
+    config = { logging: undefined };
     start = vi.fn(async () => {});
-    stop = vi.fn(async () => {});
+    stop = vi.fn(async () => {
+      for (const channel of this.channels.values()) {
+        await channel.stop?.();
+      }
+      this.channels.clear();
+    });
+    registerChannel = vi.fn((channel: { name: string }) => {
+      this.channels.set(channel.name, channel);
+    });
+    unregisterChannel = vi.fn(async (name: string) => {
+      const channel = this.channels.get(name);
+      if (channel) {
+        await channel.stop?.();
+        this.channels.delete(name);
+      }
+    });
     state = "running";
     getStatus = vi.fn(() => ({
       state: "running",
@@ -2297,6 +2314,28 @@ describe("DaemonManager", () => {
     await dm.stop();
   });
 
+  it("does not double-stop registered external channels during shutdown", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    const stop = vi.fn(async () => {});
+    const channel = {
+      name: "discord",
+      isHealthy: () => true,
+      start: vi.fn(async () => {}),
+      stop,
+    };
+    (dm as any)._externalChannels.set("discord", channel);
+    (dm as any).gateway = {
+      stop: vi.fn(async () => {
+        await channel.stop();
+      }),
+    };
+
+    await dm.stop();
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect((dm as any)._externalChannels.size).toBe(0);
+  });
+
   it("includes static desktop tools in the subagent catalog for desktop sessions", () => {
     const dm = new DaemonManager({ configPath: "/tmp/config.json" });
     const registry = {
@@ -3119,6 +3158,35 @@ describe("DaemonManager", () => {
 
     await dm.stop();
     expect(await pidFileExists(pidPath)).toBe(false);
+  });
+
+  it("stop does not double-stop registered external channels when gateway owns them", async () => {
+    const pidPath = join(tempDir, "owned-external.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    const externalChannel = {
+      name: "telegram",
+      isHealthy: () => true,
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+    };
+    const gateway = {
+      stop: vi.fn(async () => {
+        await externalChannel.stop();
+      }),
+    };
+
+    (dm as any).gateway = gateway;
+    (dm as any)._externalChannels.set("telegram", externalChannel);
+    await writePidFile(
+      { pid: process.pid, port: 9000, configPath: "/tmp/config.json" },
+      pidPath,
+    );
+
+    await dm.stop();
+
+    expect(gateway.stop).toHaveBeenCalledTimes(1);
+    expect(externalChannel.stop).toHaveBeenCalledTimes(1);
+    expect((dm as any)._externalChannels.size).toBe(0);
   });
 
   it("stop destroys sub-agent manager lifecycle", async () => {

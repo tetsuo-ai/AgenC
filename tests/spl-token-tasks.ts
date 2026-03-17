@@ -38,7 +38,7 @@ import {
   mintTo,
   getAccount,
 } from "@tetsuo-ai/sdk/internal/spl-token";
-import { AgencCoordination } from "../target/types/agenc_coordination";
+import type { AgencCoordination } from "-ai/protocol";
 import {
   CAPABILITY_COMPUTE,
   CAPABILITY_ARBITER,

@@ -1,0 +1,54 @@
+{
+  "name": "@tetsuo-ai/plugin-kit",
+  "version": "0.1.0",
+  "description": "Public plugin authoring contract for AgenC hosted extensions",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.cjs"
+    },
+    "./channel-host-matrix": {
+      "types": "./dist/channel-host-matrix.d.ts",
+      "import": "./dist/channel-host-matrix.mjs",
+      "require": "./dist/channel-host-matrix.cjs",
+      "default": "./dist/channel-host-matrix.cjs"
+    },
+    "./channel-host-matrix.json": {
+      "default": "./dist/channel-host-matrix.json"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup && node ./scripts/copy-channel-host-matrix.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "author": "Tetsuo AI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tetsuo-ai/AgenC",
+    "directory": "plugin-kit"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

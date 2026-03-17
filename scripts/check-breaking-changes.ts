@@ -38,6 +38,7 @@ function requireTypescript(root: string): typeof import('typescript') {
     path.join(root, 'runtime', 'node_modules', 'typescript'),
     path.join(root, 'sdk', 'node_modules', 'typescript'),
     path.join(root, 'mcp', 'node_modules', 'typescript'),
+    path.join(root, 'plugin-kit', 'node_modules', 'typescript'),
   ];
   for (const candidate of candidates) {
     try {
@@ -49,17 +50,17 @@ function requireTypescript(root: string): typeof import('typescript') {
   throw new Error('typescript module not found. Install dependencies for at least one package.');
 }
 
-function parseArgs(argv: string[]): { mode: 'generate' | 'check'; target: 'sdk' | 'runtime' | 'mcp' } {
+function parseArgs(argv: string[]): { mode: 'generate' | 'check'; target: 'sdk' | 'runtime' | 'mcp' | 'plugin-kit' } {
   const modeFlag = argv.find((arg) => arg === '--generate' || arg === '--check');
   if (!modeFlag) {
-    throw new Error('Usage: npx tsx scripts/check-breaking-changes.ts --generate|--check <sdk|runtime|mcp>');
+    throw new Error('Usage: npx tsx scripts/check-breaking-changes.ts --generate|--check <sdk|runtime|mcp|plugin-kit>');
   }
 
   const mode = modeFlag === '--generate' ? 'generate' : 'check';
   const idx = argv.indexOf(modeFlag);
-  const target = argv[idx + 1] as 'sdk' | 'runtime' | 'mcp' | undefined;
-  if (target !== 'sdk' && target !== 'runtime' && target !== 'mcp') {
-    throw new Error('Expected target to be one of: sdk, runtime, mcp');
+  const target = argv[idx + 1] as 'sdk' | 'runtime' | 'mcp' | 'plugin-kit' | undefined;
+  if (target !== 'sdk' && target !== 'runtime' && target !== 'mcp' && target !== 'plugin-kit') {
+    throw new Error('Expected target to be one of: sdk, runtime, mcp, plugin-kit');
   }
 
   return { mode, target };
@@ -155,7 +156,7 @@ function inferExportEntry(
 function getPublicExports(
   ts: typeof import('typescript'),
   root: string,
-  target: 'sdk' | 'runtime' | 'mcp',
+  target: 'sdk' | 'runtime' | 'mcp' | 'plugin-kit',
 ): { entryPoint: string; exports: ExportEntry[] } {
   const pkgRoot = path.join(root, target);
   const entryPoint = path.join(pkgRoot, 'src', 'index.ts');
@@ -276,4 +277,3 @@ function main(): void {
 }
 
 main();
-

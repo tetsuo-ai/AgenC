@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { AGENC_COORDINATION_IDL } from "@tetsuo-ai/protocol";
 import * as agents from "../agents";
 import * as tasks from "../tasks";
 import * as disputes from "../disputes";
@@ -8,12 +8,7 @@ import * as state from "../state";
 import * as governance from "../governance";
 import { COORDINATION_ERROR_MAP, decodeError } from "../errors";
 
-const idl = JSON.parse(
-  readFileSync(
-    new URL("../../../target/idl/agenc_coordination.json", import.meta.url),
-    "utf8",
-  ),
-) as {
+const idl = AGENC_COORDINATION_IDL as {
   instructions: Array<{ name: string }>;
   errors?: Array<{ code: number; name: string }>;
 };

@@ -1,9 +1,8 @@
 /**
  * AgenC Coordination Program IDL and Program Factory Functions
  *
- * IMPORTANT: Anchor generates two files with different naming conventions:
- * - target/idl/agenc_coordination.json (snake_case) - Runtime IDL data
- * - target/types/agenc_coordination.ts (camelCase) - TypeScript type helper
+ * Runtime intentionally keeps this local module path stable, but canonical
+ * protocol ownership now lives in the published `@tetsuo-ai/protocol` package.
  *
  * The raw IDL JSON uses snake_case names. We export it typed as Anchor's
  * generic `Idl` type which correctly represents this structure. The
@@ -13,12 +12,11 @@
 
 import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
+import {
+  AGENC_COORDINATION_IDL,
+  type AgencCoordination,
+} from "@tetsuo-ai/protocol";
 import { PROGRAM_ID } from "@tetsuo-ai/sdk";
-
-// Import IDL type from Anchor-generated TypeScript file (for Program<T> generic)
-import type { AgencCoordination } from "./types/agenc_coordination";
-// Import IDL JSON data (tsconfig has resolveJsonModule: true)
-import idlJson from "../idl/agenc_coordination.json";
 
 /** Re-export the IDL type for Program<T> generics */
 export type { AgencCoordination };
@@ -30,7 +28,7 @@ export type { AgencCoordination };
  * JSON structure. Use `Program<AgencCoordination>` for type-safe method access.
  */
 export const IDL: Idl = {
-  ...(idlJson as Idl),
+  ...(AGENC_COORDINATION_IDL as Idl),
   address: PROGRAM_ID.toBase58(),
 };
 
@@ -46,24 +44,18 @@ const READ_ONLY_PLACEHOLDER_PUBKEY = new PublicKey(new Uint8Array(32).fill(1));
  * Validates that an IDL has expected structure.
  * Throws a descriptive error if the IDL is malformed.
  *
- * Note: If the IDL file doesn't exist, Node.js throws ERR_MODULE_NOT_FOUND
- * at import time before this function is called. The copy-idl.js prebuild
- * script handles missing file errors with descriptive messages.
- *
  * @param idl - The IDL to validate (defaults to the imported IDL)
  * @throws Error if IDL is malformed (missing address or instructions)
  */
 export function validateIdl(idl: Idl = IDL): void {
   if (!idl.address) {
     throw new Error(
-      "IDL is missing program address. The IDL file may be corrupted or from an older Anchor version. " +
-        'Run "anchor build" to regenerate the IDL.',
+      "IDL is missing program address. The published protocol artifact may be corrupted or outdated.",
     );
   }
   if (!idl.instructions || idl.instructions.length === 0) {
     throw new Error(
-      "IDL has no instructions. The IDL file may be corrupted. " +
-        'Run "anchor build" to regenerate the IDL.',
+      "IDL has no instructions. The published protocol artifact may be corrupted or outdated.",
     );
   }
 }

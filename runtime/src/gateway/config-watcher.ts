@@ -17,6 +17,12 @@ import {
   requireOneOf,
 } from "../utils/validation.js";
 import { isRecord, isStringArray } from "../utils/type-guards.js";
+import {
+  RESERVED_CHANNEL_NAMES,
+  isValidPluginModuleSpecifier,
+  isValidTrustedPackageName,
+  isValidTrustedPackageSubpath,
+} from "../plugins/channel-policy.js";
 
 // ============================================================================
 // Default config path
@@ -151,13 +157,111 @@ const VALID_BACKGROUND_RUN_NOTIFICATION_SINK_TYPES: ReadonlySet<string> =
 const DOCKER_MEMORY_LIMIT_RE = /^\d+(?:[bkmg])?$/i;
 const DOCKER_CPU_LIMIT_RE = /^(?:\d+(?:\.\d+)?|\.\d+)$/;
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/i;
-
 function normalizeBindAddress(bind: string): string {
   const normalized = bind.trim().toLowerCase();
   if (normalized.startsWith("[") && normalized.endsWith("]")) {
     return normalized.slice(1, -1);
   }
   return normalized;
+}
+
+function validatePluginsSection(plugins: unknown, errors: string[]): void {
+  if (plugins === undefined) return;
+  if (!isRecord(plugins)) {
+    errors.push("plugins must be an object");
+    return;
+  }
+
+  if (plugins.trustedPackages !== undefined) {
+    if (!Array.isArray(plugins.trustedPackages)) {
+      errors.push("plugins.trustedPackages must be an array");
+    } else {
+      plugins.trustedPackages.forEach((entry, index) => {
+        const path = `plugins.trustedPackages[${index}]`;
+        if (!isRecord(entry)) {
+          errors.push(`${path} must be an object`);
+          return;
+        }
+        if (
+          typeof entry.packageName !== "string" ||
+          entry.packageName.trim().length === 0
+        ) {
+          errors.push(`${path}.packageName must be a non-empty string`);
+        } else if (!isValidTrustedPackageName(entry.packageName.trim())) {
+          errors.push(
+            `${path}.packageName must be a bare package name like @scope/name`,
+          );
+        }
+        if (entry.allowedSubpaths !== undefined && !Array.isArray(entry.allowedSubpaths)) {
+          errors.push(`${path}.allowedSubpaths must be an array of strings`);
+        } else if (Array.isArray(entry.allowedSubpaths)) {
+          entry.allowedSubpaths.forEach((subpath, subpathIndex) => {
+            if (
+              typeof subpath !== "string" ||
+              !isValidTrustedPackageSubpath(subpath.trim())
+            ) {
+              errors.push(
+                `${path}.allowedSubpaths[${subpathIndex}] must be a relative package subpath like channels/slack`,
+              );
+            }
+          });
+        }
+      });
+    }
+  }
+}
+
+function validateChannelsSection(channels: unknown, errors: string[]): void {
+  if (channels === undefined) return;
+  if (!isRecord(channels)) {
+    errors.push("channels must be an object");
+    return;
+  }
+
+  for (const [channelName, rawValue] of Object.entries(channels)) {
+    const path = `channels.${channelName}`;
+    if (!isRecord(rawValue)) {
+      errors.push(`${path} must be an object`);
+      continue;
+    }
+
+    if (
+      rawValue.enabled !== undefined &&
+      typeof rawValue.enabled !== "boolean"
+    ) {
+      errors.push(`${path}.enabled must be a boolean`);
+    }
+
+    const rawType =
+      typeof rawValue.type === "string" ? rawValue.type.trim() : undefined;
+    if (rawType === "plugin") {
+      if (
+        typeof rawValue.moduleSpecifier !== "string" ||
+        rawValue.moduleSpecifier.trim().length === 0
+      ) {
+        errors.push(
+          `${path}.moduleSpecifier must be a non-empty string when type is "plugin"`,
+        );
+      } else if (
+        !isValidPluginModuleSpecifier(rawValue.moduleSpecifier.trim())
+      ) {
+        errors.push(
+          `${path}.moduleSpecifier must be a bare package specifier like @scope/name or @scope/name/subpath`,
+        );
+      }
+      if (RESERVED_CHANNEL_NAMES.has(channelName)) {
+        errors.push(
+          `${path}.type cannot be "plugin" for reserved built-in channel "${channelName}"`,
+        );
+      }
+      if (
+        rawValue.config !== undefined &&
+        !isRecord(rawValue.config)
+      ) {
+        errors.push(`${path}.config must be an object when provided`);
+      }
+    }
+  }
 }
 
 function isLoopbackBind(bind: string | undefined): boolean {
@@ -2250,6 +2354,8 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
   validateMarketplaceSection(obj.marketplace, errors);
   validateSocialSection(obj.social, errors);
   validateAutonomySection(obj.autonomy, errors);
+  validatePluginsSection(obj.plugins, errors);
+  validateChannelsSection(obj.channels, errors);
 
   return validationResult(errors);
 }
@@ -2269,6 +2375,12 @@ const UNSAFE_KEYS = new Set([
   "marketplace.enabled",
   "social.enabled",
 ]);
+const UNSAFE_KEY_PREFIXES = ["channels.", "plugins."] as const;
+
+function isUnsafeConfigKey(key: string): boolean {
+  if (UNSAFE_KEYS.has(key)) return true;
+  return UNSAFE_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
 
 export function diffGatewayConfig(
   oldConfig: GatewayConfig,
@@ -2291,7 +2403,7 @@ export function diffGatewayConfig(
     const newVal = flatNew[key];
 
     if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
-      if (UNSAFE_KEYS.has(key)) {
+      if (isUnsafeConfigKey(key)) {
         unsafe.push(key);
       } else {
         safe.push(key);

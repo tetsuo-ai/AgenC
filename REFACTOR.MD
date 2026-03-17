@@ -253,7 +253,7 @@ Exit signal:
 
 Required work:
 1. Make artifact contracts repo-independent for:
-   - `runtime/idl/agenc_coordination.json`
+   - `@tetsuo-ai/protocol/idl/agenc_coordination.json`
    - `runtime/src/types/agenc_coordination.ts`
    - `contracts/desktop-tool-contracts/src/index.ts`
    - `@tetsuo-ai/runtime/operator-events`
@@ -340,7 +340,7 @@ Artifact handoff matrix:
 
 | Artifact Contract | Producer | Consumer Path | Baseline Command | Status |
 |------------------|----------|---------------|------------------|--------|
-| `runtime/idl/agenc_coordination.json` | runtime/program | installed runtime consumers | IDL copy + drift check + pack smoke IDL presence | pass |
+| `@tetsuo-ai/protocol` IDL + generated types | `agenc-protocol` | installed runtime/test/script consumers via released package plus local runtime shim | protocol package import + drift check + pack smoke protocol payload presence | pass |
 | `@tetsuo-ai/desktop-tool-contracts` | desktop-tool-contracts workspace | installed desktop/runtime consumers | package build + compile + pack smoke import | pass |
 | `@tetsuo-ai/runtime/operator-events` + `runtime/dist/bin/agenc-watch.js` | runtime | watch/script consumers | runtime build + package-subpath import + operator-console/watch smoke | pass |
 
@@ -358,7 +358,7 @@ Preflight snapshot:
 | Item | Command/Signal | Status | Notes |
 |------|----------------|--------|-------|
 | 10L.1 | `git status` | captured | dirty worktree was intentionally present during the refactor execution pass; status was recorded before Gate 10 closeout sync |
-| 10L.2 | `npm run build` | pass | root build passed on `2026-03-16`; runtime build regenerated `runtime/idl/agenc_coordination.json` and `runtime/src/types/agenc_coordination.ts` from `target/` |
+| 10L.2 | `npm run build` | pass | root build passed on `2026-03-16`; Gate 10 remained green, and Gate 11 later moved protocol artifact authority out of runtime into the released `@tetsuo-ai/protocol` package while retaining the local runtime shim path |
 | 10L.3 | `npm run typecheck` | pass | root typecheck passed after runtime/MCP verification regressions were fixed on `2026-03-16` |
 | 10L.4 | `npm run test` | pass | root test passed: SDK `260/260` and runtime `6626/6626` |
 | 10L.5 | runtime benchmark gate matrix | pass | pipeline, delegation, background-run, mutation, and autonomy rollout gates passed on `2026-03-16` |
@@ -396,7 +396,14 @@ Decision log:
     - `scripts/idl/verifier_router.json`
     - committed generated artifacts under `artifacts/anchor/`
   - `anchor build`, `npm run artifacts:refresh`, `npm run artifacts:check`, and Rust format checks passed in the standalone repo
-  - AgenC has not yet cut runtime, SDK test, or root test consumers over to released protocol artifacts
+  - AgenC later completed the consumer cutover against released `@tetsuo-ai/protocol@0.1.1`
+  - validation passed in AgenC with:
+    - `npm run build --workspace=@tetsuo-ai/runtime`
+    - `npm run typecheck --workspace=@tetsuo-ai/runtime`
+    - `npm run test --workspace=@tetsuo-ai/runtime -- src/idl.test.ts src/types/errors.test.ts`
+    - `npm --prefix sdk test -- src/__tests__/idl-alignment.test.ts`
+    - `npm run test:fast`
+    - `npm run pack:smoke:skip-build`
 - `[2026-03-16]` Desktop tool-definition handoff was replaced with the shared `@tetsuo-ai/desktop-tool-contracts` workspace package; runtime and desktop-server now consume the same published contract and desktop-server validates handler/definition parity at startup.
 - `[2026-03-16]` Operator-console/watch packaging was moved to a runtime-owned `agenc-watch` bin backed by `runtime/src/watch/`, and operator-event consumers now resolve the `@tetsuo-ai/runtime/operator-events` package subpath instead of repo-relative built-file lookups.
 - `[2026-03-16]` `npm run typecheck --workspace=@tetsuo-ai/runtime`, `npm run test --workspace=@tetsuo-ai/runtime -- operator-console`, `npm run test --workspace=@tetsuo-ai/desktop-server`, and `npm run pack:smoke:skip-build` all passed with the shared desktop contract package included in the clean install matrix.
@@ -436,7 +443,7 @@ Decision log:
   - `npm ls bigint-buffer --all` returned an empty tree
   - `npm ls @solana/spl-token --all` returned an empty tree
   - `npm run typecheck`, `npm run test`, `npm run test:fast`, and `npm run pack:smoke` all passed after the removal
-  - `pack-smoke.mjs` now verifies the packaged `@tetsuo-ai/sdk/internal/spl-token` subpath, asserts the public SDK root does not leak internal SPL helpers, verifies installed runtime subpath exports, and checks the shipped `runtime/idl/agenc_coordination.json` payload
+  - `pack-smoke.mjs` now verifies the packaged `@tetsuo-ai/sdk/internal/spl-token` subpath, asserts the public SDK root does not leak internal SPL helpers, verifies installed runtime subpath exports, and checks the released `@tetsuo-ai/protocol` payload used by runtime consumers
 - `[2026-03-16]` Final Gate 10 exit-review verification:
   - `npm run pack:smoke:skip-build` passed
   - `npm run build --workspace=@tetsuo-ai/runtime` passed
@@ -544,13 +551,18 @@ Long-term private packages:
 
 Distribution rules:
 1. Public packages may continue on public npm.
-2. Private packages move to a private registry or private git distribution flow with explicit access control.
-3. Already-published runtime-side packages are not treated as permanent public contracts; Gate 11 must add deprecation and migration notes before any visibility tightening.
-4. No new public package may be created just because an internal seam exists. Public exposure requires a declared external use case, versioning policy, and compatibility harness.
+2. Private packages move to a dedicated internal distribution path with explicit access control and identities distinct from the long-term public package model.
+3. The preferred implementation is a private registry or package backend under a dedicated internal scope such as `@tetsuo-ai-internal/*`, but the backend choice must be validated against developer, CI, container, and deployment auth flows before cutover.
+4. Already-published runtime-side packages are not treated as permanent public contracts; Gate 11 must add deprecation notices, support-window policy, and migration notes before any visibility tightening.
+5. After the sunset window closes, public runtime-side package names remain frozen compatibility artifacts only. No new feature work may depend on them as trusted internal identifiers.
+6. Post-sunset public releases on runtime-side package names are exception-only and limited to critical CVE or breakglass fixes with an explicit internal decision record.
+7. No new public package may be created just because an internal seam exists. Public exposure requires a declared external use case, versioning policy, and compatibility harness.
 
 #### 11.5 Plugin-Kit v1 Contract
 
 `agenc-plugin-kit` is the public extension surface. It must start narrow.
+
+`agenc-plugin-kit` may not be a thin wrapper over private runtime internals. It must target a versioned host adapter implemented by `agenc-core`.
 
 Allowed extension classes in v1:
 - tool packs
@@ -570,7 +582,7 @@ Explicitly out of scope for v1:
 Required manifest contract:
 - `plugin_id`
 - `version`
-- `api_version`
+- `plugin_api_version`
 - `plugin_type`
 - `declared_capabilities`
 - `required_permissions`
@@ -579,6 +591,16 @@ Required manifest contract:
 - `migration_hooks`
 - `healthcheck_contract`
 - `resource_limits`
+
+Required host compatibility contract:
+- `host_api_version`
+- published compatibility matrix covering:
+  - supported `plugin_api_version` values
+  - supported plugin classes
+  - unsupported host features
+  - upgrade and rollback compatibility expectations
+
+The compatibility matrix must live in `agenc-plugin-kit` as a versioned, machine-readable artifact. `agenc-core` may mirror the supported matrix for runtime enforcement, but the public source of truth belongs to `agenc-plugin-kit`.
 
 Required lifecycle contract:
 - `register`
@@ -593,11 +615,12 @@ Required lifecycle contract:
 Enforcement rules:
 1. Plugins may not import private `agenc-core` internals.
 2. Plugins may access state only through host-provided APIs with plugin-owned namespaces.
-3. Plugins must be enableable and disableable per tenant or workspace.
-4. Plugin artifacts must be signed or allowlisted before activation.
-5. Compatibility checks must run before activation, upgrade, or rollback.
-6. Core must support kill switch and quarantine flows for faulty plugins.
-7. Plugin removal must not corrupt core state or require code surgery in the kernel.
+3. Internal registries, internal service containers, internal DB schemas, orchestration internals, policy/eval/ranking engines, and desktop/session-router internals are explicitly **not** public ABI.
+4. Plugins must be enableable and disableable per tenant or workspace.
+5. Plugin artifacts must be signed or allowlisted before activation.
+6. Compatibility checks must run before activation, upgrade, or rollback.
+7. Core must support kill switch and quarantine flows for faulty plugins.
+8. Plugin removal must not corrupt core state or require code surgery in the kernel.
 
 #### 11.6 Install / Enable / Disable / Remove Lifecycle
 
@@ -623,7 +646,7 @@ Removal rule:
 
 The extraction sequence is intentionally conservative:
 1. Lock this boundary map and package policy in the authority docs.
-2. Freeze the current repo as the future `agenc-core` baseline; do not begin by exploding the private kernel into many repos.
+2. Freeze the current `AgenC` repo as the future `agenc-core` baseline; do not begin by exploding the private kernel into many repos.
 3. Extract `agenc-sdk` first, including SDK-only examples and release/docs authority for the public builder surface.
 4. Extract `agenc-protocol` second, including:
    - `programs/agenc-coordination`
@@ -646,6 +669,12 @@ The extraction sequence is intentionally conservative:
 8. Drain mixed roots (`scripts/`, `tests/`, `docs/`, `examples/`) into owner repos; do not preserve mixed top-level catch-all folders after extraction.
 9. Migrate CI, release automation, docs authority, and package distribution only after the extracted repo proves build/test/pack/install independence.
 
+Primary privatization path:
+- keep the current `AgenC` repo as the private `agenc-core` baseline and change repo visibility when operationally ready
+
+Fallback only if a clean repo-visibility change is not workable:
+- mirror the kernel into a new private `agenc-core` repo, validate it, then de-authorize the old public copy
+
 #### 11.8 Rollback Points
 
 Every extraction phase must be reversible.
@@ -666,6 +695,19 @@ Required rollback controls:
 
 Rollback signal:
 - If any extracted repo requires source-tree imports, hidden build-order assumptions, or emergency monorepo-only patches to stay green, cut back to the last monorepo tag and reopen the extraction phase rather than papering it over.
+
+#### 11.8A Phase 0 — Boundary Lock
+
+Phase 0 is authority work, not a public marketing rewrite.
+
+Phase 0 must do all of the following before runtime-side visibility tightening:
+- record the boundary in an ADR
+- record the package distribution policy
+- record `plugin-kit` host ABI scope and explicit non-ABI internals
+- state that the current `AgenC` repo is the frozen `agenc-core` baseline
+- align `REFACTOR.MD`, `REFACTOR-MASTER-PROGRAM.md`, and the architecture ADR index with that decision
+
+Phase 0 must **not** pretend to finish the later public product-surface rewrite. Full public docs de-authority remains a later Gate 11 phase.
 
 #### 11.9 Wave 1 — `agenc-sdk` Extraction Checklist
 
@@ -705,13 +747,13 @@ Wave 1 new-repo bootstrap:
    - version tagging and release notes
 
 Wave 1 test-authority fence:
-1. `sdk/src/__tests__/idl-alignment.test.ts` currently reads `target/idl/agenc_coordination.json` from the monorepo.
-2. That test may not move into the standalone SDK repo unchanged.
-3. Before cutover, choose one of:
-   - move the IDL-alignment contract test to `agenc-protocol`
-   - rewrite it to consume a released protocol artifact/package
-   - keep it as a cross-repo integration job owned outside the SDK repo
-4. No SDK repo test may depend on monorepo `target/` paths after extraction.
+1. `sdk/src/__tests__/idl-alignment.test.ts` no longer reads monorepo `target/idl/**`; it now consumes `AGENC_COORDINATION_IDL` from `@tetsuo-ai/protocol`.
+2. That contract must remain package-based if the test moves into the standalone SDK repo.
+3. Acceptable future homes:
+   - keep it in SDK consuming the released protocol package
+   - move it to `agenc-protocol` as a trust-surface alignment test
+   - run it as a cross-repo integration job owned outside the SDK repo
+4. No SDK repo test may regress back to monorepo `target/` paths after extraction.
 
 Wave 1 release gates in the new repo:
 1. `npm ci`
@@ -842,24 +884,38 @@ Wave 2 completed:
    - `cargo fmt --manifest-path programs/agenc-coordination/Cargo.toml --all --check`
    - `cargo fmt --manifest-path zkvm/guest/Cargo.toml --all --check`
 
-Not yet cut over inside AgenC:
+Consumer-cutover scope inside AgenC was:
 - `runtime/idl/**`
 - `runtime/src/types/agenc_coordination.ts`
 - `runtime/scripts/copy-idl.js`
 - root `tests/**` imports from `target/idl/**` or `target/types/**`
 - `sdk/src/__tests__/idl-alignment.test.ts`
 
-Next-slice blockers:
-- `runtime/scripts/copy-idl.js`
-- `runtime/src/idl.ts`
-- `runtime/src/events/idl-drift-check.ts`
-- `runtime/src/types/agenc_coordination.ts`
-- `sdk/src/__tests__/idl-alignment.test.ts`
-- root tests importing `target/types/agenc_coordination.ts`
+Wave 2 consumer-cutover results:
+- `runtime/idl/**` authority removed from AgenC
+- `runtime/src/types/agenc_coordination.ts` reduced to a thin compatibility shim over `@tetsuo-ai/protocol`
+- `runtime/scripts/copy-idl.js` removed
+- root tests now consume the released protocol package or the explicit local test fallback helper
+- `sdk/src/__tests__/idl-alignment.test.ts` now consumes the released protocol package
 
 Wave 2 exit signal:
 - `agenc-protocol` owns the public trust-surface bootstrap, committed generated artifacts, and repo-local refresh/check automation
-- AgenC is ready to start consumer cutover against released protocol artifacts without ambiguity about source-of-truth ownership
+- AgenC consumes released protocol artifacts without ambiguity about source-of-truth ownership, and local `target/**` protocol assets are now explicit test-only validation inputs rather than package-owned artifact truth
+
+Wave 2 consumer-cutover status (`2026-03-16`):
+- completed:
+  - AgenC runtime now consumes released protocol artifacts from `@tetsuo-ai/protocol@0.1.1`
+  - `runtime/idl/agenc_coordination.json` was deleted from AgenC
+  - `runtime/scripts/copy-idl.js` was deleted from AgenC
+  - `runtime/src/types/agenc_coordination.ts` was reduced to a thin compatibility shim that re-exports the published `AgencCoordination` type
+  - `runtime/src/idl.ts`, `runtime/src/events/idl-drift-check.ts`, `runtime/src/types/errors.test.ts`, `sdk/src/__tests__/idl-alignment.test.ts`, and the root LiteSVM/integration tests now resolve protocol authority through `@tetsuo-ai/protocol` or the explicit `tests/protocol-artifacts.ts` helper
+  - local `target/idl/**` fallback now exists only behind `AGENC_USE_LOCAL_PROTOCOL_TARGET=1` for test/development validation
+- intentionally retained:
+  - `tests/protocol-artifacts.ts` as the explicit local-test fallback seam for unreleased protocol work
+  - `target/idl/**` and `target/types/**` as root-monorepo validation assets outside published package ownership
+- no longer true:
+  - runtime does not own vendored protocol artifact truth
+  - `copy-idl.js` is not part of the active artifact contract
 
 #### 11.11 Gate 11 Exit Signal
 
@@ -870,6 +926,49 @@ Gate 11 is complete only when:
 4. No extracted repo depends on another repo's private source tree, local file layout, or undocumented build order.
 5. Mixed root folders have been drained into owner repos or explicitly retained with documented ownership.
 6. Docs authority, release automation, and CI reflect the extracted topology.
+7. Runtime-side packages that were once public have explicit deprecation notices, support windows, and migration handling before any visibility tightening.
+
+#### 11.12 Current Phase 0 Status
+
+`[2026-03-16]` Phase 0 boundary lock landed in the authority layer:
+- [adr-002-public-contract-private-kernel-boundary.md](/home/tetsuo/git/AgenC/docs/architecture/adr/adr-002-public-contract-private-kernel-boundary.md) records:
+  - public `agenc-sdk`, `agenc-protocol`, `agenc-plugin-kit`
+  - private `agenc-core`, `agenc-prover`/`agenc-cloud`
+  - the current `AgenC` repo as the frozen `agenc-core` baseline
+  - the rule that runtime-side packages are transitional public artifacts, not permanent public contracts
+  - the `plugin-kit` host ABI policy and explicit non-ABI internals
+- Phase 0 intentionally does **not** rewrite the public README/install story yet. That remains a later Gate 11 docs de-authority phase after `plugin-kit` and runtime-side deprecation mechanics are real.
+
+#### 11.13 Current Phase 1 Status
+
+`[2026-03-16]` Phase 1 protocol consumer cutover is now materially complete in the AgenC monorepo:
+- runtime consumes released `@tetsuo-ai/protocol` artifacts as the canonical protocol source
+- vendored runtime protocol artifacts under `runtime/idl/**` are gone
+- `runtime/scripts/copy-idl.js` is deleted
+- runtime IDL drift checks and affected SDK/root tests now point at the published protocol package or the explicit local test-only fallback
+- the root test-only fallback remains explicit behind `AGENC_USE_LOCAL_PROTOCOL_TARGET=1` for unreleased local protocol development only
+
+#### 11.14 Current Phase 2 Status
+
+`[2026-03-16]` Phase 2 `plugin-kit` bootstrap is now live inside the monorepo:
+- [plugin-kit/](/home/tetsuo/git/AgenC/plugin-kit) exists as the public `@tetsuo-ai/plugin-kit` package with:
+  - manifest validation
+  - a versioned channel-host compatibility matrix
+  - certification helpers
+  - the narrow `channel_adapter` runtime contract
+- [test-fixtures/plugin-kit-channel-adapter/](/home/tetsuo/git/AgenC/test-fixtures/plugin-kit-channel-adapter) exists as a real workspace fixture package used by runtime host tests
+- runtime now has a private hosted-adapter seam through:
+  - [channel-policy.ts](/home/tetsuo/git/AgenC/runtime/src/plugins/channel-policy.ts)
+  - [channel-loader.ts](/home/tetsuo/git/AgenC/runtime/src/plugins/channel-loader.ts)
+  - [channel-host.ts](/home/tetsuo/git/AgenC/runtime/src/plugins/channel-host.ts)
+- plugin-backed channel entries are:
+  - trust-gated by `plugins.trustedPackages`
+  - restricted to package specifiers and explicit subpaths
+  - blocked from shadowing reserved built-in channel names
+  - required to match `manifest.channel_name` to the configured channel key
+- pack/install/baseline proof now covers `@tetsuo-ai/plugin-kit`
+
+Phase 2 does **not** yet make runtime private by decree. It only establishes the narrow public extension ABI and the private host adapter seam required before later runtime-side visibility tightening.
 
 ### 5.4 Gate 12 — Legacy Deletion And Convergence
 

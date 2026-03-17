@@ -26,7 +26,7 @@ import {
   SystemProgram,
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
-import type { AgencCoordination } from "../target/types/agenc_coordination.ts";
+import type { AgencCoordination } from "@tetsuo-ai/protocol";
 import {
   CAPABILITY_COMPUTE,
   CAPABILITY_INFERENCE,

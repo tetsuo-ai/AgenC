@@ -15,7 +15,7 @@ import {
   Connection,
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
-import type { AgencCoordination } from "../target/types/agenc_coordination.ts";
+import type { AgencCoordination } from "-ai/protocol";
 
 // Re-export SDK ZK helpers for integration tests
 export {

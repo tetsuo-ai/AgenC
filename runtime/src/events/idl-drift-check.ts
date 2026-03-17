@@ -4,13 +4,13 @@
 
 import { readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
+import { AGENC_COORDINATION_IDL } from "@tetsuo-ai/protocol";
 import {
   RUNTIME_EVENT_CONTRACT,
   type EventContract,
   type EventFieldContract,
   type FieldFamily,
 } from "./idl-contract.js";
-import idlJson from "../../idl/agenc_coordination.json";
 
 interface IdlField {
   name: string;
@@ -198,7 +198,7 @@ export async function checkIdlDrift(
   options: IdlDriftCheckerOptions = {},
 ): Promise<IdlDriftCheckResult> {
   const contract = options.contract ?? RUNTIME_EVENT_CONTRACT;
-  const idl = options.idl ?? (idlJson as unknown as IdlRoot);
+  const idl = options.idl ?? (AGENC_COORDINATION_IDL as unknown as IdlRoot);
   const overrides = options.overrides ?? [];
   const sourceText = await CONTRACT_SOURCE_TEXT;
   const contractFileForOutput = relative(process.cwd(), CONTRACT_FILE);

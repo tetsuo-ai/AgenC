@@ -49,14 +49,8 @@ export interface FeatureWiringContext {
   goalManager: import("../autonomous/goal-manager.js").GoalManager | null;
   desktopExecutor: import("../autonomous/desktop-executor.js").DesktopExecutor | null;
   mcpManager: import("../mcp-client/manager.js").MCPManager | null;
-  // Channels for ProactiveCommunicator
-  telegramChannel: ChannelPlugin | null;
-  discordChannel: ChannelPlugin | null;
-  slackChannel: ChannelPlugin | null;
-  whatsAppChannel: ChannelPlugin | null;
-  signalChannel: ChannelPlugin | null;
-  matrixChannel: ChannelPlugin | null;
-  imessageChannel: ChannelPlugin | null;
+  // External channels for ProactiveCommunicator
+  externalChannels: Map<string, ChannelPlugin>;
   // Gateway config
   gatewayLogging: GatewayConfig["logging"];
   // Workspace
@@ -295,21 +289,7 @@ export async function wireAutonomousFeatures(
   const intervalMs = heartbeatConfig?.intervalMs ?? 300_000; // default 5 min
 
   // Build active channels map for ProactiveCommunicator
-  const activeChannels = new Map<string, ChannelPlugin>();
-  if (ctx.telegramChannel)
-    activeChannels.set("telegram", ctx.telegramChannel);
-  if (ctx.discordChannel)
-    activeChannels.set("discord", ctx.discordChannel);
-  if (ctx.slackChannel)
-    activeChannels.set("slack", ctx.slackChannel);
-  if (ctx.whatsAppChannel)
-    activeChannels.set("whatsapp", ctx.whatsAppChannel);
-  if (ctx.signalChannel)
-    activeChannels.set("signal", ctx.signalChannel);
-  if (ctx.matrixChannel)
-    activeChannels.set("matrix", ctx.matrixChannel);
-  if (ctx.imessageChannel)
-    activeChannels.set("imessage", ctx.imessageChannel);
+  const activeChannels = new Map(ctx.externalChannels);
 
   // ProactiveCommunicator works fine with no channels — it just won't broadcast.
   // Don't block autonomous features for channel-less configurations.

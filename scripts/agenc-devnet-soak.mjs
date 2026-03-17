@@ -39,12 +39,14 @@ import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
 const REPO_ROOT = path.resolve(__dirname, "..");
-const DEFAULT_IDL_PATH = path.join(REPO_ROOT, "runtime", "idl", "agenc_coordination.json");
+const DEFAULT_IDL_PATH = require.resolve("@tetsuo-ai/protocol/idl/agenc_coordination.json");
 const DEFAULT_PROGRAM_ID = new PublicKey("6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab");
 const DEFAULT_RPC_URL = "https://api.devnet.solana.com";
 const DEFAULT_KEYPAIR_PATH = path.join(os.homedir(), ".config", "solana", "id.json");
