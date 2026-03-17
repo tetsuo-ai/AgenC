@@ -7,7 +7,7 @@
     "start": "npx tsx index.ts"
   },
   "dependencies": {
-    "@tetsuo-ai/sdk": "1.3.0",
+    "@tetsuo-ai/sdk": "1.3.1",
     "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {

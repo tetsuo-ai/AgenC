@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsup';
-import path from 'path';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 export default defineConfig({
   entry: ['src/index.ts'],
@@ -20,8 +22,8 @@ export default defineConfig({
     // The SDK/Runtime .mjs files have broken anchor interop,
     // so we resolve to .js (CJS) entries where require() works.
     options.alias = {
-      '@tetsuo-ai/sdk': path.resolve(__dirname, '../sdk/dist/index.js'),
-      '@tetsuo-ai/runtime': path.resolve(__dirname, '../runtime/dist/index.js'),
+      '@tetsuo-ai/sdk': require.resolve('@tetsuo-ai/sdk'),
+      '@tetsuo-ai/runtime': require.resolve('@tetsuo-ai/runtime'),
     };
     // Mark native Node modules as external
     options.external = [

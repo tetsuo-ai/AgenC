@@ -10,8 +10,8 @@ Last synced: `2026-03-16`.
 - The refactor program is **not complete**.
 - Gates 0 through 9 have materially established monorepo modularity and produced the required gate artifacts.
 - Gate 10 passed its final exit review on `2026-03-16` for the current split-candidate scope.
-- Gate 11 is now ready to start.
-- Gate 12 remains blocked until the Gate 11 split/no-split decision is materially stable.
+- Gate 11 is now `IN PROGRESS` with a recorded split decision: keep the engine private and publish contracts plus extension sockets.
+- Gate 12 remains blocked until the Gate 11 repo topology and extraction state are materially stable.
 - Standalone `docs/refactor/gate-*.md` planning documents have been retired; gate status and live evidence now belong here.
 - Audit note: parallel explorer subagents were attempted on `2026-03-16`, but all failed on model usage limits; this sync is therefore based on direct repository evidence.
 
@@ -44,9 +44,10 @@ Last synced: `2026-03-16`.
   - package `README.md` / `CHANGELOG.md` files
 - Package consumers are already on published package coordinates:
   - `web` and `mobile` use `@tetsuo-ai/runtime`
-  - `runtime` uses `@tetsuo-ai/sdk`
-  - `mcp` uses `@tetsuo-ai/runtime` and `@tetsuo-ai/sdk`
+  - `runtime` uses released `@tetsuo-ai/sdk@1.3.1`
+  - `mcp` uses `@tetsuo-ai/runtime` and released `@tetsuo-ai/sdk@1.3.1`
   - packaged examples use `@tetsuo-ai/sdk`
+  - the root workspace no longer owns `sdk` or `examples/private-task-demo`; those local trees are rollback mirrors only
 
 ### 2.2 Gate 10 Exit Review Result
 
@@ -89,8 +90,9 @@ Final review findings:
   - [agenc-devnet-soak.mjs](/home/tetsuo/git/AgenC/scripts/agenc-devnet-soak.mjs), [setup-verifier-localnet.ts](/home/tetsuo/git/AgenC/scripts/setup-verifier-localnet.ts), and root proof/program tests still consume root-local verifier or `target/*` artifacts as monorepo validation assets
   - those paths do not block Gate 10 unless they are promoted into future split-candidate scope
 
-Temporary npm publish under `@tetsuo-ai/*` is proven:
-  - `@tetsuo-ai/sdk@1.3.0`, `@tetsuo-ai/runtime@0.1.0`, `@tetsuo-ai/mcp@0.1.0`, and `@tetsuo-ai/docs-mcp@0.1.0` all published and installed successfully from clean temp consumers on `2026-03-16`
+Registry-backed package distribution under `@tetsuo-ai/*` is proven:
+  - `@tetsuo-ai/sdk@1.3.1` published from the standalone `tetsuo-ai/agenc-sdk` repo and installed successfully from clean temp consumers on `2026-03-16`
+  - `@tetsuo-ai/runtime@0.1.0`, `@tetsuo-ai/mcp@0.1.0`, and `@tetsuo-ai/docs-mcp@0.1.0` published and installed successfully from clean temp consumers on `2026-03-16`
 Resolved on `2026-03-16`:
 - The old root `file:patches/npm/bigint-buffer` override is gone.
 - The `@solana/spl-token` dependency chain is gone.
@@ -123,7 +125,7 @@ Resolved on `2026-03-16`:
 | 8 | Verification/docs/tooling convergence | COMPLETE | Current baseline/docs/docs-mcp state summarized here | Keep docs-mcp scope/root-doc coverage aligned with future authority changes |
 | 9 | Internal modularization inside the monorepo | COMPLETE | Current monorepo modularity proof summarized here | Preserve the modularity proof that Gate 10 now builds on |
 | 10 | Repository split readiness | COMPLETE | Gate 10 verification matrix, execution ledger, and final exit review in this roadmap | Keep candidate-scope proof current if new split candidates are added |
-| 11 | Optional repository split | READY | Gate 10 exit review passed in this roadmap | Choose split/no-split topology and define rollback/documentation ownership |
+| 11 | Repository split decision and extraction | IN PROGRESS | Gate 11 topology, package policy, and extraction order are now recorded in this roadmap | Execute the split with rollback, CI, and docs authority preserved |
 | 12 | Legacy deletion and convergence | BLOCKED | None yet | Cannot start before the Gate 11 decision is stable |
 
 ---
@@ -326,7 +328,7 @@ Validated downstream consumers and tool surfaces:
 | `mobile` | Mobile + Runtime | clean temp copy `npm install` + `npm run typecheck` | `@tetsuo-ai/runtime` | pass |
 | `examples/tetsuo-integration` | Examples + Runtime | clean temp copy `npm install` + `npm run build` | `@tetsuo-ai/sdk`, `@tetsuo-ai/runtime` | pass |
 | `containers/desktop/server` | Desktop + Runtime | `npm run test --workspace=@tetsuo-ai/desktop-server` | `@tetsuo-ai/desktop-tool-contracts` | pass |
-| `examples/private-task-demo` | Examples + Runtime | `npm run demo:private-task -- --help` | `@tetsuo-ai/sdk`, `@tetsuo-ai/runtime` | pass |
+| `examples/private-task-demo` | Examples + SDK | `npm run start --prefix examples/private-task-demo -- --help` | `@tetsuo-ai/sdk` | pass |
 | `tools/localnet-social` | Runtime ops | `npm run localnet:social:bootstrap -- --help` and `npm run localnet:social:smoke -- --help` | `@tetsuo-ai/runtime` | pass |
 | `tools/zk-admin` | Protocol + zk admin | `npm run benchmark:private:e2e -- --help`, `npm run zk:config -- --help`, and verifier/localnet validation | `@tetsuo-ai/sdk`, `@tetsuo-ai/runtime` | pass |
 
@@ -367,11 +369,17 @@ Decision log:
 - `[2026-03-16]` Standalone gate docs retired from the active tree; gate status and evidence collapsed into `REFACTOR.MD`.
 - `[2026-03-16]` The five previously identified root script/demo source-path blockers were migrated to `@tetsuo-ai/sdk` / `@tetsuo-ai/runtime` package-public imports.
 - `[2026-03-16]` Core workspace packages adopted the permanent `@tetsuo-ai/*` scope, `mcp` / `docs-mcp` package metadata was aligned to explicit CommonJS tarball outputs, and a checked-in `pack -> install -> require` smoke harness was added and verified locally for `sdk`, `runtime`, `mcp`, and `docs-mcp`.
-- `[2026-03-16]` Temporary registry publish under `@tetsuo-ai/*` results:
-  - `@tetsuo-ai/sdk@1.3.0` published and installed successfully from a clean temp project
+- `[2026-03-16]` Registry publish under `@tetsuo-ai/*` results:
+  - `@tetsuo-ai/sdk@1.3.1` published and installed successfully from the standalone `tetsuo-ai/agenc-sdk` repo
   - `@tetsuo-ai/runtime@0.1.0` published and installed successfully from a clean temp project
   - `@tetsuo-ai/mcp@0.1.0` published and installed successfully from a clean temp project; installed `.bin/agenc-mcp` is present despite npm's noisy publish-time `bin[...] removed` warning
   - `@tetsuo-ai/docs-mcp@0.1.0` published and installed successfully from a clean temp project; the earlier `404` was npm registry propagation lag, not a package-manifest failure
+- `[2026-03-16]` Wave 1 `agenc-sdk` extraction cutover landed:
+  - standalone repo `tetsuo-ai/agenc-sdk` created with repo-local CI, API baseline check, and pack-smoke validation
+  - root workspace ownership removed for `sdk` and `examples/private-task-demo`
+  - `mcp/tsup.config.ts`, `scripts/smoke-test-examples.sh`, `containers/desktop/Dockerfile`, `scripts/pack-smoke.mjs`, and `.github/workflows/package-pack-smoke.yml` no longer assume local SDK build ownership
+  - the private monorepo validated against released `@tetsuo-ai/sdk@1.3.1` via `npm run build`, `npm run typecheck`, `npm run test`, `npm run test --workspace=@tetsuo-ai/mcp`, `npm run test --workspace=@tetsuo-ai/desktop-server`, and `npm run pack:smoke`
+  - local `sdk/` and `examples/private-task-demo/` trees are retained only as de-authorized rollback mirrors and must remain unpublished
 - `[2026-03-16]` Desktop tool-definition handoff was replaced with the shared `@tetsuo-ai/desktop-tool-contracts` workspace package; runtime and desktop-server now consume the same published contract and desktop-server validates handler/definition parity at startup.
 - `[2026-03-16]` Operator-console/watch packaging was moved to a runtime-owned `agenc-watch` bin backed by `runtime/src/watch/`, and operator-event consumers now resolve the `@tetsuo-ai/runtime/operator-events` package subpath instead of repo-relative built-file lookups.
 - `[2026-03-16]` `npm run typecheck --workspace=@tetsuo-ai/runtime`, `npm run test --workspace=@tetsuo-ai/runtime -- operator-console`, `npm run test --workspace=@tetsuo-ai/desktop-server`, and `npm run pack:smoke:skip-build` all passed with the shared desktop contract package included in the clean install matrix.
@@ -428,31 +436,381 @@ Decision log:
   - split-candidate manifest audit returned no `file:` dependencies
   - Gate 10 verdict recorded as `PASS` for the current split-candidate scope
 
-### 5.3 Gate 11 — Optional Repository Split
+### 5.3 Gate 11 — Repository Split Decision And Extraction
 
-Status: `READY`
+Status: `IN PROGRESS`
 
-Gate 10 is green. Gate 11 can now start.
+Decision recorded on `2026-03-16`:
+- `SPLIT`
+- Keep the engine private.
+- Publish contracts and extension sockets.
 
-Required decision:
-1. Decide whether the repo should actually split.
-2. If **no split**, record that monorepo modularity is the chosen steady state and move directly to Gate 12 cleanup.
-3. If **split**, produce a topology plan covering:
-   - target repos
-   - release sequencing
-   - consumer install-path migration
-   - docs authority migration
-   - CI migration
-   - rollback path back to the monorepo release topology
+Gate 10 is green. Gate 11 now moves from "should we split?" to "how do we split without leaking the moat or creating cross-repo dependency hell?"
 
-Exit signal:
-- The split/no-split decision is explicit, documented, and reversible.
+#### 11.1 Architecture Verdict
+
+The future-proof operating model is:
+1. Public repos expose trust surfaces, SDK surfaces, and narrow extension contracts.
+2. Private repos keep orchestration, routing, operator UX, policy, ranking, evaluation, marketplace logic, proving operations, and hosted-control-plane behavior.
+3. Third parties build **for** AgenC, not **inside** the private runtime kernel.
+4. Cross-repo dependency is allowed only through released contracts, versioned artifacts, or explicit APIs. No repo may depend on another repo's source tree, private file layout, or hidden build order.
+
+Chosen topology:
+- Public:
+  - `agenc-sdk`
+  - `agenc-protocol`
+  - `agenc-plugin-kit` (new)
+- Private:
+  - `agenc-core`
+  - `agenc-prover` or `agenc-cloud`
+
+Non-goals for Gate 11:
+- do not publish the main runtime as the public extension model
+- do not treat `mcp`, `docs-mcp`, or desktop control-plane contracts as ecosystem ABI
+- do not let third-party plugins import private runtime internals directly
+
+#### 11.2 Target Repository Topology
+
+| Target repo | Visibility | Current ownership | Purpose | Explicit non-goals |
+|-------------|------------|-------------------|---------|--------------------|
+| `agenc-sdk` | Public | `sdk/` plus SDK-only starter examples | Stable TypeScript integration surface for builders | No runtime orchestration, operator tooling, or private control-plane code |
+| `agenc-protocol` | Public | `programs/agenc-coordination/`, `zkvm/guest/`, protocol migrations, public IDL and generated contract artifacts | Public trust surface, on-chain semantics, proof journal schema, generated artifacts | No host-side prover ops, no runtime kernel |
+| `agenc-plugin-kit` | Public | new repo/package extracted from current internal registry patterns | Narrow extension ABI: manifests, capability model, lifecycle hooks, certification harness, starter templates | No broad runtime types, no orchestration internals, no desktop/session-router internals |
+| `agenc-core` | Private | `runtime/`, `mcp/`, `docs-mcp/`, `contracts/desktop-tool-contracts/`, `containers/desktop/server/`, `web/`, `mobile/`, `demo-app/`, internal examples, runtime-owned tools/scripts | Private kernel, operator stack, desktop control plane, apps, marketplace logic, policy/eval/orchestration | Not a public plugin SDK; not a general public runtime repo |
+| `agenc-prover` or `agenc-cloud` | Private | `zkvm/host/`, remote prover services, benchmark/prover ops, hosted control-plane surfaces, proving deployment/auth/quota logic | Private proving moat and cloud/control-plane operations | No public trust ABI; no direct third-party extension surface |
+
+#### 11.3 Current Path To Target Repo Map
+
+This map is the canonical ownership plan for the current tree. Mixed folders must be drained into owner repos; they do not survive as mixed roots.
+
+| Current path | Target repo | Visibility | Rule |
+|--------------|-------------|------------|------|
+| `sdk/**` | `agenc-sdk` | Public | Primary public builder surface |
+| `examples/private-task-demo/**` | `agenc-sdk` | Public | Curated SDK-only starter example for the first extraction wave |
+| `programs/agenc-coordination/**` | `agenc-protocol` | Public | Canonical on-chain program source |
+| `zkvm/guest/**` | `agenc-protocol` | Public | Public proof/journal semantics and trust surface |
+| `migrations/**` | `agenc-protocol` | Public | Protocol migration ownership belongs with the on-chain trust surface |
+| `runtime/idl/**` | `agenc-protocol` | Public | Canonical generated protocol artifacts must move out of private core and be consumed as released artifacts |
+| `runtime/src/types/agenc_coordination.ts` | `agenc-protocol` | Public generated artifact | Generated client artifact; `agenc-core` may consume it but must not own canonical truth |
+| `runtime/**` except protocol-generated artifacts | `agenc-core` | Private | Private kernel and operator stack stay together |
+| `mcp/**` | `agenc-core` | Private | Operator/control-plane surface, not public plugin ABI |
+| `docs-mcp/**` | `agenc-core` | Private | Internal documentation/control-plane helper server |
+| `contracts/desktop-tool-contracts/**` | `agenc-core` | Private | Internal runtime/desktop-server contract; may stay separately packaged but only for internal distribution |
+| `containers/desktop/server/**` | `agenc-core` | Private | Desktop control-plane server remains part of the kernel |
+| `web/**` | `agenc-core` | Private | Product UI, not public contract surface |
+| `mobile/**` | `agenc-core` | Private | Product app, not public contract surface |
+| `demo-app/**` | `agenc-core` | Private | Internal/demo product surface |
+| `examples/**` other than `examples/private-task-demo/**` | `agenc-core` by default | Private unless rewritten | Additional SDK-only examples may be promoted later, but only after explicit ownership and verification are assigned |
+| `tools/localnet-social/**` | `agenc-core` | Private | Runtime/operator bootstrap and smoke tooling |
+| `tools/zk-admin/**` | `agenc-prover` | Private | Prover/protocol admin and benchmark ops remain private in v1 |
+| `zkvm/host/**` | `agenc-prover` | Private | Host-side proof generation and proving operations |
+| `benchmarks/**` | `agenc-prover` | Private | Benchmark evidence stays with proving/control-plane ops unless an explicit public benchmark program is created |
+| `tests/**` | Drain by owner repo | Mixed transitional | Do not preserve a shared cross-repo root test tree; move tests into the repo that owns the contract being verified |
+| `scripts/idl/**` | `agenc-protocol` | Public/internal-to-protocol | Protocol codegen and IDL support must follow protocol ownership |
+| `scripts/**` remaining | Drain by owner repo | Mixed transitional | Runtime/watch/dev wrappers -> `agenc-core`; prover/deploy/benchmark ops -> `agenc-prover`; no mixed `scripts/` root after extraction |
+| `docs/**` and root `README.md` / `REFACTOR*.md` | Drain by owner repo | Mixed transitional | Package/protocol/runtime docs move with the owning repo; whole-program split docs remain internal until extraction stabilizes |
+
+#### 11.4 Public And Private Package Policy
+
+Long-term public packages:
+- `@tetsuo-ai/sdk`
+- protocol artifact packages published from `agenc-protocol`
+- `@tetsuo-ai/plugin-kit` plus any narrow companion packages needed for manifests, validation, or certification
+
+Long-term private packages:
+- `@tetsuo-ai/runtime`
+- `@tetsuo-ai/mcp`
+- `@tetsuo-ai/docs-mcp`
+- `@tetsuo-ai/desktop-tool-contracts`
+- `@tetsuo-ai/desktop-server`
+- private proving/control-plane packages published from `agenc-prover`
+
+Distribution rules:
+1. Public packages may continue on public npm.
+2. Private packages move to a private registry or private git distribution flow with explicit access control.
+3. Already-published runtime-side packages are not treated as permanent public contracts; Gate 11 must add deprecation and migration notes before any visibility tightening.
+4. No new public package may be created just because an internal seam exists. Public exposure requires a declared external use case, versioning policy, and compatibility harness.
+
+#### 11.5 Plugin-Kit v1 Contract
+
+`agenc-plugin-kit` is the public extension surface. It must start narrow.
+
+Allowed extension classes in v1:
+- tool packs
+- provider adapters
+- connector/channel adapters
+
+Explicitly out of scope for v1:
+- orchestration
+- policy engine
+- evaluation/replay engine
+- marketplace ranking
+- approvals
+- subagent runtime
+- desktop/session-router internals
+- broad runtime object graphs or internal service locators
+
+Required manifest contract:
+- `plugin_id`
+- `version`
+- `api_version`
+- `plugin_type`
+- `declared_capabilities`
+- `required_permissions`
+- `config_schema`
+- `storage_namespace`
+- `migration_hooks`
+- `healthcheck_contract`
+- `resource_limits`
+
+Required lifecycle contract:
+- `register`
+- `validateConfig`
+- `start`
+- `healthcheck`
+- `drain`
+- `stop`
+- `migrate`
+- `uninstall`
+
+Enforcement rules:
+1. Plugins may not import private `agenc-core` internals.
+2. Plugins may access state only through host-provided APIs with plugin-owned namespaces.
+3. Plugins must be enableable and disableable per tenant or workspace.
+4. Plugin artifacts must be signed or allowlisted before activation.
+5. Compatibility checks must run before activation, upgrade, or rollback.
+6. Core must support kill switch and quarantine flows for faulty plugins.
+7. Plugin removal must not corrupt core state or require code surgery in the kernel.
+
+#### 11.6 Install / Enable / Disable / Remove Lifecycle
+
+Enterprise plugin operations must follow this sequence:
+1. `Submit`: receive plugin artifact plus manifest and provenance metadata.
+2. `Verify`: validate signature/allowlist, manifest schema, `api_version`, and declared permissions.
+3. `Certify`: run compatibility harness, contract tests, and policy checks before activation.
+4. `Stage`: install artifact in a disabled state; no implicit enable on install.
+5. `Configure`: validate tenant/workspace config against `config_schema`.
+6. `Enable`: enable the plugin explicitly for a tenant/workspace/environment.
+7. `Start`: start plugin runtime hooks with bounded resources and audit logging.
+8. `Health`: require ongoing health checks and an operator-visible status surface.
+9. `Disable`: stop new work admission without deleting plugin-owned state.
+10. `Drain`: allow in-flight work to finish or expire safely.
+11. `Stop`: terminate plugin execution and release resources.
+12. `Uninstall`: run uninstall hooks, archive or delete plugin-owned state per policy, and detach the plugin cleanly.
+13. `Rollback`: restore prior plugin version only after migration compatibility checks and state rollback validation pass.
+
+Removal rule:
+- If a plugin cannot be disabled, drained, stopped, and removed through this lifecycle, it is not an enterprise plugin boundary yet.
+
+#### 11.7 Extraction Order
+
+The extraction sequence is intentionally conservative:
+1. Lock this boundary map and package policy in the authority docs.
+2. Freeze the current repo as the future `agenc-core` baseline; do not begin by exploding the private kernel into many repos.
+3. Extract `agenc-sdk` first, including SDK-only examples and release/docs authority for the public builder surface.
+4. Extract `agenc-protocol` second, including:
+   - `programs/agenc-coordination`
+   - `zkvm/guest`
+   - public IDL/generated artifacts
+   - protocol migrations
+5. Create `agenc-plugin-kit` third as a narrow public extension repo with certification harness and starter templates.
+6. Extract `agenc-prover` fourth, including:
+   - `zkvm/host`
+   - proving services
+   - `tools/zk-admin`
+   - benchmark/proving ops
+7. Keep `agenc-core` together as the private kernel:
+   - `runtime`
+   - `mcp`
+   - `docs-mcp`
+   - `contracts/desktop-tool-contracts`
+   - `containers/desktop/server`
+   - apps and internal examples/tools
+8. Drain mixed roots (`scripts/`, `tests/`, `docs/`, `examples/`) into owner repos; do not preserve mixed top-level catch-all folders after extraction.
+9. Migrate CI, release automation, docs authority, and package distribution only after the extracted repo proves build/test/pack/install independence.
+
+#### 11.8 Rollback Points
+
+Every extraction phase must be reversible.
+
+Required rollback controls:
+1. Tag the monorepo before each extraction wave.
+2. Keep the monorepo release path authoritative until the extracted repo proves:
+   - green build/test/typecheck
+   - pack/install smoke
+   - downstream consumer smoke on released artifacts
+3. Mirror first, cut over second:
+   - copy code into the new repo
+   - stand up CI and release automation
+   - verify consumers against released artifacts
+   - only then delete or de-authoritize the monorepo copy
+4. Do not delete a package surface from the monorepo until its replacement repo has passed at least one full release-quality validation cycle.
+5. Keep migration notes and deprecation notices for any package moving from public to private distribution.
+
+Rollback signal:
+- If any extracted repo requires source-tree imports, hidden build-order assumptions, or emergency monorepo-only patches to stay green, cut back to the last monorepo tag and reopen the extraction phase rather than papering it over.
+
+#### 11.9 Wave 1 — `agenc-sdk` Extraction Checklist
+
+Wave 1 exists to prove the split on the safest public boundary before touching protocol or core extraction.
+
+Wave 1 scope:
+- Move to the new `agenc-sdk` repo:
+  - `sdk/package.json`
+  - `sdk/tsconfig.json`
+  - `sdk/src/**`
+  - `sdk/README.md`
+  - `sdk/CHANGELOG.md`
+  - `docs/api-baseline/sdk.json`
+  - `examples/private-task-demo/**`
+- Do **not** move in Wave 1:
+  - `sdk/dist/**`
+  - `sdk/node_modules/**`
+  - protocol-owned generated artifacts
+  - runtime-owned docs, scripts, or package contracts
+  - uncurated SDK-only examples such as `examples/simple-usage/**` and `examples/risc0-proof-demo/**` until they have explicit public-example ownership and verification
+
+Wave 1 new-repo bootstrap:
+1. Create `agenc-sdk` as a standalone repo under the org.
+2. Copy the Wave 1 scope into that repo without bringing `dist/` or `node_modules/`.
+3. Generate a repo-local lockfile and CI.
+4. Move the SDK package metadata to the new repo authority:
+   - update `repository`
+   - update `homepage`
+   - update `bugs`
+   - remove monorepo `directory` assumptions if introduced
+5. Keep package identity stable:
+   - package name remains `@tetsuo-ai/sdk`
+   - consumer import paths do not change
+6. Move SDK release authority into the new repo:
+   - `CHANGELOG.md`
+   - package publishing provenance
+   - version tagging and release notes
+
+Wave 1 test-authority fence:
+1. `sdk/src/__tests__/idl-alignment.test.ts` currently reads `target/idl/agenc_coordination.json` from the monorepo.
+2. That test may not move into the standalone SDK repo unchanged.
+3. Before cutover, choose one of:
+   - move the IDL-alignment contract test to `agenc-protocol`
+   - rewrite it to consume a released protocol artifact/package
+   - keep it as a cross-repo integration job owned outside the SDK repo
+4. No SDK repo test may depend on monorepo `target/` paths after extraction.
+
+Wave 1 release gates in the new repo:
+1. `npm ci`
+2. `npm run build`
+3. `npm run typecheck`
+4. `npm run test`
+5. `npm pack`
+6. clean temp `npm install <tarball>` smoke
+7. SDK API baseline check against the moved `docs/api-baseline/sdk.json`
+8. publish-provenance/release workflow check for the new repo authority
+
+Current monorepo hazards that must be removed during cutover:
+1. Root workspace orchestration still assumes local SDK ownership:
+   - `package.json` `build`
+   - `package.json` `build:sdk`
+   - `package.json` `test`
+   - `package.json` `typecheck`
+2. MCP build config still aliases the SDK to a monorepo-local built file:
+   - `mcp/tsup.config.ts`
+3. Example smoke tooling still assumes `sdk/dist` and `./sdk/node_modules` exist locally:
+   - `scripts/smoke-test-examples.sh`
+4. Desktop container build still copies the monorepo SDK tree into the image:
+   - `containers/desktop/Dockerfile`
+5. SDK package metadata still points at the monorepo issue/repo surface:
+   - `sdk/package.json`
+6. Root docs and package inventory still link the SDK to the monorepo path as if it were permanently local:
+   - `README.md`
+   - package/version maps and release docs
+7. Current pack-smoke and CI path filters still treat the SDK as a monorepo-owned package:
+   - `scripts/pack-smoke.mjs`
+   - `.github/workflows/package-pack-smoke.yml`
+8. Fixed-version consumers will need a coordinated release bump once the first SDK release comes from the new repo:
+   - `runtime/package.json`
+   - `mcp/package.json`
+   - `tools/localnet-social/package.json`
+   - `tools/zk-admin/package.json`
+   - SDK-dependent example `package.json` files
+
+Wave 1 cutover sequence:
+1. Mirror first:
+   - create `agenc-sdk`
+   - stand up CI/release/pack-smoke there
+   - publish a release from the new repo
+2. Cut root workspace authority second:
+   - remove `sdk` from the root workspace list only after the new repo release is green
+   - rewrite root `build` / `test` / `typecheck` scripts so the private repo no longer treats SDK as a local workspace owner
+   - regenerate the root lockfile after removing workspace ownership
+3. Remediate build/path assumption consumers:
+   - remove the `mcp/tsup.config.ts` alias to `../sdk/dist/index.js`
+   - replace desktop image `COPY sdk/` with install of the released `@tetsuo-ai/sdk` package or prepacked SDK artifact
+   - rewrite `scripts/smoke-test-examples.sh` so it no longer requires `sdk/dist` or `./sdk/node_modules/esbuild`
+   - convert root pack-smoke and package-pack-smoke CI from local SDK packing to released-SDK or transitional mirror validation, then remove SDK from the monorepo smoke matrix once cutover is complete
+4. Cut downstream package consumers:
+   - keep imports on `@tetsuo-ai/sdk`
+   - bump pinned SDK versions to the first extraction release where needed
+   - keep runtime/core code importing the package name only
+5. Validate the private monorepo against the released SDK artifact:
+   - `npm run build`
+   - `npm run typecheck`
+   - `npm run test`
+   - `npm run pack:smoke`
+   - `npm run test --workspace=@tetsuo-ai/mcp`
+   - `npm run test --workspace=@tetsuo-ai/runtime`
+   - `npm run test --workspace=@tetsuo-ai/desktop-server`
+   - downstream example/tool smokes that depend on `@tetsuo-ai/sdk`
+6. Update authority docs after cutover:
+   - root `README.md`
+   - version/doc maps
+   - any package inventory still presenting SDK as monorepo-local
+7. Only after one full green release-quality cycle:
+   - de-authorize the monorepo copy of `sdk/`
+   - remove SDK ownership from the monorepo workspace list
+   - point root docs to the new repo as canonical SDK authority
+
+Wave 1 execution status (`2026-03-16`):
+- completed:
+  - standalone repo `tetsuo-ai/agenc-sdk` exists
+  - `@tetsuo-ai/sdk@1.3.1` was published from that repo
+  - root workspace ownership was removed for `sdk` and `examples/private-task-demo`
+  - the concrete cutover blockers in `mcp/tsup.config.ts`, `scripts/smoke-test-examples.sh`, `containers/desktop/Dockerfile`, `scripts/pack-smoke.mjs`, and `.github/workflows/package-pack-smoke.yml` were removed
+  - the private monorepo validated against the released SDK artifact instead of a sibling workspace build
+  - root docs now point at `tetsuo-ai/agenc-sdk` as canonical SDK authority
+- intentionally retained:
+  - local `sdk/` and `examples/private-task-demo/` copies remain only as de-authorized rollback mirrors while Gate 11 continues
+- non-blocking note:
+  - `scripts/smoke-test-examples.sh` still reports pre-existing runtime-heavy example bundling failures unrelated to the SDK cutover; SDK-dependent examples passed and the Wave 1 package proofs are green
+
+Wave 1 rollback:
+1. Tag the monorepo before creating the extraction branch.
+2. Keep the monorepo SDK copy as the fallback until:
+   - the new repo publishes successfully
+   - the private monorepo validates against the released package
+   - no build/test/container flow still expects local `sdk/`
+3. If any consumer still requires `../sdk`, `sdk/dist`, or local-copy image assembly to stay green, cut back to the monorepo tag and reopen Wave 1 instead of papering over the dependency.
+
+Wave 1 exit signal:
+- `agenc-sdk` builds, tests, packs, and publishes independently
+- the private monorepo consumes the released SDK artifact without local path assumptions
+- the curated public SDK example lives with the SDK repo
+- the SDK API baseline and package docs have moved with the SDK repo
+
+#### 11.10 Gate 11 Exit Signal
+
+Gate 11 is complete only when:
+1. The public/private repo topology is implemented, not merely described.
+2. Public packages and private packages follow the declared distribution policy.
+3. `agenc-plugin-kit` exists as a narrow certified extension ABI rather than a vague promise.
+4. No extracted repo depends on another repo's private source tree, local file layout, or undocumented build order.
+5. Mixed root folders have been drained into owner repos or explicitly retained with documented ownership.
+6. Docs authority, release automation, and CI reflect the extracted topology.
 
 ### 5.4 Gate 12 — Legacy Deletion And Convergence
 
 Status: `BLOCKED`
 
-Starts only after Gate 10 is green and the Gate 11 decision is stable.
+Starts only after the Gate 11 public/private boundary and extraction topology are materially stable.
 
 Required work:
 1. Remove transitional compatibility shims that are now dead.

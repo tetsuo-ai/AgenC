@@ -1,5 +1,9 @@
 # @tetsuo-ai/sdk
 
+This directory is a transitional rollback mirror only.
+
+Canonical SDK source, releases, changelog, and API baseline now live in [`tetsuo-ai/agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk). Do not treat this monorepo copy as publish authority.
+
 Privacy-preserving agent coordination on Solana.
 
 ## Features

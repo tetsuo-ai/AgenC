@@ -70,7 +70,7 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Surface | Current Path | What It Is | Refactor Requirement |
 |---------|--------------|------------|----------------------|
 | On-chain program | `programs/agenc-coordination/` | Anchor Solana program (44 IDL instructions, 54 Rust instruction files, 200 error codes, 49 events, 22 IDL accounts, 9 fuzz targets), instruction handlers, state/event logic including `ZkConfig` governance | Refactor instruction/state/event ownership without breaking protocol semantics |
-| SDK | `sdk/` | TypeScript SDK for protocol, proofs, tokens, transactions, program access, prover backends (`prover.ts`), process identity (`process-identity.ts`) | Separate public API from internal implementation and generated/client plumbing |
+| SDK | `sdk/` (transitional rollback mirror; canonical repo is `tetsuo-ai/agenc-sdk`) | TypeScript SDK for protocol, proofs, tokens, transactions, program access, prover backends (`prover.ts`), process identity (`process-identity.ts`) | Separate public API from internal implementation and generated/client plumbing, then move canonical release ownership to the standalone SDK repo |
 | Runtime | `runtime/` (~392k lines, 32 src directories, ~319 test files, ~6,427 test cases) | agent runtime, daemon, gateway (70+ source files), llm (ChatExecutor split into 15+ modules), workflow, tools, channels, desktop layer, evaluation, observability, init workflow, delegation infrastructure | Refactor around real contracts, not folder mythology |
 | zkVM | `zkvm/`, proof/prover integration in `sdk/` and `scripts/` | guest crate plus proof/prover integration surfaces for private task verification | Establish explicit proof schemas, artifact chains, and verifier contracts |
 | MCP server | `mcp/` | protocol/runtime consumer exposed as MCP tools | Make it a thin consumer over stable contracts |
@@ -298,6 +298,7 @@ Current facts:
   - `tools/localnet-social`
   - `tools/zk-admin`
 - the root `file:patches/npm/bigint-buffer` override is gone, and split-candidate manifests no longer rely on `file:` dependencies
+- `@tetsuo-ai/sdk@1.3.1` is now published from the standalone public repo `tetsuo-ai/agenc-sdk`, and the private monorepo validates against that released artifact rather than a local workspace-owned SDK build
 - the final split-candidate import audit found no repo-relative `runtime/src`, `sdk/src`, `mcp/src`, `docs-mcp/src`, desktop-server source imports, or `runtime/dist/operator-events.mjs` coupling in candidate code
 - contract-bearing split-candidate artifacts now have repo-independent handoff through packaged/runtime-owned surfaces:
   - shipped runtime IDL
@@ -943,8 +944,8 @@ Current-state problem:
 
 - package extraction is easy to confuse with actual modularity
 - candidate split units are not yet proven under clean, published-artifact only conditions (pack/install/smoke/release)
-- the earlier root-level local patch override (`file:patches/npm/bigint-buffer`) was removed on `2026-03-16` by replacing the `@solana/spl-token` dependency chain with an owned SDK token helper; Gate 10 no longer depends on that path, and remaining program work moved on to Gate 11 split/no-split planning
-- several operational scripts still depend on local artifact paths and non-published runtime/script internals, which can block true repo-independent handoff
+- the earlier root-level local patch override (`file:patches/npm/bigint-buffer`) was removed on `2026-03-16` by replacing the `@solana/spl-token` dependency chain with an owned SDK token helper; Gate 10 no longer depends on that path, and remaining program work moved on to Gate 11 extraction planning
+- the remaining root-monorepo verifier/program assets are now explicitly scoped outside split-candidate package contracts; Gate 11 owns their long-term repo placement rather than treating them as hidden Gate 10 blockers
 
 Target end state:
 
@@ -1265,20 +1266,43 @@ Exit gate:
 - candidate split packages can build, test, pack, install, and release without the monorepo layout
 - no candidate split package still depends on repo-local internals, patches, or repository-relative artifact paths
 
-### Gate 11 — Optional Repository Split
+### Gate 11 — Repository Split Decision And Extraction
 
 Goals:
 
-- split repos only when the monorepo already demonstrates the boundaries operationally and Gate 10 is green
+- execute the recorded split decision only after Gate 10 portability proof is green
+- keep the engine private while publishing contracts and extension sockets
+- make third-party contribution target the public contract layer rather than the private runtime kernel
+
+Chosen topology:
+
+- public `agenc-sdk`
+- public `agenc-protocol`
+- public `agenc-plugin-kit` (new, narrow extension ABI)
+- private `agenc-core`
+- private `agenc-prover` or `agenc-cloud`
 
 Must include:
 
+- exact folder-to-repo ownership mapping
+- public/private package distribution policy
+- `agenc-plugin-kit` v1 manifest, lifecycle, and certification contract
 - migration of repository metadata, issue and docs authority, and consumer install paths to the chosen repo topology
 - explicit rollback path back to the monorepo release topology
+- deprecation/migration handling for runtime-side packages that should no longer be treated as public long-term contracts
+
+Guardrails:
+
+- `runtime`, `mcp`, `docs-mcp`, desktop control-plane surfaces, apps, and proving ops are not the public extension model
+- `contracts/desktop-tool-contracts` stays internal/private unless a separate external use case is explicitly proven
+- public examples must be SDK-only or plugin-kit-only; examples needing private runtime internals remain private
+- `zkvm/guest` belongs with the public protocol/trust surface; `zkvm/host` and remote prover operations remain private
 
 Exit gate:
 
-- split repos, if chosen, are not secretly depending on monorepo internals and do not regress consumer install or release flows
+- extracted repos run on released contracts rather than monorepo internals
+- the public/private boundary is enforced in code, packaging, docs, and CI
+- rollback remains possible at every extraction wave
 
 ### Gate 12 — Legacy Deletion And Convergence
 
@@ -1443,15 +1467,20 @@ Current status:
 
 - Gates 0 through 9 have produced their gate artifacts and monorepo modularity proof.
 - Gate 10 passed its final exit review on `2026-03-16` for the current split-candidate scope.
-- Gate 11 is ready.
-- Gate 12 remains blocked until the Gate 11 split/no-split decision is materially stable.
+- Gate 11 is `IN PROGRESS` with a recorded split decision: public contracts and extension sockets, private core and proving/control-plane repos.
+- Gate 12 remains blocked until the Gate 11 extraction topology is materially stable.
 
 The next work to execute under this plan is:
 
-1. execute Gate 11 optional repository split planning and execution with explicit rollback, docs authority, and CI migration if the repo will actually split
-2. if the decision is **no split**, record monorepo modularity as the chosen steady state and move directly to Gate 12
-3. execute Gate 12 cleanup only after the Gate 11 decision is materially stable
-4. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
+1. finish Wave 1 `agenc-sdk` stabilization after the first standalone release
+   - the standalone `agenc-sdk` repo exists and `@tetsuo-ai/sdk@1.3.1` is published from it
+   - the AgenC monorepo already consumes the released SDK artifact and no longer owns SDK workspace builds
+   - keep the local `sdk/` and `examples/private-task-demo/` trees only as de-authorized rollback mirrors until the next extraction wave is stable, then delete them
+2. extract `agenc-protocol` with `programs/agenc-coordination`, `zkvm/guest`, and public generated artifacts
+3. define and extract `agenc-plugin-kit` as the narrow public extension ABI before exposing any broader runtime seam
+4. extract `agenc-prover` or `agenc-cloud` for private host-side proving and control-plane operations while keeping `agenc-core` private
+5. execute Gate 12 cleanup only after the Gate 11 extraction topology is materially stable
+6. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
 
 No one should start Gate 11 extraction work without preserving the Gate 10 portability guarantees already proven here.
 
