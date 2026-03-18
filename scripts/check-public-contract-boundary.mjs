@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -21,14 +21,20 @@ function hasExactWorkspaceReference(scriptValue) {
 }
 
 const rootPkg = readJson('package.json');
-if (Array.isArray(rootPkg.workspaces) && rootPkg.workspaces.includes('plugin-kit')) {
-  failures.push('root workspaces still include plugin-kit');
+const rootWorkspaces = Array.isArray(rootPkg.workspaces) ? rootPkg.workspaces : [];
+for (const workspace of ['sdk', 'plugin-kit', 'examples/private-task-demo']) {
+  if (rootWorkspaces.includes(workspace)) {
+    failures.push(`root workspaces still include ${workspace}`);
+  }
 }
 
 const rootLock = readJson('package-lock.json');
 const installedPluginKit = rootLock.packages?.['node_modules/@tetsuo-ai/plugin-kit'];
 if (!installedPluginKit || installedPluginKit.link === true || installedPluginKit.resolved === 'plugin-kit') {
   failures.push('package-lock still resolves @tetsuo-ai/plugin-kit to the local rollback mirror');
+}
+if (rootLock.packages?.['examples/private-task-demo']) {
+  failures.push('package-lock still contains the deleted private-task demo mirror');
 }
 
 for (const [name, value] of Object.entries(rootPkg.scripts ?? {})) {
@@ -49,19 +55,31 @@ const docsLoader = readText('docs-mcp/src/loader.ts');
 if (docsLoader.includes("'plugin-kit'")) {
   failures.push('docs-mcp loader still indexes plugin-kit as a local package root');
 }
+if (docsLoader.includes("'sdk'")) {
+  failures.push('docs-mcp loader still indexes sdk as a local package root');
+}
 
 const breakingChanges = readText('scripts/check-breaking-changes.ts');
 if (
   breakingChanges.includes("target: 'sdk' | 'runtime' | 'mcp' | 'plugin-kit'")
   || breakingChanges.includes('<sdk|runtime|mcp|plugin-kit>')
+  || breakingChanges.includes('<sdk|runtime|mcp>')
+  || breakingChanges.includes("path.join(root, 'sdk', 'node_modules', 'typescript')")
   || breakingChanges.includes("path.join(root, 'plugin-kit', 'node_modules', 'typescript')")
 ) {
-  failures.push('breaking-change gate still treats plugin-kit as a local target');
+  failures.push('breaking-change gate still treats sdk or plugin-kit as a local target');
 }
 
 const versionMap = readText('docs/VERSION_DOCS_MAP.md');
 if (versionMap.includes('plugin-kit/README.md') || versionMap.includes('plugin-kit/src/index.ts')) {
   failures.push('version map still points plugin-kit docs at local monorepo paths');
+}
+if (
+  versionMap.includes('sdk/README.md')
+  || versionMap.includes('sdk/CHANGELOG.md')
+  || versionMap.includes('sdk/src/index.ts')
+) {
+  failures.push('version map still points sdk docs at local monorepo paths');
 }
 
 try {
@@ -70,19 +88,22 @@ try {
 } catch {
   // expected: authority moved to the standalone repo
 }
-
-const pluginKitMirrorPkg = readJson('plugin-kit/package.json');
-if (pluginKitMirrorPkg.private !== true) {
-  failures.push('local plugin-kit rollback mirror is still publishable');
+try {
+  readText('docs/api-baseline/sdk.json');
+  failures.push('local sdk API baseline still exists in the monorepo');
+} catch {
+  // expected: authority moved to the standalone repo
 }
 
-if (pluginKitMirrorPkg.name === '@tetsuo-ai/plugin-kit') {
-  failures.push('local plugin-kit rollback mirror still uses the canonical npm package name');
+for (const relPath of ['sdk', 'plugin-kit', 'examples/private-task-demo']) {
+  if (existsSync(path.join(repoRoot, relPath))) {
+    failures.push(`${relPath} still exists as a local extracted-surface mirror`);
+  }
 }
 
 if (failures.length > 0) {
-  process.stderr.write(`plugin-kit extraction boundary check failed:\n- ${failures.join('\n- ')}\n`);
+  process.stderr.write(`public contract boundary check failed:\n- ${failures.join('\n- ')}\n`);
   process.exit(1);
 }
 
-process.stdout.write('plugin-kit extraction boundary check passed.\n');
+process.stdout.write('public contract extraction boundary check passed.\n');

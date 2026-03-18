@@ -2523,10 +2523,10 @@ After deploying the program update:
 ```bash
 # Regenerate TypeScript SDK
 anchor idl fetch <PROGRAM_ID> -o idl/agenc_coordination.json
-anchor client gen idl/agenc_coordination.json -o sdk/src/generated
+anchor client gen idl/agenc_coordination.json -o <agenc-sdk-checkout>/src/generated
 
 # Regenerate Rust client
-anchor-client-gen idl/agenc_coordination.json sdk/rust/src/generated
+anchor-client-gen idl/agenc_coordination.json <agenc-sdk-checkout>/rust/src/generated
 ```
 
 ---

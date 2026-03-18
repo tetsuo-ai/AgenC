@@ -21,14 +21,14 @@ The runtime work described here targets the private-kernel implementation in
 #260 → #262 → #263
 ```
 1. **#260** - Add `depends_on` field to Task struct in `programs/agenc-coordination/src/state.rs`
-2. **#262** - Add SDK query helpers in `packages/sdk/src/`
+2. **#262** - Add SDK query helpers in `agenc-sdk/src/`
 3. **#263** - Add `create_dependent_task` instruction
 
 ### Phase 1: Runtime Foundation
 ```
 #265 → #267 → #268
 ```
-1. **#265** - Create `DependencyGraph` class in `packages/runtime/src/task/`
+1. **#265** - Create `DependencyGraph` class in `runtime/src/task/`
 2. **#267** - Create `ProofPipeline` for async proof generation
 3. **#268** - Basic single-level speculation (MVP milestone)
 
@@ -69,9 +69,9 @@ programs/agenc-coordination/src/
 └── errors.rs         # New error codes
 ```
 
-### Runtime (TypeScript)
+### Runtime (TypeScript, AgenC private kernel)
 ```
-packages/runtime/src/task/
+runtime/src/task/
 ├── dependency-graph.ts        # NEW (#265)
 ├── proof-pipeline.ts          # NEW (#267)
 ├── speculative-executor.ts    # NEW (#268)
@@ -81,9 +81,9 @@ packages/runtime/src/task/
 └── speculative-scheduler.ts   # NEW (#276)
 ```
 
-### SDK (TypeScript)
+### SDK (TypeScript, `tetsuo-ai/agenc-sdk`)
 ```
-packages/sdk/src/
+agenc-sdk/src/
 ├── queries.ts                 # Add getTasksByDependency (#262)
 └── instructions/
     └── createDependentTask.ts # NEW (#263)
@@ -109,13 +109,13 @@ Each PR must include:
 Run tests:
 ```bash
 # Unit tests
-yarn test
+npm run test
 
 # Integration tests (requires localnet)
-yarn test:integration
+npm run test:fast
 
 # Specific package
-yarn workspace @tetsuo-ai/runtime test
+npm run test --workspace=@tetsuo-ai/runtime
 ```
 
 ## Code Patterns

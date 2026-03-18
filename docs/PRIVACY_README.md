@@ -60,7 +60,7 @@ Replay is blocked with dual spend records:
 
 ## Demo surfaces
 
-- `examples/private-task-demo/index.ts`
+- `https://github.com/tetsuo-ai/agenc-sdk` (SDK-only starter example and public docs)
 - `agenc-prover/admin-tools/devnet-preflight.ts`
 - `demo-app/src/components/steps/Step4GenerateProof.tsx`
 - `demo-app/src/components/steps/Step5VerifyOnChain.tsx`

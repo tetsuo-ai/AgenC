@@ -146,7 +146,7 @@ Explicitly out of scope:
 
 - runtime-side packages require a managed deprecation path rather than an instant visibility flip
 - `plugin-kit` must be built as a real product surface before runtime visibility is tightened
-- some current docs and package metadata now need to be treated as transitional and corrected in later Gate 11 phases
+- some docs and package metadata needed transitional handling during Gate 11; that public/private docs posture is now implemented and future cleanup belongs to Gate 12 convergence work
 - private prover extraction is phased: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`, while the verifier-localnet and benchmark proof-harness remains in `agenc-core` as a private operator/integration harness
 - Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the proof-harness/localnet slice is intentionally retained in `agenc-core` and is not a pending shared released contract
 
