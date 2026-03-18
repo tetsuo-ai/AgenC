@@ -36,6 +36,7 @@
 
 - [What is AgenC?](#what-is-agenc)
 - [Current Codebase Status](#current-codebase-status)
+- [Repository Topology](#repository-topology)
 - [Quick Start](#quick-start)
 - [Running the Daemon](#running-the-daemon)
 - [Operator Console (TUI)](#operator-console-tui)
@@ -118,11 +119,38 @@ AgenC is in the middle of a whole-repository refactor program. The current sourc
 | Public plugin authority | `@tetsuo-ai/plugin-kit` is owned and released from [`tetsuo-ai/agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit). This repo consumes the released package only; no local plugin-kit mirror remains. |
 | Operational control plane | `runtime/` is the live control plane today: daemon lifecycle, gateway, LLM/tool execution, background runs, channels, desktop bridge, observability, and CLI entrypoints. |
 | Private kernel package policy | `@tetsuo-ai/runtime`, `@tetsuo-ai/mcp`, `@tetsuo-ai/docs-mcp`, and `@tetsuo-ai/desktop-tool-contracts` are transitional runtime-side identities only. Long-term public builder surfaces are `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and `@tetsuo-ai/plugin-kit`. |
+| Private core bootstrap | `agenc-core` now exists as the private engine repo. Core-owned directories are still mirrored here during cutover, but the end state is `AgenC` as the public umbrella and `agenc-core` as the private engine source of truth. |
 | Operator TUI | The operator console/watch subsystem is the current terminal UI. The supported launcher is `agenc`, which boots the daemon if needed and opens the watch console. The runtime-owned watch bin is `runtime/dist/bin/agenc-watch.js`; [`scripts/agenc-watch.mjs`](scripts/agenc-watch.mjs) is a local-dev wrapper only. |
 | Consumer surfaces | `web/`, `mobile/`, `demo-app/`, `examples/`, `tests/`, `containers/desktop/`, and `zkvm/` are all live surfaces with their own package/build/test expectations. |
 | Root package | The repo root is a workspace/control surface only. Use the maintained workspaces and package-level entrypoints rather than inventing root build ownership that no longer exists. |
 
 If you are touching the live AgenC runtime and operator experience, start in `runtime/`, `runtime/src/watch/`, and the docs under `docs/`. SDK contract changes now land in [`tetsuo-ai/agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk).
+
+<p align="right"><a href="#agenc">back to top</a></p>
+
+---
+
+## Repository Topology
+
+End-state topology:
+
+- `AgenC`: public umbrella repo
+- `agenc-sdk`: public SDK
+- `agenc-protocol`: public protocol/trust surface
+- `agenc-plugin-kit`: public add-on ABI
+- `agenc-core`: private engine
+- `agenc-prover`: private prover/admin
+
+Bootstrap the repo set side by side with:
+
+```bash
+./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc
+
+# include private repos if you have access
+./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc --private
+```
+
+Full topology and setup notes live in [docs/REPOSITORY_TOPOLOGY.md](./docs/REPOSITORY_TOPOLOGY.md).
 
 <p align="right"><a href="#agenc">back to top</a></p>
 
