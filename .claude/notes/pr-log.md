@@ -116,3 +116,10 @@
 - **What worked:** The cutover stayed disciplined by separating root authority from physical deletion. The umbrella boundary was rewritten first, then the mirrored directories were physically removed, and the final repo shape was validated through a single `validate:umbrella` contract.
 - **What didn't:** Historical ledgers such as `REFACTOR.MD` and `REFACTOR-MASTER-PROGRAM.md` still contain old path-heavy execution history, so the final umbrella guard had to explicitly scan only active umbrella contract files instead of trying to treat the historical records as live boundary docs.
 - **Rule added to CLAUDE.md:** yes, clarify authority cutover vs physical deletion
+
+## PR #1498: docs(readme): rewrite public front door
+- **Date:** 2026-03-18
+- **Files changed:** `README.md`, `assets/banner.jpg`
+- **What worked:** Rewriting the README around audience routing instead of repo internals made the umbrella repo read like a real front door, and the actual repo contract stayed protected by `npm run validate:umbrella`.
+- **What didn't:** The first plan draft underweighted the real acceptance gate and relied too much on generic README advice; the rewrite only became trustworthy after grounding it in the retained example READMEs and the version-doc map.
+- **Rule added to CLAUDE.md:** no
