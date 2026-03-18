@@ -2,6 +2,9 @@
 
 This guide helps AI coding agents implement the speculative execution system.
 
+The runtime work described here targets the private-kernel implementation in
+`agenc-core`. It is not a public builder guide for `@tetsuo-ai/runtime`.
+
 ## Quick Links
 
 - **Epic:** #291

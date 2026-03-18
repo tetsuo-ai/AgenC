@@ -2,6 +2,10 @@
 
 This guide covers TypeScript type conventions used throughout the AgenC runtime.
 
+The runtime-specific conventions here are private-kernel implementation guidance for
+`agenc-core`. External builders should treat `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`,
+and `@tetsuo-ai/plugin-kit` as the supported public surfaces.
+
 ## bigint: On-Chain u64 Values
 
 Use `bigint` for all on-chain u64 values:

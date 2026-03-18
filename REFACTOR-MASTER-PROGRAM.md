@@ -1470,7 +1470,7 @@ Current status:
 
 - Gates 0 through 9 have produced their gate artifacts and monorepo modularity proof.
 - Gate 10 passed its final exit review on `2026-03-16` for the current split-candidate scope.
-- Gate 11 is `IN PROGRESS` with a recorded split decision: public contracts and extension sockets, private core and proving/control-plane repos.
+- Gate 11 is `COMPLETE`: the public/private split topology is materially implemented, the private distribution path is proven, and the retained internal validation seams are explicitly owned.
 - Gate 11 Phase 0 boundary lock is now recorded in [ADR-002](docs/architecture/adr/adr-002-public-contract-private-kernel-boundary.md):
   - public `agenc-sdk`, `agenc-protocol`, `agenc-plugin-kit`
   - private `agenc-core`, `agenc-prover`/`agenc-cloud`
@@ -1511,28 +1511,36 @@ Current status:
     - that reference path now proves service-account bootstrap, authenticated dry-run publication, and live publish/install rehearsal for staged private packages
     - the permanent hosted backend is now chosen as Cloudsmith `agenc/private-kernel`, and protected hosted validation is wired through `.github/workflows/private-kernel-cloudsmith.yml`
     - protected hosted validation has now passed on the AgenC side (`23223356319` and `23223573814`), so the remaining backend work is auth rotation, service-account hygiene, and operator runbook hardening; the local/CI reference path remains the untrusted reference backend and is no longer a placeholder
-- Gate 12 remains blocked until the Gate 11 extraction topology is materially stable.
+- Gate 12 is now `READY`.
 
-The next work to execute under this plan is:
+Gate 11 final exit review passed on `2026-03-17`.
 
-1. finish Wave 1 `agenc-sdk` stabilization after the first standalone release
-   - the standalone `agenc-sdk` repo exists and `@tetsuo-ai/sdk@1.3.1` is published from it
-   - the AgenC monorepo already consumes the released SDK artifact and no longer owns SDK workspace builds
-   - keep the local `sdk/` and `examples/private-task-demo/` trees only as de-authorized rollback mirrors until the next extraction wave is stable, then delete them
-2. execute the next `agenc-protocol` slice inside AgenC:
-   - this cutover landed on `2026-03-16`: runtime now consumes released `@tetsuo-ai/protocol` artifacts, `runtime/idl/**` authority is gone, `runtime/scripts/copy-idl.js` is removed, and root tests use the published package or the explicit `tests/protocol-artifacts.ts` local fallback
-   - keep the local test-only `AGENC_USE_LOCAL_PROTOCOL_TARGET=1` fallback explicit and scoped to unreleased protocol development
-   - update active docs and verification records so they stop claiming runtime still owns vendored protocol artifact truth
-3. finish `agenc-plugin-kit` stabilization and certification coverage after the first standalone release
-4. cut over the private prover admin bootstrap slice from AgenC to `agenc-prover` authority while keeping `agenc-core` private
-   - the first bootstrap is already live in `tetsuo-ai/agenc-prover`
-   - de-authorize the mirrored AgenC admin slice only after the private repo completes a stable release-quality cycle as the canonical owner
-   - this cutover is now complete for AgenC admin wrappers/docs; AgenC retains only the `tools/proof-harness` private operator/integration slice (`verifier-localnet`, benchmark entrypoints/helpers, root verifier/bootstrap scripts/tests/fixtures)
-   - keep `scripts/idl/**` protocol-owned during that phase
-   - Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the proof-harness/localnet slice remains in `agenc-core` as a private operator/integration harness
-5. run the final Gate 11 exit review only after the transitional docs are truth-synced one final time around the now-set proof-harness ownership
-6. execute Gate 12 cleanup only after the Gate 11 extraction topology is materially stable
-7. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
+Final Gate 11 review evidence:
+- public contract repos are live: `agenc-sdk`, `agenc-protocol`, `agenc-plugin-kit`
+- private repo bootstrap is live: `agenc-prover`
+- the current `AgenC` repo remains the explicit `agenc-core` baseline
+- runtime-side package visibility is tightened and governed by a canonical support policy
+- Cloudsmith `agenc/private-kernel` is the permanent hosted private registry, with local/CI Verdaccio retained as the validated reference backend
+- `tools/proof-harness` is explicitly retained in `agenc-core` as a private operator/integration harness rather than a speculative shared contract
+- the exit-review verification set on the AgenC side passed:
+  - `npm run build`
+  - `npm run typecheck`
+  - `npm run test`
+  - `npm run test --workspace=@tetsuo-ai/mcp`
+  - `npm run check:private-kernel-surface`
+  - `npm run check:plugin-kit-boundary`
+  - `npm run check:proof-harness-boundary`
+  - `npm run check:private-kernel-distribution`
+  - `npm run pack:smoke:skip-build`
+  - `git diff --check`
+
+The next work to execute under this plan is Gate 12 cleanup:
+
+1. delete de-authorized rollback mirrors and transitional compatibility scaffolding once search/test proof confirms they are dead
+2. remove stale gate/status language and older runtime-scoped docs that are no longer authoritative
+3. delete or isolate dead demos/examples/scripts that no longer belong in the post-split topology
+4. collapse temporary Gate 10 and Gate 11 execution artifacts into the long-term canonical docs
+5. reopen Gate 10 or Gate 11 only if a future change reintroduces repo-relative coupling, repo-local patching, non-portable artifact handoff, or package-boundary drift
 
 No one should start Gate 11 extraction work without preserving the Gate 10 portability guarantees already proven here.
 

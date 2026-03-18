@@ -10,9 +10,9 @@ Last synced: `2026-03-17`.
 - The refactor program is **not complete**.
 - Gates 0 through 9 have materially established monorepo modularity and produced the required gate artifacts.
 - Gate 10 passed its final exit review on `2026-03-16` for the current split-candidate scope.
-- Gate 11 is now `IN PROGRESS` with a recorded split decision: keep the engine private and publish contracts plus extension sockets.
-- Gate 11 now has multiple landed execution waves: `agenc-sdk` extraction cutover, `agenc-protocol` trust-surface bootstrap, `agenc-plugin-kit` extraction, private prover bootstrap, and runtime-side visibility tightening.
-- Gate 12 remains blocked until the Gate 11 repo topology and extraction state are materially stable.
+- Gate 11 passed its final exit review on `2026-03-17`: the public/private split topology is now materially implemented, the private registry path is proven, and the retained internal validation seams are explicitly owned.
+- Gate 11 execution landed the required waves: `agenc-sdk` extraction cutover, `agenc-protocol` trust-surface bootstrap, `agenc-plugin-kit` extraction, private prover bootstrap, runtime-side visibility tightening, and private-kernel distribution proof.
+- Gate 12 is now `READY`; it is no longer blocked on Gate 11 topology or supply-chain uncertainty.
 - Standalone `docs/refactor/gate-*.md` planning documents have been retired; gate status and live evidence now belong here.
 - Audit note: parallel explorer subagents were attempted on `2026-03-16`, but all failed on model usage limits; this sync is therefore based on direct repository evidence.
 
@@ -129,8 +129,8 @@ Resolved on `2026-03-16`:
 | 8 | Verification/docs/tooling convergence | COMPLETE | Current baseline/docs/docs-mcp state summarized here | Keep docs-mcp scope/root-doc coverage aligned with future authority changes |
 | 9 | Internal modularization inside the monorepo | COMPLETE | Current monorepo modularity proof summarized here | Preserve the modularity proof that Gate 10 now builds on |
 | 10 | Repository split readiness | COMPLETE | Gate 10 verification matrix, execution ledger, and final exit review in this roadmap | Keep candidate-scope proof current if new split candidates are added |
-| 11 | Repository split decision and extraction | IN PROGRESS | Gate 11 topology, package policy, and extraction order are now recorded in this roadmap | Execute the split with rollback, CI, and docs authority preserved |
-| 12 | Legacy deletion and convergence | BLOCKED | None yet | Cannot start before the Gate 11 decision is stable |
+| 11 | Repository split decision and extraction | COMPLETE | Gate 11 topology, package policy, extraction waves, and final exit review are now recorded in this roadmap | Reopen only if a future extraction wave breaks the proven boundary or contract rules |
+| 12 | Legacy deletion and convergence | READY | Gate 11 exit review passed and the topology is materially stable | Start cleanup without weakening the newly locked package, registry, or docs boundaries |
 
 ---
 
@@ -462,7 +462,7 @@ Decision log:
 
 ### 5.3 Gate 11 — Repository Split Decision And Extraction
 
-Status: `IN PROGRESS`
+Status: `COMPLETE`
 
 Decision recorded on `2026-03-16`:
 - `SPLIT`
@@ -1063,17 +1063,53 @@ Scope note:
 - the new `agenc-prover` repo encodes the admin bootstrap boundary mechanically through `scripts/check-admin-bootstrap-boundary.mjs`.
 - AgenC now encodes the retained proof-harness boundary mechanically through `scripts/check-proof-harness-boundary.mjs` and the dedicated `tools/proof-harness` workspace.
 
-#### 11.18 Remaining Gate 11 Closeout
+#### 11.18 Final Gate 11 Exit Review
 
-Gate 11 is not blocked on registry infrastructure or proof-harness ownership anymore. The remaining closeout work is:
-1. finish the final public/private operator and builder doc sync from the now-settled ownership model
-2. run the final Gate 11 exit review against the implemented topology, private distribution path, and retained internal validation seams
+Gate 11 exit review passed on `2026-03-17`.
+
+Exit-review findings against [11.11 Gate 11 Exit Signal](#1111-gate-11-exit-signal):
+1. The public/private topology is implemented, not merely described.
+   - `agenc-sdk`, `agenc-protocol`, `agenc-plugin-kit`, and `agenc-prover` all exist as standalone repos.
+   - the current `AgenC` repo is the retained `agenc-core` private-kernel baseline.
+2. Public and private package distribution now follow the declared policy.
+   - public contract packages are released under `@tetsuo-ai/*`
+   - private-kernel manifests are explicitly `private`
+   - Cloudsmith `agenc/private-kernel` is the permanent hosted private registry
+   - Verdaccio remains the validated local/CI reference backend
+3. `agenc-plugin-kit` exists as a narrow certified extension ABI.
+   - the released `@tetsuo-ai/plugin-kit@0.1.1` artifact is consumed from npm
+   - runtime plugin hosting is trust-gated and bounded by the `channel_adapter` contract
+4. Extracted repos and retained consumers are now validated on released contracts rather than hidden source-tree coupling.
+   - boundary checks now cover plugin-kit, proof-harness, private-kernel surface posture, and private-kernel distribution
+   - pack/install smoke remains green for the relevant package graph
+5. Mixed-root verification seams are either drained or explicitly retained with ownership.
+   - `tools/proof-harness` is now explicitly retained in `agenc-core` as a private operator/integration harness
+   - protocol-owned `scripts/idl/**` remains documented as protocol authority
+6. Docs authority, CI, and release/distribution automation reflect the implemented topology.
+   - public-entry docs point builders to SDK, protocol, and plugin-kit
+   - internal runtime docs now carry private-kernel framing
+   - hosted/private registry workflows are live and proven
+7. Runtime-side packages that were once public now have explicit deprecation and support handling.
+   - [PRIVATE_KERNEL_SUPPORT_POLICY.md](/home/tetsuo/git/AgenC/docs/PRIVATE_KERNEL_SUPPORT_POLICY.md) is the canonical support-window document
+   - [PRIVATE_KERNEL_DISTRIBUTION.md](/home/tetsuo/git/AgenC/docs/PRIVATE_KERNEL_DISTRIBUTION.md) is the canonical registry/distribution document
+
+Verification run used for the final review:
+- `npm run build`
+- `npm run typecheck`
+- `npm run test`
+- `npm run test --workspace=@tetsuo-ai/mcp`
+- `npm run check:private-kernel-surface`
+- `npm run check:plugin-kit-boundary`
+- `npm run check:proof-harness-boundary`
+- `npm run check:private-kernel-distribution`
+- `npm run pack:smoke:skip-build`
+- `git diff --check`
 
 ### 5.4 Gate 12 — Legacy Deletion And Convergence
 
-Status: `BLOCKED`
+Status: `READY`
 
-Starts only after the Gate 11 public/private boundary and extraction topology are materially stable.
+Starts now that the Gate 11 public/private boundary and extraction topology are materially stable.
 
 Required work:
 1. Remove transitional compatibility shims that are now dead.
