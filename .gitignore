@@ -43,6 +43,9 @@ obj/
 !scripts/idl/*.json
 !tests/fixtures/*.json
 !containers/desktop/seccomp.json
+!config/private-kernel-distribution.json
+!config/private-kernel-distribution.example.json
+!config/private-kernel-distribution.local.json
 id.json
 deploy/
 keys/

@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "backend": {
+    "kind": "npm-compatible",
+    "registryUrl": "http://127.0.0.1:4873",
+    "scope": "@tetsuo-ai-private",
+    "authTokenEnvVar": "PRIVATE_KERNEL_REGISTRY_TOKEN",
+    "publishAccess": null,
+    "publishDryRunEnabled": true,
+    "ciAuthMode": "required",
+    "manualAuthMode": "required"
+  },
+  "versionPolicy": {
+    "mode": "preserve-source-version"
+  },
+  "supportWindow": {
+    "owner": "Repository / Platform Architecture",
+    "reviewDate": "2026-04-17",
+    "sunsetCriteria": [
+      "The protected Cloudsmith hosted validation succeeds against agenc/private-kernel with a service-scoped credential.",
+      "Cloudsmith service-account auth, GitHub environment protection, and token rotation policy are documented and active.",
+      "Runtime-side transitional package policy is replaced by private distribution and migration notices."
+    ]
+  },
+  "targets": [
+    {
+      "workspace": "contracts/desktop-tool-contracts",
+      "sourceName": "@tetsuo-ai/desktop-tool-contracts",
+      "stagedName": "@tetsuo-ai-private/desktop-tool-contracts"
+    },
+    {
+      "workspace": "runtime",
+      "sourceName": "@tetsuo-ai/runtime",
+      "stagedName": "@tetsuo-ai-private/runtime"
+    },
+    {
+      "workspace": "mcp",
+      "sourceName": "@tetsuo-ai/mcp",
+      "stagedName": "@tetsuo-ai-private/mcp"
+    },
+    {
+      "workspace": "docs-mcp",
+      "sourceName": "@tetsuo-ai/docs-mcp",
+      "stagedName": "@tetsuo-ai-private/docs-mcp"
+    },
+    {
+      "workspace": "containers/desktop/server",
+      "sourceName": "@tetsuo-ai/desktop-server",
+      "stagedName": "@tetsuo-ai-private/desktop-server"
+    }
+  ]
+}
