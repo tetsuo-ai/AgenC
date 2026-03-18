@@ -109,3 +109,10 @@
 - **What worked:** Splitting the work into a real private `agenc-core` bootstrap plus a small umbrella-side topology/bootstrap PR kept the public entrypoint stable while making the new repo layout explicit and runnable for contributors.
 - **What didn't:** The first core mirror omitted `tests/` and `containers/private-registry/`, which surfaced immediately in `agenc-core` validation. Runtime LiteSVM suites also had to be split into an explicit `test:cross-repo-integration` target because they depend on protocol workspace fixtures rather than the standalone core package graph alone.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1497: refactor(repo): physically cut over AgenC to umbrella repo
+- **Date:** 2026-03-18
+- **Files changed:** removed mirrored private/core/protocol trees from `AgenC`; rewrote `README.md`, `docs/REPOSITORY_TOPOLOGY.md`, `docs/SDK.md`, `docs/PLUGIN_KIT.md`, `docs/VERSION_DOCS_MAP.md`, `examples/README.md`, `scripts/check-public-contract-boundary.mjs`, `scripts/check-umbrella-boundary.mjs`, and added `.github/workflows/umbrella-validation.yml`
+- **What worked:** The cutover stayed disciplined by separating root authority from physical deletion. The umbrella boundary was rewritten first, then the mirrored directories were physically removed, and the final repo shape was validated through a single `validate:umbrella` contract.
+- **What didn't:** Historical ledgers such as `REFACTOR.MD` and `REFACTOR-MASTER-PROGRAM.md` still contain old path-heavy execution history, so the final umbrella guard had to explicitly scan only active umbrella contract files instead of trying to treat the historical records as live boundary docs.
+- **Rule added to CLAUDE.md:** yes, clarify authority cutover vs physical deletion

@@ -1,0 +1,4 @@
+{
+  "extends": "../tsconfig.public-example.base.json",
+  "include": ["index.ts"]
+}

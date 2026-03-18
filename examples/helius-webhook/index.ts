@@ -31,6 +31,7 @@ if (!HELIUS_WEBHOOK_SECRET) {
   console.error(chalk.red('Error: HELIUS_WEBHOOK_SECRET environment variable is required'));
   process.exit(1);
 }
+const VERIFIED_HELIUS_WEBHOOK_SECRET = HELIUS_WEBHOOK_SECRET;
 const ROUTER_PROGRAM_ID = 'E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ';
 const VERIFIER_PROGRAM_ID = '3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc';
 const AGENC_PROGRAM_ID = '5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7';
@@ -133,7 +134,7 @@ function verifyWebhookSignature(payload: string, signature: string | undefined):
   }
 
   const expectedSignature = crypto
-    .createHmac('sha256', HELIUS_WEBHOOK_SECRET)
+    .createHmac('sha256', VERIFIED_HELIUS_WEBHOOK_SECRET)
     .update(payload)
     .digest('hex');
 

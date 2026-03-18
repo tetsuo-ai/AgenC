@@ -1,65 +1,27 @@
 # Version-to-Documentation Mapping
 
-This file maps each published package version to its primary documentation and public API surface.
-It is intended to make releases auditable and to prevent undocumented breaking changes (issue #983).
+`AgenC` is the umbrella repo, not the canonical source of package release docs.
 
-## Deprecation notice template
+This file only points builders at the standalone public repos that own their
+own versioned docs, changelogs, and API baselines.
 
-Use this template when deprecating public symbols:
-
-```ts
-/**
- * @deprecated Since v<version>. Use {@link <replacement>} instead.
- * Will be removed in v<removal_version>.
- * See: https://github.com/tetsuo-ai/AgenC/issues/<issue>
- */
-```
-
-Changelog entry template:
-
-```md
-### Deprecated
-- `<symbolName>` in `<filePath>` — use `<replacement>` instead. Removal planned for v<version>. (#<issue>)
-```
-
-## @tetsuo-ai/sdk v1.3.1
+## `@tetsuo-ai/sdk`
 
 - Canonical repo: `https://github.com/tetsuo-ai/agenc-sdk`
 - README: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/README.md`
-- Changelog: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/CHANGELOG.md`
-- Entry point: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/src/index.ts`
+- CHANGELOG: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/CHANGELOG.md`
 - API baseline: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/docs/api-baseline/sdk.json`
-- Public exports: see `https://github.com/tetsuo-ai/agenc-sdk/blob/main/docs/api-baseline/sdk.json`
 
-## @tetsuo-ai/plugin-kit v0.1.1
+## `@tetsuo-ai/protocol`
+
+- Canonical repo: `https://github.com/tetsuo-ai/agenc-protocol`
+- README: `https://github.com/tetsuo-ai/agenc-protocol/blob/main/README.md`
+- CHANGELOG: `https://github.com/tetsuo-ai/agenc-protocol/blob/main/CHANGELOG.md`
+- Released artifacts: see the protocol repo releases and docs
+
+## `@tetsuo-ai/plugin-kit`
 
 - Canonical repo: `https://github.com/tetsuo-ai/agenc-plugin-kit`
 - README: `https://github.com/tetsuo-ai/agenc-plugin-kit/blob/main/README.md`
-- Changelog: `https://github.com/tetsuo-ai/agenc-plugin-kit/blob/main/CHANGELOG.md`
-- Entry point: `https://github.com/tetsuo-ai/agenc-plugin-kit/blob/main/src/index.ts`
+- CHANGELOG: `https://github.com/tetsuo-ai/agenc-plugin-kit/blob/main/CHANGELOG.md`
 - API baseline: `https://github.com/tetsuo-ai/agenc-plugin-kit/blob/main/docs/api-baseline/plugin-kit.json`
-- Public exports: see `https://github.com/tetsuo-ai/agenc-plugin-kit/blob/main/docs/api-baseline/plugin-kit.json`
-
-## @tetsuo-ai/runtime v0.1.0
-
-- Classification: Transitional private-kernel artifact; not a supported public builder target
-- Distribution policy: `docs/PRIVATE_KERNEL_DISTRIBUTION.md`
-- Support policy: `docs/PRIVATE_KERNEL_SUPPORT_POLICY.md`
-- README: `runtime/README.md`
-- Changelog: `runtime/CHANGELOG.md`
-- Entry point: `runtime/src/index.ts`
-- API baseline: `docs/api-baseline/runtime.json`
-- Public exports: see `docs/api-baseline/runtime.json`
-- Migration guidance: external builders should target `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, or `@tetsuo-ai/plugin-kit`
-
-## @tetsuo-ai/mcp v0.1.0
-
-- Classification: Transitional private-kernel artifact; not a supported public extension target
-- Distribution policy: `docs/PRIVATE_KERNEL_DISTRIBUTION.md`
-- Support policy: `docs/PRIVATE_KERNEL_SUPPORT_POLICY.md`
-- README: `mcp/README.md`
-- Changelog: `mcp/CHANGELOG.md`
-- Entry point: `mcp/src/index.ts`
-- API baseline: `docs/api-baseline/mcp.json`
-- Public exports: (server binary); see `docs/api-baseline/mcp.json`
-- Migration guidance: external builders should extend AgenC through `@tetsuo-ai/plugin-kit` and the public SDK/protocol surfaces
