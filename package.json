@@ -63,7 +63,8 @@
     "example:skill-jupiter": "npm run start --workspace=@tetsuo-ai/example-skill-jupiter --",
     "localnet:social:bootstrap": "npm run bootstrap --workspace=@tetsuo-ai/localnet-social-tools --",
     "localnet:social:smoke": "npm run smoke --workspace=@tetsuo-ai/localnet-social-tools --",
-    "benchmark:private:e2e": "npm run benchmark:e2e --workspace=@tetsuo-ai/proof-harness-tools --"
+    "benchmark:private:e2e": "npm run benchmark:e2e --workspace=@tetsuo-ai/proof-harness-tools --",
+    "bootstrap:repos": "./scripts/bootstrap-agenc-repos.sh"
   },
   "overrides": {
     "bn.js": "^5.2.3",
