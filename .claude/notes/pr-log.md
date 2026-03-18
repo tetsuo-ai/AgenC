@@ -95,3 +95,10 @@
 - **What worked:** The closeout stayed evidence-driven: the exit review was rerun on the live repo, the authority docs now record the exact verification matrix that passed, and the remaining internal runtime/design docs were reframed so they cannot be mistaken for the public builder API.
 - **What didn't:** A first verification attempt produced a false `mcp` typecheck failure because root `build` and root `typecheck` were run in parallel while `runtime/dist` was being rebuilt, which looked like a package-boundary regression until the checks were rerun sequentially.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1494: refactor(repo): close Gate 12 convergence
+- **Date:** 2026-03-17
+- **Files changed:** deleted `sdk/**`, `plugin-kit/**`, and `examples/private-task-demo/**`; added `docs/SDK.md`; renamed `scripts/check-plugin-kit-extraction-boundary.mjs` to `scripts/check-public-contract-boundary.mjs`; updated `REFACTOR.MD`, `REFACTOR-MASTER-PROGRAM.md`, private-kernel/docs-mcp docs, workflow wiring, and final convergence notes
+- **What worked:** Treating Gate 12 as an evidence-driven convergence pass avoided fake cleanup. The local public-package mirrors were removed, the broadened boundary guard was renamed to match its real scope, the retained compatibility seams were explicitly classified, and the final verification matrix stayed green end to end.
+- **What didn't:** The dead-surface audit did not justify another large deletion wave, so the only safe code cleanup beyond mirror removal was two unused exports in retained tooling. A sloppy search command also hit zsh backtick parsing during the closeout audit and had to be rerun cleanly before trusting the result.
+- **Rule added to CLAUDE.md:** no
