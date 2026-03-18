@@ -102,3 +102,10 @@
 - **What worked:** Treating Gate 12 as an evidence-driven convergence pass avoided fake cleanup. The local public-package mirrors were removed, the broadened boundary guard was renamed to match its real scope, the retained compatibility seams were explicitly classified, and the final verification matrix stayed green end to end.
 - **What didn't:** The dead-surface audit did not justify another large deletion wave, so the only safe code cleanup beyond mirror removal was two unused exports in retained tooling. A sloppy search command also hit zsh backtick parsing during the closeout audit and had to be rerun cleanly before trusting the result.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1495: docs(topology): add agenc-core umbrella bootstrap
+- **Date:** 2026-03-17
+- **Files changed:** `README.md`, `package.json`, `docs/REPOSITORY_TOPOLOGY.md`, `scripts/bootstrap-agenc-repos.sh`
+- **What worked:** Splitting the work into a real private `agenc-core` bootstrap plus a small umbrella-side topology/bootstrap PR kept the public entrypoint stable while making the new repo layout explicit and runnable for contributors.
+- **What didn't:** The first core mirror omitted `tests/` and `containers/private-registry/`, which surfaced immediately in `agenc-core` validation. Runtime LiteSVM suites also had to be split into an explicit `test:cross-repo-integration` target because they depend on protocol workspace fixtures rather than the standalone core package graph alone.
+- **Rule added to CLAUDE.md:** no
