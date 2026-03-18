@@ -13,7 +13,7 @@ export const BPF_LOADER_UPGRADEABLE = new PublicKey(
 export const VERIFIER_ENTRY_DISCRIMINATOR = Buffer.from([
   102, 247, 148, 158, 33, 153, 100, 93,
 ]);
-export const VERIFIER_ENTRY_ACCOUNT_LEN = 8 + 4 + 32 + 1;
+const VERIFIER_ENTRY_ACCOUNT_LEN = 8 + 4 + 32 + 1;
 const PROGRAM_DATA_ACCOUNT_TYPE = 3;
 const PROGRAM_DATA_MIN_LEN = 4 + 8 + 1;
 const PROGRAM_DATA_WITH_AUTHORITY_LEN = 4 + 8 + 1 + 32;

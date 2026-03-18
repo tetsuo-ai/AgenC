@@ -70,7 +70,7 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Surface | Current Path | What It Is | Refactor Requirement |
 |---------|--------------|------------|----------------------|
 | On-chain program | `programs/agenc-coordination/` | Anchor Solana program (44 IDL instructions, 54 Rust instruction files, 200 error codes, 49 events, 22 IDL accounts, 9 fuzz targets), instruction handlers, state/event logic including `ZkConfig` governance | Refactor instruction/state/event ownership without breaking protocol semantics |
-| SDK | `sdk/` (transitional rollback mirror; canonical repo is `tetsuo-ai/agenc-sdk`) | TypeScript SDK for protocol, proofs, tokens, transactions, program access, prover backends (`prover.ts`), process identity (`process-identity.ts`) | Separate public API from internal implementation and generated/client plumbing, then move canonical release ownership to the standalone SDK repo |
+| SDK | `tetsuo-ai/agenc-sdk` (`@tetsuo-ai/sdk`) | TypeScript SDK for protocol, proofs, tokens, transactions, program access, prover backends (`prover.ts`), process identity (`process-identity.ts`) | Keep AgenC consuming the released SDK artifact without restoring monorepo-local ownership |
 | Runtime | `runtime/` (~392k lines, 32 src directories, ~319 test files, ~6,427 test cases) | agent runtime, daemon, gateway (70+ source files), llm (ChatExecutor split into 15+ modules), workflow, tools, channels, desktop layer, evaluation, observability, init workflow, delegation infrastructure | Refactor around real contracts, not folder mythology |
 | zkVM | `zkvm/`, proof/prover integration in `sdk/` and `scripts/` | guest crate plus proof/prover integration surfaces for private task verification | Establish explicit proof schemas, artifact chains, and verifier contracts |
 | MCP server | `mcp/` | protocol/runtime consumer exposed as MCP tools | Make it a thin consumer over stable contracts |
@@ -84,7 +84,7 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Mobile app | `mobile/` | Expo / React Native app | Same requirement as web, with explicit mobile-safe contracts |
 | Demo app | `demo-app/` | React privacy / workflow demo | Convert to thin consumer over stable public surfaces |
 | Examples | `examples/` | runnable and packaged example projects, some with their own manifests and script entrypoints | Reclassify each example by owning domain, contract surface, and verification expectations |
-| Example and operator tools | `examples/private-task-demo/`, `tools/localnet-social/`, `tools/proof-harness/` | runnable example, localnet bootstrap/smoke harnesses, and proof-harness utilities | Treat as explicit consumer/tool surfaces with owned verification commands and package/public imports only |
+| Example and operator tools | SDK starter example in `tetsuo-ai/agenc-sdk`, `tools/localnet-social/`, `tools/proof-harness/` | runnable SDK starter example, localnet bootstrap/smoke harnesses, and proof-harness utilities | Treat as explicit consumer/tool surfaces with owned verification commands and package/public imports only |
 
 ### 4.3 Platform and Operational Domains
 
@@ -92,10 +92,10 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 |---------|--------------|------------|----------------------|
 | Desktop platform | `containers/desktop/`, `containers/docker-compose.yml`, `runtime/src/desktop/` | image build, entrypoint/hardening artifacts, desktop server, bridge, auth, managed-process lifecycle, health and events | Treat as one platform contract, not separate planning afterthoughts |
 | Root integration tests | `tests/` | LiteSVM, Anchor, verifier, integration, security, localnet, matrix-style tests | Refactor test ownership and keep top-level verification whole |
-| Runtime and SDK tests | `runtime/src/**/*.test.ts`, `sdk/src/**/*.test.ts` | co-located verification and regression coverage | Move with the code they validate |
+| Runtime and SDK tests | `runtime/src/**/*.test.ts` and the standalone `tetsuo-ai/agenc-sdk` test suite | co-located verification and regression coverage | Keep each test suite with the code it validates |
 | Docs | `docs/` | architecture docs, roadmap, runbooks, flow docs, sequencing references | Keep authoritative and synchronized with implementation and docs-mcp |
 | Runtime operational docs | `runtime/docs/` | runtime-specific runbooks, replay docs, observability docs, operational CLI guidance | Keep synchronized with runtime behavior and docs-mcp indexing |
-| Package-local docs and changelogs | `programs/agenc-coordination/README.md`, `runtime/README.md`, `runtime/CHANGELOG.md`, `sdk/README.md`, `sdk/CHANGELOG.md`, `mcp/README.md`, `mcp/CHANGELOG.md`, `docs-mcp/README.md`, `migrations/README.md`, `examples/**/README.md`, plus top-level package/app/platform `README.md` and `CHANGELOG.md` files when present | package-level contracts, release notes, usage docs, migration notes, example-level guidance | Keep aligned with public surfaces and docs-mcp indexing |
+| Package-local docs and changelogs | `programs/agenc-coordination/README.md`, `runtime/README.md`, `runtime/CHANGELOG.md`, `mcp/README.md`, `mcp/CHANGELOG.md`, `docs-mcp/README.md`, `migrations/README.md`, `examples/**/README.md`, plus top-level package/app/platform `README.md` and `CHANGELOG.md` files when present | package-level contracts, release notes, usage docs, migration notes, example-level guidance | Keep aligned with public surfaces and docs-mcp indexing; standalone public packages own their docs in their own repos |
 | Contract artifacts and codegen surfaces | `docs/api-baseline/`, `runtime/benchmarks/`, `runtime/scripts/check-idl-drift.ts`, `contracts/desktop-tool-contracts/`, `scripts/idl/`, `target/idl/`, `target/types/`, `runtime/src/types/agenc_coordination.ts`, and the released `@tetsuo-ai/protocol` artifact surface | machine-readable baselines, IDL/schema artifacts, verifier-router artifacts, benchmark manifests, drift scripts, compatibility shims, and shared contract packages | Treat as first-class architecture and verification surfaces |
 | Scripts | `scripts/` (operational utilities, soak/autonomy infra, deployment/security validation, wrappers), `runtime/src/watch/`, and `runtime/tests/watch/` | setup, validation, benchmarking, migration, build, runtime-owned watch implementation, and package-local watch regression coverage | Convert into explicit build/release/test ownership surfaces |
 | Benchmarks | `benchmarks/` | benchmark evidence output for private-proof and related verification runs (`latest.md`, `latest.json`, `index.html`) | Keep benchmark outputs explicit and aligned to verification scope |
@@ -1313,6 +1313,11 @@ Goals:
 
 - remove transitional scaffolding that is now truly dead
 
+Current status:
+
+- `sdk/`, `plugin-kit/`, and `examples/private-task-demo/` have been deleted from the monorepo after search/test proof removed the last live path assumptions
+- local SDK API baseline authority has been removed from AgenC; the repo now keeps only pointer docs for standalone public package docs
+
 Must include:
 
 - façade removal
@@ -1480,7 +1485,7 @@ Current status:
   - `agenc-sdk` was extracted and the monorepo now consumes the released `@tetsuo-ai/sdk@1.3.1` artifact
   - `agenc-protocol` now exists as a standalone public trust-surface repo with committed generated artifacts on `main`
   - AgenC completed the first protocol consumer cutover slice against released `@tetsuo-ai/protocol@0.1.1`; vendored runtime protocol artifact authority is gone and local `target/**` protocol assets are now explicit test-only validation inputs
-  - `agenc-plugin-kit` now exists as a standalone public repo/package; AgenC consumes the released `@tetsuo-ai/plugin-kit@0.1.1` artifact and keeps only a de-authorized local rollback mirror
+  - `agenc-plugin-kit` now exists as a standalone public repo/package; AgenC consumes the released `@tetsuo-ai/plugin-kit@0.1.1` artifact without a monorepo-local mirror
   - the first supported public extension class is `channel_adapter`
   - AgenC runtime now hosts plugin-backed external channels through a private adapter seam with:
     - package allowlisting via `plugins.trustedPackages`
@@ -1511,7 +1516,7 @@ Current status:
     - that reference path now proves service-account bootstrap, authenticated dry-run publication, and live publish/install rehearsal for staged private packages
     - the permanent hosted backend is now chosen as Cloudsmith `agenc/private-kernel`, and protected hosted validation is wired through `.github/workflows/private-kernel-cloudsmith.yml`
     - protected hosted validation has now passed on the AgenC side (`23223356319` and `23223573814`), so the remaining backend work is auth rotation, service-account hygiene, and operator runbook hardening; the local/CI reference path remains the untrusted reference backend and is no longer a placeholder
-- Gate 12 is now `READY`.
+- Gate 12 is `COMPLETE`: rollback-mirror deletion, stale gate-language cleanup, intentional compatibility-seam classification, dead-surface audit follow-up, and final convergence verification all passed on `2026-03-17`.
 
 Gate 11 final exit review passed on `2026-03-17`.
 
@@ -1528,19 +1533,40 @@ Final Gate 11 review evidence:
   - `npm run test`
   - `npm run test --workspace=@tetsuo-ai/mcp`
   - `npm run check:private-kernel-surface`
-  - `npm run check:plugin-kit-boundary`
+  - `npm run check:public-contract-boundary`
   - `npm run check:proof-harness-boundary`
   - `npm run check:private-kernel-distribution`
   - `npm run pack:smoke:skip-build`
   - `git diff --check`
 
-The next work to execute under this plan is Gate 12 cleanup:
+Gate 12 final state:
 
-1. delete de-authorized rollback mirrors and transitional compatibility scaffolding once search/test proof confirms they are dead
-2. remove stale gate/status language and older runtime-scoped docs that are no longer authoritative
-3. delete or isolate dead demos/examples/scripts that no longer belong in the post-split topology
-4. collapse temporary Gate 10 and Gate 11 execution artifacts into the long-term canonical docs
-5. reopen Gate 10 or Gate 11 only if a future change reintroduces repo-relative coupling, repo-local patching, non-portable artifact handoff, or package-boundary drift
+1. rollback mirrors are deleted from the monorepo:
+   - `sdk/`
+   - `plugin-kit/`
+   - `examples/private-task-demo/`
+2. only the explicitly retained compatibility seams remain:
+   - `scripts/agenc-watch.mjs`
+   - `runtime/src/operator-events.ts`
+   - `runtime/src/types/agenc_coordination.ts`
+   - `runtime/src/skills/markdown/compat.ts`
+3. the dead-surface audit did not justify additional whole-package deletions for `examples/`, `tools/`, or `scripts/`; only two high-confidence unused exports were removed from retained tooling
+4. the AgenC-side final convergence verification set passed:
+   - `npm run check:public-contract-boundary`
+   - `npm run check:proof-harness-boundary`
+   - `npm run check:private-kernel-surface`
+   - `npm run check:private-kernel-distribution`
+   - `npm run build`
+   - `npm run typecheck`
+   - `npm run test`
+   - `npm run test --workspace=@tetsuo-ai/mcp`
+   - `npm run pack:smoke:skip-build`
+   - `npm ci --ignore-scripts --dry-run`
+   - `npm run localnet:social:bootstrap -- --help`
+   - `npm run typecheck --workspace=@tetsuo-ai/proof-harness-tools`
+   - `npm run test --workspace=@tetsuo-ai/proof-harness-tools`
+   - `git diff --check`
+5. reopen Gate 10, 11, or 12 only if a future change reintroduces repo-relative coupling, repo-local patching, non-portable artifact handoff, stale mirrors, or docs/code boundary drift
 
 No one should start Gate 11 extraction work without preserving the Gate 10 portability guarantees already proven here.
 

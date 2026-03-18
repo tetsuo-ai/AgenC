@@ -30,7 +30,7 @@ export type CliOptions = {
   summaryPath: string;
 };
 
-export function renderBootstrapUsage(): string {
+function renderBootstrapUsage(): string {
   return `Usage:
   npm run bootstrap --workspace=@tetsuo-ai/localnet-social-tools -- [options]
 

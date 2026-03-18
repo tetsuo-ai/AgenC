@@ -7,12 +7,12 @@ Last synced: `2026-03-17`.
 
 ## 1. Executive Verdict
 
-- The refactor program is **not complete**.
+- The refactor program is **complete**.
 - Gates 0 through 9 have materially established monorepo modularity and produced the required gate artifacts.
 - Gate 10 passed its final exit review on `2026-03-16` for the current split-candidate scope.
 - Gate 11 passed its final exit review on `2026-03-17`: the public/private split topology is now materially implemented, the private registry path is proven, and the retained internal validation seams are explicitly owned.
 - Gate 11 execution landed the required waves: `agenc-sdk` extraction cutover, `agenc-protocol` trust-surface bootstrap, `agenc-plugin-kit` extraction, private prover bootstrap, runtime-side visibility tightening, and private-kernel distribution proof.
-- Gate 12 is now `READY`; it is no longer blocked on Gate 11 topology or supply-chain uncertainty.
+- Gate 12 passed its final exit review on `2026-03-17`; rollback-mirror deletion, stale gate-language cleanup, compatibility-seam classification, and the dead-surface audit are now complete.
 - Standalone `docs/refactor/gate-*.md` planning documents have been retired; gate status and live evidence now belong here.
 - Audit note: parallel explorer subagents were attempted on `2026-03-16`, but all failed on model usage limits; this sync is therefore based on direct repository evidence.
 
@@ -48,10 +48,11 @@ Last synced: `2026-03-17`.
   - `runtime` uses released `@tetsuo-ai/sdk@1.3.1`
   - `mcp` uses `@tetsuo-ai/runtime` and released `@tetsuo-ai/sdk@1.3.1`
   - packaged examples use `@tetsuo-ai/sdk`
-  - the root workspace no longer owns `sdk` or `examples/private-task-demo`; those local trees are rollback mirrors only
+  - the monorepo no longer retains local rollback mirrors for `sdk`, `plugin-kit`, or `examples/private-task-demo`
 - Standalone public repos now exist on `main`:
   - `tetsuo-ai/agenc-sdk`
   - `tetsuo-ai/agenc-protocol`
+  - `tetsuo-ai/agenc-plugin-kit`
 
 ### 2.2 Gate 10 Exit Review Result
 
@@ -130,7 +131,7 @@ Resolved on `2026-03-16`:
 | 9 | Internal modularization inside the monorepo | COMPLETE | Current monorepo modularity proof summarized here | Preserve the modularity proof that Gate 10 now builds on |
 | 10 | Repository split readiness | COMPLETE | Gate 10 verification matrix, execution ledger, and final exit review in this roadmap | Keep candidate-scope proof current if new split candidates are added |
 | 11 | Repository split decision and extraction | COMPLETE | Gate 11 topology, package policy, extraction waves, and final exit review are now recorded in this roadmap | Reopen only if a future extraction wave breaks the proven boundary or contract rules |
-| 12 | Legacy deletion and convergence | READY | Gate 11 exit review passed and the topology is materially stable | Start cleanup without weakening the newly locked package, registry, or docs boundaries |
+| 12 | Legacy deletion and convergence | COMPLETE | Gate 12 mirror deletion, convergence cleanup, and final exit review are recorded in this roadmap | Reopen only if a future change reintroduces stale mirrors, dead shims, or docs/code drift |
 
 ---
 
@@ -383,7 +384,7 @@ Decision log:
   - root workspace ownership removed for `sdk` and `examples/private-task-demo`
   - `mcp/tsup.config.ts`, `scripts/smoke-test-examples.sh`, `containers/desktop/Dockerfile`, `scripts/pack-smoke.mjs`, and `.github/workflows/package-pack-smoke.yml` no longer assume local SDK build ownership
   - the private monorepo validated against released `@tetsuo-ai/sdk@1.3.1` via `npm run build`, `npm run typecheck`, `npm run test`, `npm run test --workspace=@tetsuo-ai/mcp`, `npm run test --workspace=@tetsuo-ai/desktop-server`, and `npm run pack:smoke`
-  - local `sdk/` and `examples/private-task-demo/` trees are retained only as de-authorized rollback mirrors and must remain unpublished
+  - local `sdk/` and `examples/private-task-demo/` trees were retained only as temporary de-authorized rollback mirrors during Wave 1 and were deleted in Gate 12A on `2026-03-17`
 - `[2026-03-16]` Wave 2 `agenc-protocol` bootstrap landed:
   - standalone repo `tetsuo-ai/agenc-protocol` exists and bootstrap PR `#1` merged on `main`
   - the public trust-surface bootstrap scope now lives there:
@@ -716,7 +717,7 @@ Phase 0 must do all of the following before runtime-side visibility tightening:
 - state that the current `AgenC` repo is the frozen `agenc-core` baseline
 - align `REFACTOR.MD`, `REFACTOR-MASTER-PROGRAM.md`, and the architecture ADR index with that decision
 
-Phase 0 must **not** pretend to finish the later public product-surface rewrite. Full public docs de-authority remains a later Gate 11 phase.
+Phase 0 must **not** pretend to finish the public product-surface rewrite. At the time of Phase 0 planning, full public docs de-authority was intentionally deferred; that follow-on work is now complete.
 
 #### 11.9 Wave 1 — `agenc-sdk` Extraction Checklist
 
@@ -846,7 +847,7 @@ Wave 1 execution status (`2026-03-16`):
   - the private monorepo validated against the released SDK artifact instead of a sibling workspace build
   - root docs now point at `tetsuo-ai/agenc-sdk` as canonical SDK authority
 - intentionally retained:
-  - local `sdk/` and `examples/private-task-demo/` copies remain only as de-authorized rollback mirrors while Gate 11 continues
+  - local `sdk/` and `examples/private-task-demo/` copies were retained temporarily during Gate 11 and removed in Gate 12A on `2026-03-17`
 - non-blocking note:
   - `scripts/smoke-test-examples.sh` still reports pre-existing runtime-heavy example bundling failures unrelated to the SDK cutover; SDK-dependent examples passed and the Wave 1 package proofs are green
 
@@ -946,7 +947,7 @@ Gate 11 is complete only when:
   - the current `AgenC` repo as the frozen `agenc-core` baseline
   - the rule that runtime-side packages are transitional public artifacts, not permanent public contracts
   - the `plugin-kit` host ABI policy and explicit non-ABI internals
-- Phase 0 intentionally does **not** rewrite the public README/install story yet. That remains a later Gate 11 docs de-authority phase after `plugin-kit` and runtime-side deprecation mechanics are real.
+- Phase 0 intentionally did **not** rewrite the public README/install story yet. That docs de-authority work landed later in Gate 11 after `plugin-kit` and runtime-side deprecation mechanics became real.
 
 #### 11.13 Current Phase 1 Status
 
@@ -962,7 +963,7 @@ Gate 11 is complete only when:
 `[2026-03-16]` Phase 2 `plugin-kit` extraction is now materially live:
 - the canonical public repo is [`tetsuo-ai/agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit)
 - AgenC now consumes the released `@tetsuo-ai/plugin-kit@0.1.1` artifact from npm rather than a monorepo workspace/package link
-- [plugin-kit/](/home/tetsuo/git/AgenC/plugin-kit) remains only as a de-authorized rollback mirror with a non-canonical package identity so it cannot shadow the published package
+- [plugin-kit/](/home/tetsuo/git/AgenC/plugin-kit) was retained briefly as a de-authorized rollback mirror with a non-canonical package identity, then removed in Gate 12A on `2026-03-17`
 - the standalone public package owns:
   - manifest validation
   - a versioned channel-host compatibility matrix
@@ -1099,7 +1100,7 @@ Verification run used for the final review:
 - `npm run test`
 - `npm run test --workspace=@tetsuo-ai/mcp`
 - `npm run check:private-kernel-surface`
-- `npm run check:plugin-kit-boundary`
+- `npm run check:public-contract-boundary`
 - `npm run check:proof-harness-boundary`
 - `npm run check:private-kernel-distribution`
 - `npm run pack:smoke:skip-build`
@@ -1107,22 +1108,67 @@ Verification run used for the final review:
 
 ### 5.4 Gate 12 — Legacy Deletion And Convergence
 
-Status: `READY`
+Status: `COMPLETE`
 
-Starts now that the Gate 11 public/private boundary and extraction topology are materially stable.
+The Gate 11 public/private boundary and extraction topology are stable, and the
+Gate 12 convergence wave is complete.
 
-Required work:
-1. Remove transitional compatibility shims that are now dead.
-2. Remove stale gate/status language from older docs.
-3. Delete or isolate dead demos/examples/scripts that no longer belong in the architecture.
-4. Collapse temporary Gate 10 execution artifacts into canonical long-term docs where appropriate.
-5. Close any remaining docs-mcp helper-semantics drift against the master program.
+Current Gate 12A status:
+- deleted the de-authorized `sdk/`, `plugin-kit/`, and `examples/private-task-demo/` mirrors from the monorepo
+- removed the stale local SDK API baseline at `docs/api-baseline/sdk.json`
+- updated active docs, docs-mcp indexing, project-doc generation, and boundary guards so the repo no longer assumes those mirrors exist
+
+Current Gate 12B/C status:
+- stale Gate 11 timing language has been rewritten so active docs no longer speak as if rollback mirrors or deferred Gate 11 docs work still exist
+- the public-contract boundary guard is now named for what it actually enforces: `scripts/check-public-contract-boundary.mjs`
+- retained compatibility seams are explicitly classified:
+  - retain `scripts/agenc-watch.mjs` as a documented local-dev wrapper over the runtime-owned watch entrypoint
+  - retain `runtime/src/operator-events.ts` as the exported runtime subpath contract
+  - retain `runtime/src/types/agenc_coordination.ts` as the thin runtime shim over `@tetsuo-ai/protocol`
+  - retain `runtime/src/skills/markdown/compat.ts` as the active OpenClaw import bridge used by the registry CLI
+- no deletion is justified for those retained seams today; removing them now would break tested or documented consumers
+- a focused dead-surface audit across `examples/`, `tools/`, and `scripts/` found no additional high-confidence whole-package deletions; the only safe code cleanup was removal of two unused exports:
+  - `renderBootstrapUsage` is now internal-only in `tools/localnet-social/bootstrap-cli.ts`
+  - `VERIFIER_ENTRY_ACCOUNT_LEN` is now internal-only in `tools/proof-harness/verifier-localnet.ts`
+
+Final Gate 12 review findings:
+- rollback mirrors are gone from the monorepo:
+  - `sdk/`
+  - `plugin-kit/`
+  - `examples/private-task-demo/`
+- active docs no longer speak as if Gate 11 docs work or rollback mirrors are still pending
+- intentional compatibility seams are explicitly retained and verified:
+  - `scripts/agenc-watch.mjs`
+  - `runtime/src/operator-events.ts`
+  - `runtime/src/types/agenc_coordination.ts`
+  - `runtime/src/skills/markdown/compat.ts`
+- no additional whole-package deletions are justified today for `examples/`, `tools/`, or `scripts/`
+- `docs-mcp` helper semantics are aligned: runtime-scoped helpers are marked as runtime-only, and whole-repo planning authority stays in indexed root docs
+- the remaining dead-code cleanup from this wave was limited to two unused exports:
+  - `renderBootstrapUsage` in `tools/localnet-social/bootstrap-cli.ts`
+  - `VERIFIER_ENTRY_ACCOUNT_LEN` in `tools/proof-harness/verifier-localnet.ts`
 
 Required proof:
 1. Every deletion has search evidence.
 2. Every public-surface change has matching baseline/IDL/docs updates.
 3. Release notes or migration notes exist for any consumer-visible removal.
 4. No plan-vs-code mismatch remains in active refactor docs.
+
+Exit review verification set:
+- `npm run check:public-contract-boundary`
+- `npm run check:proof-harness-boundary`
+- `npm run check:private-kernel-surface`
+- `npm run check:private-kernel-distribution`
+- `npm run build`
+- `npm run typecheck`
+- `npm run test`
+- `npm run test --workspace=@tetsuo-ai/mcp`
+- `npm run pack:smoke:skip-build`
+- `npm ci --ignore-scripts --dry-run`
+- `npm run localnet:social:bootstrap -- --help`
+- `npm run typecheck --workspace=@tetsuo-ai/proof-harness-tools`
+- `npm run test --workspace=@tetsuo-ai/proof-harness-tools`
+- `git diff --check`
 
 Exit signal:
 - The planning layer, codebase, generated artifacts, and documentation all tell the same story without transitional scaffolding.

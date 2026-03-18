@@ -48,8 +48,7 @@ const KNOWN_HELPER_SCRIPT_PATHS = [
   "scripts/run-e2e-zk-local.sh",
   "scripts/agenc-watch.mjs",
 ] as const;
-const CORE_TS_PACKAGE_PATHS = [
-  "sdk",
+const LOCAL_CORE_TS_PACKAGE_PATHS = [
   "runtime",
   "mcp",
   "docs-mcp",
@@ -653,7 +652,7 @@ function buildRepoAwareGuidelines(snapshot: RepositorySnapshot): string | null {
       "- `runtime/` is the live control plane: daemon lifecycle, gateway, LLM/tool execution, background runs, channels, desktop bridge, observability, and CLI entrypoints.",
     );
   }
-  const corePackages = CORE_TS_PACKAGE_PATHS.filter((path) =>
+  const corePackages = LOCAL_CORE_TS_PACKAGE_PATHS.filter((path) =>
     packageSurface(snapshot, path),
   );
   if (corePackages.length > 0) {
@@ -703,8 +702,14 @@ function buildRepoAwareGuidelines(snapshot: RepositorySnapshot): string | null {
       packageHasScript(snapshot, "runtime", "typecheck")
         ? packageScriptCommand("runtime", "typecheck")
         : null,
-      packageHasScript(snapshot, "sdk", "test")
-        ? packageScriptCommand("sdk", "test")
+      packageHasScript(snapshot, "mcp", "test")
+        ? packageScriptCommand("mcp", "test")
+        : null,
+      packageHasScript(snapshot, "mcp", "typecheck")
+        ? packageScriptCommand("mcp", "typecheck")
+        : null,
+      packageHasScript(snapshot, "docs-mcp", "typecheck")
+        ? packageScriptCommand("docs-mcp", "typecheck")
         : null,
     ].filter((value): value is string => value !== null),
   );

@@ -114,8 +114,8 @@ AgenC is in the middle of a whole-repository refactor program. The current sourc
 |------|----------------|
 | Refactor program | Whole-repo refactor is active. Runtime, SDK, protocol, zkVM, MCP, docs tooling, apps, scripts, tests, and desktop platform are all in scope. |
 | Core TypeScript build closure | The currently maintained monorepo build closure is `runtime/`, `mcp/`, and `docs-mcp/`. The SDK is now consumed as the released `@tetsuo-ai/sdk` package from `tetsuo-ai/agenc-sdk`. |
-| Public SDK authority | `@tetsuo-ai/sdk` is now owned and released from [`tetsuo-ai/agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk). The local `sdk/` tree in this repo is a rollback mirror only and must not be treated as canonical release authority. |
-| Public plugin authority | `@tetsuo-ai/plugin-kit` is now owned and released from [`tetsuo-ai/agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit). The local `plugin-kit/` tree in this repo is a rollback mirror only and must not shadow the published package. |
+| Public SDK authority | `@tetsuo-ai/sdk` is owned and released from [`tetsuo-ai/agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk). This repo consumes the released package only; no local SDK mirror remains. |
+| Public plugin authority | `@tetsuo-ai/plugin-kit` is owned and released from [`tetsuo-ai/agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit). This repo consumes the released package only; no local plugin-kit mirror remains. |
 | Operational control plane | `runtime/` is the live control plane today: daemon lifecycle, gateway, LLM/tool execution, background runs, channels, desktop bridge, observability, and CLI entrypoints. |
 | Private kernel package policy | `@tetsuo-ai/runtime`, `@tetsuo-ai/mcp`, `@tetsuo-ai/docs-mcp`, and `@tetsuo-ai/desktop-tool-contracts` are transitional runtime-side identities only. Long-term public builder surfaces are `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and `@tetsuo-ai/plugin-kit`. |
 | Operator TUI | The operator console/watch subsystem is the current terminal UI. The supported launcher is `agenc`, which boots the daemon if needed and opens the watch console. The runtime-owned watch bin is `runtime/dist/bin/agenc-watch.js`; [`scripts/agenc-watch.mjs`](scripts/agenc-watch.mjs) is a local-dev wrapper only. |
@@ -774,7 +774,6 @@ flowchart TB
 ```text
 AgenC/
 ├── programs/agenc-coordination/   # Solana program (Rust/Anchor)
-├── sdk/                           # Transitional rollback mirror; canonical SDK repo is github.com/tetsuo-ai/agenc-sdk
 ├── runtime/                       # Live runtime, daemon, CLI, gateway, tools, channels
 ├── mcp/                           # MCP server
 ├── docs-mcp/                      # Documentation MCP server

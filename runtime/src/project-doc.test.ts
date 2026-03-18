@@ -106,7 +106,6 @@ describe("project-doc", () => {
   it("prefers repo-aware guidance when contributor docs and package surfaces exist", async () => {
     const workspace = createWorkspace();
     mkdirSync(join(workspace, "runtime"), { recursive: true });
-    mkdirSync(join(workspace, "sdk"), { recursive: true });
     mkdirSync(join(workspace, "mcp"), { recursive: true });
     mkdirSync(join(workspace, "docs-mcp"), { recursive: true });
     mkdirSync(join(workspace, "tests"), { recursive: true });
@@ -131,11 +130,6 @@ describe("project-doc", () => {
         null,
         2,
       ),
-      "utf-8",
-    );
-    writeFileSync(
-      join(workspace, "sdk", "package.json"),
-      JSON.stringify({ scripts: { build: "tsup", test: "vitest run" } }, null, 2),
       "utf-8",
     );
     writeFileSync(
@@ -169,12 +163,13 @@ describe("project-doc", () => {
 
 ## Project Structure & Module Organization
 - \`programs/agenc-coordination/\`: Anchor Solana program.
-- \`sdk/\`, \`runtime/\`, \`mcp/\`, and \`docs-mcp/\`: core TypeScript packages built independently.
+- \`runtime/\`, \`mcp/\`, and \`docs-mcp/\`: core TypeScript packages built independently in this repo.
+- Public builder packages \`@tetsuo-ai/sdk\`, \`@tetsuo-ai/protocol\`, and \`@tetsuo-ai/plugin-kit\` are owned by standalone repos and consumed here as released artifacts.
 - \`tests/\`: root integration suite.
 
 ## Coding Style & Naming Conventions
 - TypeScript uses strict typing and 2-space indentation; preserve existing per-package style.
-- In runtime/sdk code, keep ESM relative imports with \`.js\` suffixes.
+- In TypeScript code under this repo, keep ESM relative imports with \`.js\` suffixes.
 - Use \`safeStringify()\` for any data containing bigint.
 
 ## Testing Guidelines
@@ -199,7 +194,7 @@ describe("project-doc", () => {
 
 AgenC is in the middle of a whole-repository refactor program.
 \`runtime/\` is the live control plane today.
-The currently maintained core package build closure is \`sdk/\`, \`runtime/\`, \`mcp/\`, and \`docs-mcp/\`.
+The currently maintained monorepo build closure is \`runtime/\`, \`mcp/\`, and \`docs-mcp/\`.
 `,
       "utf-8",
     );
@@ -236,6 +231,7 @@ The currently maintained core package build closure is \`sdk/\`, \`runtime/\`, \
     expect(content).toContain("`programs/agenc-coordination/`");
     expect(content).toContain("`npm --prefix runtime run build`");
     expect(content).toContain("`npm --prefix runtime test`");
+    expect(content).not.toContain("`npm --prefix sdk test`");
     expect(content).toContain("Follow `.github/PULL_REQUEST_TEMPLATE.md`");
     expect(content).not.toContain("Top-level directories:");
   });

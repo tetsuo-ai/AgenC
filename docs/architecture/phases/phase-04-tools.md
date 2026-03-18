@@ -160,7 +160,7 @@ interface BashToolResult extends ToolResult {
 
 **Patterns to follow:**
 - Tool interface from `runtime/src/tools/types.ts`
-- Path validation from `sdk/src/validation.ts`
+- Path validation from the validation helpers exported by `@tetsuo-ai/sdk`
 
 **Key interfaces:**
 

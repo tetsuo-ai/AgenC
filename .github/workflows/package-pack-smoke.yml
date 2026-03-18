@@ -12,7 +12,7 @@ on:
       - 'README.md'
       - 'docs/RUNTIME_API.md'
       - 'scripts/pack-smoke.mjs'
-      - 'scripts/check-plugin-kit-extraction-boundary.mjs'
+      - 'scripts/check-public-contract-boundary.mjs'
       - 'scripts/check-private-kernel-surface.mjs'
       - 'test-fixtures/plugin-kit-channel-adapter/**'
       - 'contracts/desktop-tool-contracts/**'
@@ -34,7 +34,7 @@ on:
       - 'README.md'
       - 'docs/RUNTIME_API.md'
       - 'scripts/pack-smoke.mjs'
-      - 'scripts/check-plugin-kit-extraction-boundary.mjs'
+      - 'scripts/check-public-contract-boundary.mjs'
       - 'scripts/check-private-kernel-surface.mjs'
       - 'test-fixtures/plugin-kit-channel-adapter/**'
       - 'contracts/desktop-tool-contracts/**'
@@ -67,8 +67,8 @@ jobs:
       - name: Build private-kernel packages
         run: npm run build:private-kernel
 
-      - name: Check plugin-kit extraction boundary
-        run: npm run check:plugin-kit-boundary
+      - name: Check public contract boundary
+        run: npm run check:public-contract-boundary
 
       - name: Check private-kernel surface
         run: npm run check:private-kernel-surface

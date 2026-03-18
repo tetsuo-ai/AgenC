@@ -119,7 +119,7 @@ stateDiagram-v2
 | Public Completion | `programs/agenc-coordination/src/instructions/complete_task.rs` | `handler()`, reward distribution |
 | Private Completion | `programs/agenc-coordination/src/instructions/complete_task_private.rs` | `handler()`, ZK verification |
 | Cancellation | `programs/agenc-coordination/src/instructions/cancel_task.rs` | `handler()`, refund logic |
-| SDK Task Ops | `sdk/src/tasks.ts` | `createTask()`, `claimTask()`, `completeTask()` |
+| SDK Task Ops | `@tetsuo-ai/sdk` (`tetsuo-ai/agenc-sdk`) | `createTask()`, `claimTask()`, `completeTask()` |
 | Runtime Task Ops | `runtime/src/task/operations.ts` | `TaskOperations` class, query helpers |
 
 ## Related Issues

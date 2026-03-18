@@ -31,7 +31,7 @@
     "build:private-kernel": "npm run build --workspace=@tetsuo-ai/desktop-tool-contracts && npm run build --workspace=@tetsuo-ai/runtime && npm run build --workspace=@tetsuo-ai/mcp && npm run build --workspace=@tetsuo-ai/docs-mcp && npm run build --workspace=@tetsuo-ai/desktop-server",
     "build:runtime": "npm run build --workspace=@tetsuo-ai/runtime",
     "build:mcp": "npm run build --workspace=@tetsuo-ai/mcp",
-    "check:plugin-kit-boundary": "node scripts/check-plugin-kit-extraction-boundary.mjs",
+    "check:public-contract-boundary": "node scripts/check-public-contract-boundary.mjs",
     "check:private-kernel-surface": "node scripts/check-private-kernel-surface.mjs",
     "check:private-kernel-distribution": "node scripts/private-kernel-distribution.mjs --check",
     "check:private-kernel-distribution:local": "node scripts/private-kernel-distribution.mjs --check --config config/private-kernel-distribution.local.json",

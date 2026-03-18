@@ -12,7 +12,6 @@ const ROOT_DOC_FILES = [
 
 const PACKAGE_DOC_ROOTS = [
   'runtime',
-  'sdk',
   'mcp',
   'docs-mcp',
   'migrations',
