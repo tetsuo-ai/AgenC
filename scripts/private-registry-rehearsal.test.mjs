@@ -22,10 +22,40 @@ test("parseArgs enables public-scope denial when explicitly requested", () => {
   assert.equal(options.expectPublicScopePublishDenied, true);
 });
 
+test("parseArgs accepts explicit fresh publish retry controls", () => {
+  const options = parseArgs([
+    "--fresh-publish-read-retries",
+    "12",
+    "--fresh-publish-read-delay-ms",
+    "4500",
+  ], {
+    PRIVATE_KERNEL_REGISTRY_TOKEN: "token",
+  });
+
+  assert.equal(options.freshPublishReadRetries, 12);
+  assert.equal(options.freshPublishReadDelayMs, 4500);
+});
+
 test("parseArgs still requires a token", () => {
   assert.throws(
     () => parseArgs([], {}),
     /PRIVATE_KERNEL_REGISTRY_TOKEN or --token is required/,
+  );
+});
+
+test("parseArgs rejects invalid fresh publish retry controls", () => {
+  assert.throws(
+    () => parseArgs(["--fresh-publish-read-retries", "-1"], {
+      PRIVATE_KERNEL_REGISTRY_TOKEN: "token",
+    }),
+    /--fresh-publish-read-retries must be a non-negative integer/,
+  );
+
+  assert.throws(
+    () => parseArgs(["--fresh-publish-read-delay-ms", "not-a-number"], {
+      PRIVATE_KERNEL_REGISTRY_TOKEN: "token",
+    }),
+    /--fresh-publish-read-delay-ms must be a non-negative integer/,
   );
 });
 

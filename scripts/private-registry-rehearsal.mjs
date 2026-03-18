@@ -23,6 +23,8 @@ function parseArgs(argv, env = process.env) {
     stageRoot: env.PRIVATE_KERNEL_STAGE_ROOT ? path.resolve(repoRoot, env.PRIVATE_KERNEL_STAGE_ROOT) : defaultStageRoot,
     fixtureOnly: false,
     expectPublicScopePublishDenied: false,
+    freshPublishReadRetries: 20,
+    freshPublishReadDelayMs: 3000,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -50,6 +52,14 @@ function parseArgs(argv, env = process.env) {
       case "--expect-public-scope-publish-denied":
         options.expectPublicScopePublishDenied = true;
         break;
+      case "--fresh-publish-read-retries":
+        index += 1;
+        options.freshPublishReadRetries = Number.parseInt(argv[index], 10);
+        break;
+      case "--fresh-publish-read-delay-ms":
+        index += 1;
+        options.freshPublishReadDelayMs = Number.parseInt(argv[index], 10);
+        break;
       default:
         throw new Error(`unknown argument: ${argument}`);
     }
@@ -57,6 +67,12 @@ function parseArgs(argv, env = process.env) {
 
   if (!options.token) {
     throw new Error("PRIVATE_KERNEL_REGISTRY_TOKEN or --token is required");
+  }
+  if (!Number.isInteger(options.freshPublishReadRetries) || options.freshPublishReadRetries < 0) {
+    throw new Error("--fresh-publish-read-retries must be a non-negative integer");
+  }
+  if (!Number.isInteger(options.freshPublishReadDelayMs) || options.freshPublishReadDelayMs < 0) {
+    throw new Error("--fresh-publish-read-delay-ms must be a non-negative integer");
   }
 
   return options;
@@ -219,6 +235,8 @@ async function runRehearsal(options) {
         await runNpmWithRetry(["view", privateFixtureName, "version", "--registry", options.registryUrl], {
           cwd: repoRoot,
           env,
+          retries: options.freshPublishReadRetries,
+          delayMs: options.freshPublishReadDelayMs,
         }),
         "private fixture npm view",
       );
@@ -227,6 +245,8 @@ async function runRehearsal(options) {
         await runNpmWithRetry(["install", `${privateFixtureName}@${fixtureVersion}`, "--registry", options.registryUrl], {
           cwd: privateInstallDir,
           env,
+          retries: options.freshPublishReadRetries,
+          delayMs: options.freshPublishReadDelayMs,
         }),
         "private fixture install",
       );
@@ -251,6 +271,8 @@ async function runRehearsal(options) {
             await runNpmWithRetry(["install", packageName, "--registry", options.registryUrl], {
               cwd: stagedInstallDir,
               env,
+              retries: options.freshPublishReadRetries,
+              delayMs: options.freshPublishReadDelayMs,
             }),
             `staged consumer install ${packageName}`,
           );
@@ -264,6 +286,8 @@ async function runRehearsal(options) {
             fixtureVersion,
             fixtureOnly: options.fixtureOnly,
             expectPublicScopePublishDenied: options.expectPublicScopePublishDenied,
+            freshPublishReadRetries: options.freshPublishReadRetries,
+            freshPublishReadDelayMs: options.freshPublishReadDelayMs,
             privateFixtureName,
             stagedConsumers: options.fixtureOnly ? [] : stagedConsumers,
           },
