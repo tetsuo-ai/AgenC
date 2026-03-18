@@ -79,6 +79,31 @@ function assertNpm(result, context) {
   }
 }
 
+function isRetryableFreshPublishRead(result) {
+  const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.toLowerCase();
+  return (
+    (result.status ?? 1) !== 0
+    && (
+      text.includes("npm error code e404")
+      || text.includes(" 404 ")
+      || text.includes("could not be found")
+      || text.includes("not found")
+    )
+  );
+}
+
+async function runNpmWithRetry(
+  args,
+  { cwd, env, retries = 8, delayMs = 1500, shouldRetry = isRetryableFreshPublishRead } = {},
+) {
+  let result = runNpm(args, { cwd, env });
+  for (let attempt = 1; attempt <= retries && shouldRetry(result); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    result = runNpm(args, { cwd, env });
+  }
+  return result;
+}
+
 async function withTempUserConfig(registryUrl, scope, token, callback) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "agenc-private-registry-userconfig-"));
   const userConfigPath = path.join(tempDir, ".npmrc");
@@ -191,7 +216,7 @@ async function runRehearsal(options) {
         "private fixture publish",
       );
       assertNpm(
-        runNpm(["view", privateFixtureName, "version", "--registry", options.registryUrl], {
+        await runNpmWithRetry(["view", privateFixtureName, "version", "--registry", options.registryUrl], {
           cwd: repoRoot,
           env,
         }),
@@ -199,7 +224,7 @@ async function runRehearsal(options) {
       );
       assertNpm(runNpm(["init", "-y"], { cwd: privateInstallDir, env }), "fixture consumer npm init");
       assertNpm(
-        runNpm(["install", `${privateFixtureName}@${fixtureVersion}`, "--registry", options.registryUrl], {
+        await runNpmWithRetry(["install", `${privateFixtureName}@${fixtureVersion}`, "--registry", options.registryUrl], {
           cwd: privateInstallDir,
           env,
         }),
@@ -223,7 +248,7 @@ async function runRehearsal(options) {
 
         for (const packageName of stagedConsumers) {
           assertNpm(
-            runNpm(["install", packageName, "--registry", options.registryUrl], {
+            await runNpmWithRetry(["install", packageName, "--registry", options.registryUrl], {
               cwd: stagedInstallDir,
               env,
             }),
@@ -264,4 +289,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   });
 }
 
-export { parseArgs, runRehearsal };
+export { isRetryableFreshPublishRead, parseArgs, runRehearsal };

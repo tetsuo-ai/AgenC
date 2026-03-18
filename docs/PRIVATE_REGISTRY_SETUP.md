@@ -45,6 +45,11 @@ Cloudsmith hosted validation does not require the registry to reject public
 reference backend contract, where the registry is intentionally configured to
 enforce the private scope boundary directly.
 
+Cloudsmith hosted validation does tolerate a short publish-to-read delay for
+fresh private fixtures. The rehearsal still requires publish, `npm view`, and
+install to succeed; it simply retries bounded 404 reads that can occur
+immediately after a successful publish.
+
 ## Local/CI reference backend
 
 The current reference backend is a local/CI Verdaccio 6 registry managed by:

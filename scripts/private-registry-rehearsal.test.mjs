@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseArgs } from "./private-registry-rehearsal.mjs";
+import { isRetryableFreshPublishRead, parseArgs } from "./private-registry-rehearsal.mjs";
 
 test("parseArgs defaults to the private scope and disables public-scope denial by default", () => {
   const options = parseArgs([], {
@@ -26,5 +26,34 @@ test("parseArgs still requires a token", () => {
   assert.throws(
     () => parseArgs([], {}),
     /PRIVATE_KERNEL_REGISTRY_TOKEN or --token is required/,
+  );
+});
+
+test("isRetryableFreshPublishRead only retries fresh publish 404s", () => {
+  assert.equal(
+    isRetryableFreshPublishRead({
+      status: 1,
+      stdout: "",
+      stderr: "npm error code E404\nThe requested resource could not be found",
+    }),
+    true,
+  );
+
+  assert.equal(
+    isRetryableFreshPublishRead({
+      status: 1,
+      stdout: "",
+      stderr: "npm error code E403\nforbidden",
+    }),
+    false,
+  );
+
+  assert.equal(
+    isRetryableFreshPublishRead({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    }),
+    false,
   );
 });
