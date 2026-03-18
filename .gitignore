@@ -19,6 +19,8 @@ ter
 *.out
 build/
 bin/
+!runtime/src/bin/
+!runtime/src/bin/*.ts
 obj/
 
 # IDEs

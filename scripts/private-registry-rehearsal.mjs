@@ -15,6 +15,14 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const defaultStageRoot = path.join(repoRoot, ".tmp", "private-kernel-distribution", "stage");
 
+function readRequiredArgValue(argv, index, flagName) {
+  const value = argv[index + 1];
+  if (typeof value !== "string" || value.length === 0 || value.startsWith("--")) {
+    throw new Error(`${flagName} requires a value`);
+  }
+  return value;
+}
+
 function parseArgs(argv, env = process.env) {
   const options = {
     registryUrl: env.PRIVATE_KERNEL_REGISTRY_URL || "http://127.0.0.1:4873",
@@ -22,29 +30,43 @@ function parseArgs(argv, env = process.env) {
     token: env.PRIVATE_KERNEL_REGISTRY_TOKEN || null,
     stageRoot: env.PRIVATE_KERNEL_STAGE_ROOT ? path.resolve(repoRoot, env.PRIVATE_KERNEL_STAGE_ROOT) : defaultStageRoot,
     fixtureOnly: false,
+    expectPublicScopePublishDenied: false,
+    freshPublishReadRetries: 20,
+    freshPublishReadDelayMs: 3000,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     switch (argument) {
       case "--registry-url":
+        options.registryUrl = readRequiredArgValue(argv, index, argument);
         index += 1;
-        options.registryUrl = argv[index];
         break;
       case "--scope":
+        options.scope = readRequiredArgValue(argv, index, argument);
         index += 1;
-        options.scope = argv[index];
         break;
       case "--token":
+        options.token = readRequiredArgValue(argv, index, argument);
         index += 1;
-        options.token = argv[index];
         break;
       case "--stage-root":
+        options.stageRoot = path.resolve(repoRoot, readRequiredArgValue(argv, index, argument));
         index += 1;
-        options.stageRoot = path.resolve(repoRoot, argv[index]);
         break;
       case "--fixture-only":
         options.fixtureOnly = true;
+        break;
+      case "--expect-public-scope-publish-denied":
+        options.expectPublicScopePublishDenied = true;
+        break;
+      case "--fresh-publish-read-retries":
+        options.freshPublishReadRetries = Number.parseInt(readRequiredArgValue(argv, index, argument), 10);
+        index += 1;
+        break;
+      case "--fresh-publish-read-delay-ms":
+        options.freshPublishReadDelayMs = Number.parseInt(readRequiredArgValue(argv, index, argument), 10);
+        index += 1;
         break;
       default:
         throw new Error(`unknown argument: ${argument}`);
@@ -53,6 +75,12 @@ function parseArgs(argv, env = process.env) {
 
   if (!options.token) {
     throw new Error("PRIVATE_KERNEL_REGISTRY_TOKEN or --token is required");
+  }
+  if (!Number.isInteger(options.freshPublishReadRetries) || options.freshPublishReadRetries < 0) {
+    throw new Error("--fresh-publish-read-retries must be a non-negative integer");
+  }
+  if (!Number.isInteger(options.freshPublishReadDelayMs) || options.freshPublishReadDelayMs < 0) {
+    throw new Error("--fresh-publish-read-delay-ms must be a non-negative integer");
   }
 
   return options;
@@ -70,9 +98,42 @@ function runNpm(args, { cwd, env, input = "" }) {
 
 function assertNpm(result, context) {
   if ((result.status ?? 1) !== 0) {
-    const detail = [result.stdout?.trim(), result.stderr?.trim()].filter(Boolean).join("\n");
+    const detail = [
+      result.error instanceof Error ? result.error.message : null,
+      result.stdout?.trim(),
+      result.stderr?.trim(),
+    ].filter(Boolean).join("\n");
     throw new Error(`${context} failed${detail ? `\n${detail}` : ""}`);
   }
+}
+
+function isNotFoundResult(result) {
+  const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.toLowerCase();
+  return (
+    (result.status ?? 1) !== 0
+    && (
+      text.includes("npm error code e404")
+      || text.includes(" 404 ")
+      || text.includes("could not be found")
+      || text.includes("not found")
+    )
+  );
+}
+
+function isRetryableFreshPublishRead(result) {
+  return isNotFoundResult(result);
+}
+
+async function runNpmWithRetry(
+  args,
+  { cwd, env, retries = 8, delayMs = 1500, shouldRetry = isRetryableFreshPublishRead } = {},
+) {
+  let result = runNpm(args, { cwd, env });
+  for (let attempt = 1; attempt <= retries && shouldRetry(result); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    result = runNpm(args, { cwd, env });
+  }
+  return result;
 }
 
 async function withTempUserConfig(registryUrl, scope, token, callback) {
@@ -136,7 +197,7 @@ async function runRehearsal(options) {
 
     try {
       const publicFixtureName = `@tetsuo-ai/private-registry-public-fixture-${nonce}`;
-      const privateFixtureName = `@tetsuo-ai-private/private-registry-fixture-${nonce}`;
+      const privateFixtureName = `${options.scope}/private-registry-fixture-${nonce}`;
       const fixtureVersion = "0.0.1";
 
       assertNpm(
@@ -148,7 +209,7 @@ async function runRehearsal(options) {
       );
       if (!options.fixtureOnly) {
         const privatePrePublishView = runNpm(
-          ["view", "@tetsuo-ai-private/runtime", "version", "--registry", options.registryUrl],
+          ["view", `${options.scope}/runtime`, "version", "--registry", options.registryUrl],
           {
             cwd: repoRoot,
             env,
@@ -156,6 +217,9 @@ async function runRehearsal(options) {
         );
         if ((privatePrePublishView.status ?? 1) === 0) {
           throw new Error("private scope unexpectedly resolved before staged publish");
+        }
+        if (!isNotFoundResult(privatePrePublishView)) {
+          assertNpm(privatePrePublishView, "private scope pre-publish npm view");
         }
       }
 
@@ -168,16 +232,18 @@ async function runRehearsal(options) {
         version: fixtureVersion,
       });
 
-      const publicPublish = runNpm(
-        ["publish", "--registry", options.registryUrl],
-        { cwd: publicFixtureDir, env },
-      );
-      if ((publicPublish.status ?? 1) === 0) {
-        throw new Error("public-scope publish unexpectedly succeeded against private registry");
-      }
-      const publicFailureText = `${publicPublish.stdout}\n${publicPublish.stderr}`.toLowerCase();
-      if (!publicFailureText.includes("403") && !publicFailureText.includes("forbidden")) {
-        throw new Error(`public-scope publish failed for the wrong reason\n${publicPublish.stdout}\n${publicPublish.stderr}`);
+      if (options.expectPublicScopePublishDenied) {
+        const publicPublish = runNpm(
+          ["publish", "--registry", options.registryUrl],
+          { cwd: publicFixtureDir, env },
+        );
+        if ((publicPublish.status ?? 1) === 0) {
+          throw new Error("public-scope publish unexpectedly succeeded against private registry");
+        }
+        const publicFailureText = `${publicPublish.stdout}\n${publicPublish.stderr}`.toLowerCase();
+        if (!publicFailureText.includes("403") && !publicFailureText.includes("forbidden")) {
+          throw new Error(`public-scope publish failed for the wrong reason\n${publicPublish.stdout}\n${publicPublish.stderr}`);
+        }
       }
 
       assertNpm(
@@ -185,22 +251,26 @@ async function runRehearsal(options) {
         "private fixture publish",
       );
       assertNpm(
-        runNpm(["view", privateFixtureName, "version", "--registry", options.registryUrl], {
+        await runNpmWithRetry(["view", privateFixtureName, "version", "--registry", options.registryUrl], {
           cwd: repoRoot,
           env,
+          retries: options.freshPublishReadRetries,
+          delayMs: options.freshPublishReadDelayMs,
         }),
         "private fixture npm view",
       );
       assertNpm(runNpm(["init", "-y"], { cwd: privateInstallDir, env }), "fixture consumer npm init");
       assertNpm(
-        runNpm(["install", `${privateFixtureName}@${fixtureVersion}`, "--registry", options.registryUrl], {
+        await runNpmWithRetry(["install", `${privateFixtureName}@${fixtureVersion}`, "--registry", options.registryUrl], {
           cwd: privateInstallDir,
           env,
+          retries: options.freshPublishReadRetries,
+          delayMs: options.freshPublishReadDelayMs,
         }),
         "private fixture install",
       );
 
-      const stagedConsumers = ["@tetsuo-ai-private/mcp", "@tetsuo-ai-private/desktop-server"].filter((name) =>
+      const stagedConsumers = [`${options.scope}/mcp`, `${options.scope}/desktop-server`].filter((name) =>
         stageManifest.packages.some((pkg) => pkg.stagedName === name),
       );
 
@@ -217,9 +287,11 @@ async function runRehearsal(options) {
 
         for (const packageName of stagedConsumers) {
           assertNpm(
-            runNpm(["install", packageName, "--registry", options.registryUrl], {
+            await runNpmWithRetry(["install", packageName, "--registry", options.registryUrl], {
               cwd: stagedInstallDir,
               env,
+              retries: options.freshPublishReadRetries,
+              delayMs: options.freshPublishReadDelayMs,
             }),
             `staged consumer install ${packageName}`,
           );
@@ -232,6 +304,9 @@ async function runRehearsal(options) {
             registryUrl: options.registryUrl,
             fixtureVersion,
             fixtureOnly: options.fixtureOnly,
+            expectPublicScopePublishDenied: options.expectPublicScopePublishDenied,
+            freshPublishReadRetries: options.freshPublishReadRetries,
+            freshPublishReadDelayMs: options.freshPublishReadDelayMs,
             privateFixtureName,
             stagedConsumers: options.fixtureOnly ? [] : stagedConsumers,
           },
@@ -256,3 +331,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   });
 }
+
+export { isRetryableFreshPublishRead, parseArgs, runRehearsal };

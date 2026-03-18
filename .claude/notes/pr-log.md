@@ -74,3 +74,10 @@
 - **What worked:** Keeping Verdaccio as the always-on reference backend while wiring Cloudsmith as the protected hosted backend let the repo gain the permanent registry contract without reopening the local/CI supply-chain proof.
 - **What didn't:** GitHub cannot dispatch a brand-new `workflow_dispatch` workflow until the workflow file exists on the default branch, and the Verdaccio service still had a hidden host-permission bug because directly mounted config files could be unreadable to the non-root container user under a restrictive local `umask`.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1491: fix(runtime): restore packaged private-kernel bin entries
+- **Date:** 2026-03-17
+- **Files changed:** `runtime/src/bin/*.ts`, `runtime/tsup.config.ts`, `runtime/scripts/check-package-entrypoints.mjs`, `runtime/package.json`, `scripts/private-registry-rehearsal.mjs`, `scripts/private-registry-rehearsal.test.mjs`, `docs/PRIVATE_REGISTRY_SETUP.md`
+- **What worked:** The fix stayed at the real contracts: track the runtime bin sources that had been swallowed by the broad `bin/` ignore rule, make the build explicitly use the tsup config, enforce the packaged entrypoint contract in CI, and give Cloudsmith hosted rehearsal a bounded retry window for fresh publish reads. The final hosted workflow passed on run `23223356319`.
+- **What didn't:** The first hosted runs exposed two separate false assumptions: Cloudsmith should behave like the Verdaccio reference backend for public-scope publish denial, and successful publish should imply immediate hosted `npm view` consistency. Both assumptions had to be removed from the rehearsal contract.
+- **Rule added to CLAUDE.md:** no

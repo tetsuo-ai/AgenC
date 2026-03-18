@@ -34,9 +34,10 @@
   ],
   "scripts": {
     "prebuild": "npm run build --workspace=@tetsuo-ai/desktop-tool-contracts",
-    "build": "tsup src/index.ts src/browser.ts src/operator-events.ts src/bin/agenc.ts src/bin/agenc-runtime.ts src/bin/agenc-watch.ts src/bin/daemon.ts --format cjs,esm --dts --clean --external @tetsuo-ai/desktop-tool-contracts --external @tetsuo-ai/plugin-kit --external openai --external ollama --external better-sqlite3 --external ioredis --external ws --external grammy --external discord.js --external @slack/bolt --external @whiskeysockets/baileys --external matrix-js-sdk --external cheerio --external playwright --external edge-tts --external @modelcontextprotocol/sdk",
+    "build": "tsup --config tsup.config.ts && npm run check:package-entrypoints",
     "pretypecheck": "npm run build --workspace=@tetsuo-ai/desktop-tool-contracts",
     "typecheck": "tsc --noEmit",
+    "check:package-entrypoints": "node scripts/check-package-entrypoints.mjs",
     "check-idl-drift": "tsx scripts/check-idl-drift.ts",
     "pretest": "npm run build --workspace=@tetsuo-ai/desktop-tool-contracts && npm run build --workspace=@tetsuo-ai/plugin-kit-channel-fixture",
     "test": "vitest run",
