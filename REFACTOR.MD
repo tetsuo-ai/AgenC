@@ -553,7 +553,7 @@ Long-term private packages:
 Distribution rules:
 1. Public packages may continue on public npm.
 2. Private packages move to a dedicated internal distribution path with explicit access control and identities distinct from the long-term public package model.
-3. The preferred implementation is a private registry or package backend under a dedicated internal scope such as `@tetsuo-ai-internal/*`, but the backend choice must be validated against developer, CI, container, and deployment auth flows before cutover.
+3. The chosen hosted implementation is Cloudsmith `agenc/private-kernel` under the dedicated internal scope `@tetsuo-ai-private/*`, with Verdaccio retained as the local/CI reference backend.
 4. Already-published runtime-side packages are not treated as permanent public contracts; Gate 11 must add deprecation notices, support-window policy, and migration notes before any visibility tightening.
 5. After the sunset window closes, public runtime-side package names remain frozen compatibility artifacts only. No new feature work may depend on them as trusted internal identifiers.
 6. Post-sunset public releases on runtime-side package names are exception-only and limited to critical CVE or breakglass fixes with an explicit internal decision record.
@@ -1016,9 +1016,25 @@ Bootstrap status:
   - tarball-derived staging rather than source-manifest publication
   - staged manifest rewrite for internal package identities
   - staged dependency rewrite, packaged entry validation, checksum manifest emission, and machine-readable dry-run skip/failure reasons
-- [package-pack-smoke.yml](/home/tetsuo/git/AgenC/.github/workflows/package-pack-smoke.yml) now runs the private-kernel distribution check, stage, and dry-run steps inside the existing pack-smoke path
+- the local/CI reference backend is now implemented and validated through:
+  - [private-registry-service.mjs](/home/tetsuo/git/AgenC/scripts/private-registry-service.mjs)
+  - [bootstrap-private-registry-user.mjs](/home/tetsuo/git/AgenC/scripts/bootstrap-private-registry-user.mjs)
+  - [private-registry-rehearsal.mjs](/home/tetsuo/git/AgenC/scripts/private-registry-rehearsal.mjs)
+  - [private-kernel-registry.yml](/home/tetsuo/git/AgenC/.github/workflows/private-kernel-registry.yml)
+- the permanent hosted backend is now selected as Cloudsmith `agenc/private-kernel`, with protected hosted validation owned by:
+  - [private-kernel-cloudsmith.yml](/home/tetsuo/git/AgenC/.github/workflows/private-kernel-cloudsmith.yml)
+  - canonical Cloudsmith config in [private-kernel-distribution.json](/home/tetsuo/git/AgenC/config/private-kernel-distribution.json)
+- the validated local/CI reference path now proves:
+  - namespaced non-root registry boot with writable auth/storage volumes
+  - service-account bootstrap without printing the raw token
+  - authenticated `npm publish --dry-run` for the staged private-kernel graph
+  - live publish/view/install rehearsal for a disposable private fixture and selected staged private packages
+- the hosted Cloudsmith path is now wired for:
+  - protected GitHub environment secret usage through `PRIVATE_KERNEL_REGISTRY_TOKEN`
+  - canonical staged dry-run publication against the permanent hosted backend
+  - disposable fixture publish/view/install rehearsal without polluting real staged private-kernel versions
 
-Phase 5 does **not** provision the final authenticated internal registry backend yet. The checked-in contract is real, but the current reference registry remains an explicit placeholder until the internal namespace is provisioned and authenticated dry-run publication is enabled.
+Phase 5 has now chosen the permanent hosted private registry backend for production/private distribution. The remaining backend work is no longer vendor selection; it is the first successful protected hosted validation run plus ongoing auth/rotation/operations rollout around Cloudsmith.
 
 Authorized first-bootstrap scope:
 - the `admin bootstrap slice` only:

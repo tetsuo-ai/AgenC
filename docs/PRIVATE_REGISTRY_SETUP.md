@@ -1,9 +1,46 @@
 # Private Registry Setup
 
-This document describes the repo-owned reference implementation for private
-kernel package distribution.
+This document describes both:
 
-## Reference backend
+- the permanent hosted private-kernel backend on Cloudsmith
+- the repo-owned local/CI reference implementation on Verdaccio
+
+## Permanent hosted backend
+
+The permanent hosted registry backend is Cloudsmith:
+
+- owner: `agenc`
+- repository: `private-kernel`
+- npm endpoint: `https://npm.cloudsmith.io/agenc/private-kernel/`
+
+Hosted validation is performed through:
+
+- [private-kernel-cloudsmith.yml](/home/tetsuo/git/AgenC/.github/workflows/private-kernel-cloudsmith.yml)
+
+Hosted auth rules:
+
+- the npm token env var is `PRIVATE_KERNEL_REGISTRY_TOKEN`
+- the credential must belong to a service-scoped Cloudsmith account, not a
+  personal user token
+- GitHub Actions must source that secret from the protected
+  `private-kernel-cloudsmith` environment
+- the hosted workflow hard-fails if the secret is absent so canonical
+  `optional-skip` behavior cannot mask a broken hosted setup
+
+Hosted validation sequence:
+
+1. `npm ci`
+2. `npm run build:private-kernel`
+3. `npm run check:private-kernel-distribution`
+4. `npm run stage:private-kernel-distribution`
+5. `npm run dry-run:private-kernel-distribution`
+6. `node scripts/private-registry-rehearsal.mjs --fixture-only --registry-url https://npm.cloudsmith.io/agenc/private-kernel/`
+
+The hosted rehearsal intentionally uses a disposable fixture package under the
+private scope so the permanent registry can prove live publish/view/install
+without polluting the real staged private-kernel package versions.
+
+## Local/CI reference backend
 
 The current reference backend is a local/CI Verdaccio 6 registry managed by:
 
@@ -13,7 +50,8 @@ The current reference backend is a local/CI Verdaccio 6 registry managed by:
 The image is pinned by digest in the service script. Record the corresponding
 human-readable Verdaccio version when intentionally upgrading that digest.
 
-This is the current reference implementation, not a permanent vendor lock-in.
+This remains the reference implementation for local development and untrusted CI
+validation. It is no longer the chosen hosted backend.
 
 The registry service is responsible for preparing writable storage/auth
 volumes for the non-root Verdaccio container user before startup. Bootstrap
@@ -45,7 +83,7 @@ The local full distribution config is:
 
 - [private-kernel-distribution.local.json](/home/tetsuo/git/AgenC/config/private-kernel-distribution.local.json)
 
-The canonical backend-neutral policy config remains:
+The canonical hosted policy config remains:
 
 - [private-kernel-distribution.json](/home/tetsuo/git/AgenC/config/private-kernel-distribution.json)
 
@@ -106,7 +144,7 @@ npm run private-registry:reset
 
 ## CI contract
 
-The live registry validation is owned by:
+The live Verdaccio-backed registry validation is owned by:
 
 - [private-kernel-registry.yml](/home/tetsuo/git/AgenC/.github/workflows/private-kernel-registry.yml)
 

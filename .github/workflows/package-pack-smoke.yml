@@ -60,10 +60,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
       - name: Install workspace dependencies
-        run: npm ci
+        run: npm install --no-fund
 
       - name: Build private-kernel packages
         run: npm run build:private-kernel

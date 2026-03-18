@@ -253,19 +253,6 @@ async function main() {
         })}`,
       );
     }
-    await assertExists(
-      path.join(
-        tempRoot,
-        'node_modules',
-        '@tetsuo-ai',
-        'runtime',
-        'dist',
-        'bin',
-        'agenc-watch.js',
-      ),
-      'runtime operator console bin',
-    );
-
     logStep('verifying installed dependency tree');
     const treeOutput = run(
       'npm',

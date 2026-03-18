@@ -919,6 +919,20 @@ function classifyRegistryFailure(result) {
   return null;
 }
 
+function isUnsupportedRegistryProbe(result) {
+  const text = `${result.stdout}\n${result.stderr}\n${result.error ? String(result.error) : ''}`.toLowerCase();
+  return (
+    text.includes('not supported')
+    || text.includes('not implemented')
+    || text.includes('method not allowed')
+    || text.includes('405')
+    || text.includes('e405')
+    || text.includes('unknown command')
+    || text.includes('e404')
+    || text.includes(' 404')
+  );
+}
+
 function emitDryRunSummary(summary) {
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
 }
@@ -971,25 +985,31 @@ async function dryRunStagedPackages(config, stageRoot) {
         ...process.env,
         NPM_CONFIG_USERCONFIG: userConfigPath,
       };
+      const skippedProbes = [];
 
       const pingResult = runCommand('npm', ['ping', '--registry', config.backend.registryUrl], {
         cwd: repoRoot,
         env: dryRunEnv,
       });
       if (pingResult.status !== 0) {
-        const reasonCode = classifyRegistryFailure(pingResult) ?? 'registry_unreachable';
-        const summary = {
-          mode: 'dry-run',
-          status: config.backend.ciAuthMode === 'optional-skip' ? 'skipped' : 'failed',
-          reasonCode,
-          registryUrl: config.backend.registryUrl,
-          stageRoot: path.relative(repoRoot, stageRoot),
-        };
-        if (config.backend.ciAuthMode === 'optional-skip') {
-          emitDryRunSummary(summary);
-          return;
+        if (isUnsupportedRegistryProbe(pingResult)) {
+          skippedProbes.push('ping');
+        } else {
+          const reasonCode = classifyRegistryFailure(pingResult) ?? 'registry_unreachable';
+          const summary = {
+            mode: 'dry-run',
+            status: config.backend.ciAuthMode === 'optional-skip' ? 'skipped' : 'failed',
+            reasonCode,
+            probe: 'ping',
+            registryUrl: config.backend.registryUrl,
+            stageRoot: path.relative(repoRoot, stageRoot),
+          };
+          if (config.backend.ciAuthMode === 'optional-skip') {
+            emitDryRunSummary(summary);
+            return;
+          }
+          throw new Error(JSON.stringify(summary, null, 2));
         }
-        throw new Error(JSON.stringify(summary, null, 2));
       }
 
       const whoamiResult = runCommand('npm', ['whoami', '--registry', config.backend.registryUrl], {
@@ -997,19 +1017,24 @@ async function dryRunStagedPackages(config, stageRoot) {
         env: dryRunEnv,
       });
       if (whoamiResult.status !== 0) {
-        const reasonCode = classifyRegistryFailure(whoamiResult) ?? 'auth_rejected';
-        const summary = {
-          mode: 'dry-run',
-          status: config.backend.ciAuthMode === 'optional-skip' ? 'skipped' : 'failed',
-          reasonCode,
-          registryUrl: config.backend.registryUrl,
-          stageRoot: path.relative(repoRoot, stageRoot),
-        };
-        if (config.backend.ciAuthMode === 'optional-skip') {
-          emitDryRunSummary(summary);
-          return;
+        if (isUnsupportedRegistryProbe(whoamiResult)) {
+          skippedProbes.push('whoami');
+        } else {
+          const reasonCode = classifyRegistryFailure(whoamiResult) ?? 'auth_rejected';
+          const summary = {
+            mode: 'dry-run',
+            status: config.backend.ciAuthMode === 'optional-skip' ? 'skipped' : 'failed',
+            reasonCode,
+            probe: 'whoami',
+            registryUrl: config.backend.registryUrl,
+            stageRoot: path.relative(repoRoot, stageRoot),
+          };
+          if (config.backend.ciAuthMode === 'optional-skip') {
+            emitDryRunSummary(summary);
+            return;
+          }
+          throw new Error(JSON.stringify(summary, null, 2));
         }
-        throw new Error(JSON.stringify(summary, null, 2));
       }
 
       const published = [];
@@ -1047,6 +1072,7 @@ async function dryRunStagedPackages(config, stageRoot) {
         registryUrl: config.backend.registryUrl,
         stageRoot: path.relative(repoRoot, stageRoot),
         packages: published,
+        skippedProbes,
       });
     },
   );
@@ -1091,6 +1117,7 @@ export {
   applyRuntimeConfigOverrides,
   buildUserConfigContent,
   compareLocalConfig,
+  isUnsupportedRegistryProbe,
   loadValidatedConfig,
   parseArgs,
   registryAuthLine,

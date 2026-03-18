@@ -1506,7 +1506,10 @@ Current status:
     - `docs/PRIVATE_KERNEL_DISTRIBUTION.md` is the canonical support-window and internal distribution policy
     - `config/private-kernel-distribution.json` defines the staged internal package identities, registry contract, auth modes, and sunset criteria
     - `scripts/private-kernel-distribution.mjs` stages tarball-derived private packages under a dedicated internal scope and emits machine-readable dry-run outcomes
-    - the existing `package-pack-smoke` workflow now runs private-kernel distribution check/stage/dry-run inside the same CI path
+    - the local/CI reference backend is now implemented and validated through `scripts/private-registry-service.mjs`, `scripts/bootstrap-private-registry-user.mjs`, `scripts/private-registry-rehearsal.mjs`, and `.github/workflows/private-kernel-registry.yml`
+    - that reference path now proves service-account bootstrap, authenticated dry-run publication, and live publish/install rehearsal for staged private packages
+    - the permanent hosted backend is now chosen as Cloudsmith `agenc/private-kernel`, and protected hosted validation is wired through `.github/workflows/private-kernel-cloudsmith.yml`
+    - the remaining backend work is the first successful protected hosted validation run plus its auth/operations rollout; the local/CI reference path remains the untrusted reference backend and is no longer a placeholder
 - Gate 12 remains blocked until the Gate 11 extraction topology is materially stable.
 
 The next work to execute under this plan is:
