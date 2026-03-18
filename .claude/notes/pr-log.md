@@ -88,3 +88,10 @@
 - **What worked:** The decision was grounded in current code, not aspiration: `tools/proof-harness` is coupled to AgenC-local bootstrap scripts, root proof tests, and local fixtures, so making it a permanent `agenc-core` validation harness removed a fake shared-contract seam and simplified the Gate 11 closeout checklist.
 - **What didn't:** The support-window language had drifted across multiple docs and had to be split into distinct authority docs for distribution mechanics versus deprecation/support policy before the proof-harness decision could be encoded cleanly.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1493: docs(refactor): close Gate 11 exit review
+- **Date:** 2026-03-17
+- **Files changed:** `REFACTOR.MD`, `REFACTOR-MASTER-PROGRAM.md`, `docs/architecture/guides/integration-points.md`, `docs/architecture/guides/type-conventions.md`, `docs/architecture/phases/phase-01-gateway.md`, `docs/architecture/runtime-layers.md`, `docs/design/speculative-execution/{API-SPECIFICATION.md,DESIGN-DOCUMENT.md,IMPLEMENTATION-GUIDE.md}`
+- **What worked:** The closeout stayed evidence-driven: the exit review was rerun on the live repo, the authority docs now record the exact verification matrix that passed, and the remaining internal runtime/design docs were reframed so they cannot be mistaken for the public builder API.
+- **What didn't:** A first verification attempt produced a false `mcp` typecheck failure because root `build` and root `typecheck` were run in parallel while `runtime/dist` was being rebuilt, which looked like a package-boundary regression until the checks were rerun sequentially.
+- **Rule added to CLAUDE.md:** no

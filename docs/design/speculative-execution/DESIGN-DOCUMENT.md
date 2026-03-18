@@ -25,6 +25,11 @@ The document covers:
 
 This document covers the speculative execution feature set within the AgenC agent runtime and its interactions with the Solana on-chain program. The scope includes:
 
+Runtime references in this document describe private-kernel implementation inside
+`agenc-core`, not a public builder API. External builders should target the public
+SDK, protocol, and plugin-kit surfaces instead of depending on `@tetsuo-ai/runtime`
+directly.
+
 **In Scope:**
 - Runtime speculation engine (`@tetsuo-ai/runtime` TypeScript package)
 - Dependency tracking between tasks

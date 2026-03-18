@@ -4,6 +4,10 @@
 
 This phase establishes the messaging infrastructure that makes AgenC agents reachable via external platforms (Telegram, Discord, etc.). The Gateway wraps the existing AgentRuntime and adds multi-channel communication, session management, lifecycle hooks, and a chat execution loop that turns user messages into task completions.
 
+This phase guide is historical runtime-scoped implementation reference for the private
+kernel. It is not the supported public extension contract; external channel extensions
+should target `@tetsuo-ai/plugin-kit`.
+
 **What this enables:**
 - Users can interact with AgenC agents via chat platforms
 - Agents maintain conversation context across sessions

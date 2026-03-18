@@ -2,6 +2,10 @@
 
 This guide covers how runtime modules integrate with each other and the broader system.
 
+Runtime imports shown here are private-kernel implementation references inside `agenc-core`,
+not the supported public builder surface. External builders should target
+`@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and `@tetsuo-ai/plugin-kit`.
+
 ## AgentRuntime Lifecycle
 
 `AgentRuntime` is the top-level lifecycle wrapper:

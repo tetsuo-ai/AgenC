@@ -2,6 +2,9 @@
 
 The `@tetsuo-ai/runtime` package (~90k lines) is organized into 7 dependency layers. Modules may only depend on modules in the same or lower layers.
 
+This document describes the private-kernel runtime baseline inside `agenc-core`.
+It is implementation reference for kernel contributors, not the public builder API.
+
 ## Layer Diagram
 
 ```mermaid

@@ -5,6 +5,9 @@
 > **Last Updated:** 2026-01-28  
 > **Epic:** [#285](https://github.com/tetsuo-ai/AgenC/issues/285)
 
+This API specification describes the internal speculative-execution runtime surface in
+`agenc-core`. It is not a supported public builder contract.
+
 ## Table of Contents
 
 - [1. Core Interfaces](#1-core-interfaces)
