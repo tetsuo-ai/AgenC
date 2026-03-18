@@ -81,3 +81,10 @@
 - **What worked:** The fix stayed at the real contracts: track the runtime bin sources that had been swallowed by the broad `bin/` ignore rule, make the build explicitly use the tsup config, enforce the packaged entrypoint contract in CI, and give Cloudsmith hosted rehearsal a bounded retry window for fresh publish reads. The final hosted workflow passed on run `23223356319`.
 - **What didn't:** The first hosted runs exposed two separate false assumptions: Cloudsmith should behave like the Verdaccio reference backend for public-scope publish denial, and successful publish should imply immediate hosted `npm view` consistency. Both assumptions had to be removed from the rehearsal contract.
 - **Rule added to CLAUDE.md:** no
+
+## PR #1492: docs(refactor): lock proof-harness ownership in agenc-core
+- **Date:** 2026-03-17
+- **Files changed:** `REFACTOR.MD`, `REFACTOR-MASTER-PROGRAM.md`, `docs/PRIVATE_KERNEL_SUPPORT_POLICY.md`, `docs/PRIVATE_KERNEL_DISTRIBUTION.md`, `docs/architecture/adr/adr-002-public-contract-private-kernel-boundary.md`, runtime-side package READMEs, `README.md`, `docs/VERSION_DOCS_MAP.md`, `tools/proof-harness/{README.md,package.json}`
+- **What worked:** The decision was grounded in current code, not aspiration: `tools/proof-harness` is coupled to AgenC-local bootstrap scripts, root proof tests, and local fixtures, so making it a permanent `agenc-core` validation harness removed a fake shared-contract seam and simplified the Gate 11 closeout checklist.
+- **What didn't:** The support-window language had drifted across multiple docs and had to be split into distinct authority docs for distribution mechanics versus deprecation/support policy before the proof-harness decision could be encoded cleanly.
+- **Rule added to CLAUDE.md:** no

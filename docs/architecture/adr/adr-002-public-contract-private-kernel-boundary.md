@@ -147,19 +147,19 @@ Explicitly out of scope:
 - runtime-side packages require a managed deprecation path rather than an instant visibility flip
 - `plugin-kit` must be built as a real product surface before runtime visibility is tightened
 - some current docs and package metadata now need to be treated as transitional and corrected in later Gate 11 phases
-- private prover extraction is phased: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`, while the `shared proof-harness/localnet slice` remains with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
-- Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the `shared proof-harness/localnet slice` stays with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
+- private prover extraction is phased: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`, while the verifier-localnet and benchmark proof-harness remains in `agenc-core` as a private operator/integration harness
+- Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the proof-harness/localnet slice is intentionally retained in `agenc-core` and is not a pending shared released contract
 
 Implementation note:
 
 - As of `2026-03-17`, the repo manifests and public-entrypoint docs have been tightened to reflect this boundary: runtime-side packages are marked `private`, public docs route builders to SDK/protocol/plugin-kit, and CI now enforces that posture.
-- The canonical private distribution and support-window policy now lives in [PRIVATE_KERNEL_DISTRIBUTION.md](../../PRIVATE_KERNEL_DISTRIBUTION.md). The repo also carries a checked-in staging contract in `config/private-kernel-distribution.json` plus `scripts/private-kernel-distribution.mjs` so internal publication can be validated from tarball-derived staged artifacts instead of source manifests.
+- The canonical private distribution and registry policy now lives in [PRIVATE_KERNEL_DISTRIBUTION.md](../../PRIVATE_KERNEL_DISTRIBUTION.md), and the canonical runtime-side deprecation/support-window policy now lives in [PRIVATE_KERNEL_SUPPORT_POLICY.md](../../PRIVATE_KERNEL_SUPPORT_POLICY.md). The repo also carries a checked-in staging contract in `config/private-kernel-distribution.json` plus `scripts/private-kernel-distribution.mjs` so internal publication can be validated from tarball-derived staged artifacts instead of source manifests.
 
 ## Required Follow-On Work
 
 1. Finish `agenc-protocol` consumer cutover so the public trust surface is actually authoritative.
 2. Build `agenc-plugin-kit` with a versioned host compatibility matrix and certification harness.
-3. Define and validate the released/shared proof-harness contract before moving verifier/localnet benchmark harnesses out of the current repo.
+3. Keep the verifier-localnet and benchmark proof-harness in `agenc-core` unless a future program explicitly creates a new shared released contract from scratch.
 4. Move private packages to a dedicated internal distribution path with validated auth for developers, CI, containers, and deployment.
 5. Add deprecation notices, support-window policy, and migration docs for already-public runtime-side packages.
 6. Rewrite public docs so builders are directed to SDK, protocol, and plugin-kit only.

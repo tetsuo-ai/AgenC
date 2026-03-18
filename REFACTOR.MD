@@ -334,7 +334,7 @@ Validated downstream consumers and tool surfaces:
 | `containers/desktop/server` | Desktop + Runtime | `npm run test --workspace=@tetsuo-ai/desktop-server` | `@tetsuo-ai/desktop-tool-contracts` | pass |
 | `examples/private-task-demo` | Examples + SDK | `npm run start --prefix examples/private-task-demo -- --help` | `@tetsuo-ai/sdk` | pass |
 | `tools/localnet-social` | Runtime ops | `npm run localnet:social:bootstrap -- --help` and `npm run localnet:social:smoke -- --help` | `@tetsuo-ai/runtime` | pass |
-| `tools/proof-harness` | Shared proof harness | `npm run benchmark:private:e2e -- --help` and verifier/localnet validation | `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and the AgenC-local verifier/localnet harness | pass |
+| `tools/proof-harness` | Private operator/integration harness | `npm run benchmark:private:e2e -- --help` and verifier/localnet validation | `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and the AgenC-local verifier/localnet harness | pass |
 
 Artifact handoff matrix:
 
@@ -527,7 +527,7 @@ This map is the canonical ownership plan for the current tree. Mixed folders mus
 | `examples/**` other than `examples/private-task-demo/**` | `agenc-core` by default | Private unless rewritten | Additional SDK-only examples may be promoted later, but only after explicit ownership and verification are assigned |
 | `tools/localnet-social/**` | `agenc-core` | Private | Runtime/operator bootstrap and smoke tooling |
 | `agenc-prover/admin-tools/zk-config-admin*.ts`, `agenc-prover/admin-tools/devnet-preflight.ts`, `agenc-prover/admin-tools/protocol-program.ts`, and the supporting package/test/typecheck files for that admin surface | `agenc-prover` first bootstrap | Private | `admin bootstrap slice`: private prover/protocol admin tooling is now canonical in `agenc-prover/admin-tools` |
-| `tools/proof-harness/verifier-localnet.ts`, `tools/proof-harness/benchmark-private-e2e*.ts`, `tools/proof-harness/coordination-program.ts`, `scripts/setup-verifier-localnet.*`, `scripts/run-e2e-zk-local.sh`, `scripts/agenc-localnet-soak-launch.sh`, `scripts/generate-real-proof.ts`, `scripts/check-deployment-readiness.*`, `tests/e2e-real-proof.ts`, `tests/verifier-localnet-validation.ts`, `tests/mock-router/**`, and `tests/fixtures/real-groth16-proof.json` | Retain in `AgenC` until shared contract exists | Private/shared transitional | `shared proof-harness/localnet slice`: stays with the current repo until a released/shared proof-harness contract or deliberate full ownership transfer exists |
+| `tools/proof-harness/verifier-localnet.ts`, `tools/proof-harness/benchmark-private-e2e*.ts`, `tools/proof-harness/coordination-program.ts`, `scripts/setup-verifier-localnet.*`, `scripts/run-e2e-zk-local.sh`, `scripts/agenc-localnet-soak-launch.sh`, `scripts/generate-real-proof.ts`, `scripts/check-deployment-readiness.*`, `tests/e2e-real-proof.ts`, `tests/verifier-localnet-validation.ts`, `tests/mock-router/**`, and `tests/fixtures/real-groth16-proof.json` | Retain in `agenc-core` | Private operator/integration harness | Proof-harness/localnet validation stays with `agenc-core` as an internal verification surface; it is not a released shared contract |
 | `zkvm/host/**` | `agenc-prover` | Private | Host-side proof generation and proving operations |
 | `benchmarks/**` | `agenc-prover` | Private | Benchmark evidence stays with proving/control-plane ops unless an explicit public benchmark program is created |
 | `tests/**` | Drain by owner repo | Mixed transitional | Do not preserve a shared cross-repo root test tree; move tests into the repo that owns the contract being verified |
@@ -663,7 +663,7 @@ The extraction sequence is intentionally conservative:
      - `agenc-prover/admin-tools/devnet-preflight.ts`
      - `agenc-prover/admin-tools/protocol-program.ts`
      - the supporting package/test/typecheck files required to validate that admin tooling independently
-   - keep the `shared proof-harness/localnet slice` in the current repo until a released/shared proof-harness contract or deliberate full ownership transfer exists:
+   - retain the proof-harness/localnet slice in `agenc-core` as a private operator and integration-validation harness:
      - `tools/proof-harness/verifier-localnet.ts`
      - `tools/proof-harness/benchmark-private-e2e*.ts`
      - root verifier/bootstrap scripts/tests/fixtures
@@ -1008,7 +1008,8 @@ Bootstrap status:
 #### 11.17 Current Phase 5 Status
 
 `[2026-03-17]` The private-kernel distribution contract is now materially locked:
-- [PRIVATE_KERNEL_DISTRIBUTION.md](/home/tetsuo/git/AgenC/docs/PRIVATE_KERNEL_DISTRIBUTION.md) is now the canonical support-window and internal distribution policy
+- [PRIVATE_KERNEL_DISTRIBUTION.md](/home/tetsuo/git/AgenC/docs/PRIVATE_KERNEL_DISTRIBUTION.md) is now the canonical internal distribution and registry policy
+- [PRIVATE_KERNEL_SUPPORT_POLICY.md](/home/tetsuo/git/AgenC/docs/PRIVATE_KERNEL_SUPPORT_POLICY.md) is now the canonical runtime-side deprecation and support-window policy
 - [private-kernel-distribution.json](/home/tetsuo/git/AgenC/config/private-kernel-distribution.json) and [private-kernel-distribution.example.json](/home/tetsuo/git/AgenC/config/private-kernel-distribution.example.json) define the staged internal package identities, registry contract, auth modes, and sunset criteria
 - [private-kernel-distribution.mjs](/home/tetsuo/git/AgenC/scripts/private-kernel-distribution.mjs) now enforces:
   - dedicated internal scope distinct from `@tetsuo-ai`
@@ -1033,8 +1034,11 @@ Bootstrap status:
   - protected GitHub environment secret usage through `PRIVATE_KERNEL_REGISTRY_TOKEN`
   - canonical staged dry-run publication against the permanent hosted backend
   - disposable fixture publish/view/install rehearsal without polluting real staged private-kernel versions
+- protected hosted validation is no longer hypothetical:
+  - `Private Kernel Cloudsmith Validation` run `23223356319` passed on `2026-03-17`
+  - follow-up run `23223573814` passed on `2026-03-18` after final rehearsal parser hardening, so the hosted proof also covers the current branch head that fixed the remaining argument-contract gap
 
-Phase 5 has now chosen the permanent hosted private registry backend for production/private distribution. The remaining backend work is no longer vendor selection; it is the first successful protected hosted validation run plus ongoing auth/rotation/operations rollout around Cloudsmith.
+Phase 5 has now chosen and proven the permanent hosted private registry backend for production/private distribution. The remaining backend work is no longer vendor selection or first-proof validation; it is ongoing auth rotation, service-account hygiene, and operator runbook hardening around Cloudsmith.
 
 Authorized first-bootstrap scope:
 - the `admin bootstrap slice` only:
@@ -1044,8 +1048,8 @@ Authorized first-bootstrap scope:
   - `agenc-prover/admin-tools/protocol-program.ts`
   - the package/test/typecheck assets required to validate that admin surface independently
 
-Explicitly deferred from the first bootstrap:
-- the `shared proof-harness/localnet slice`:
+Explicitly retained in `agenc-core`:
+- the proof-harness/localnet slice:
   - [verifier-localnet.ts](/home/tetsuo/git/AgenC/tools/proof-harness/verifier-localnet.ts)
   - [benchmark-private-e2e.mts](/home/tetsuo/git/AgenC/tools/proof-harness/benchmark-private-e2e.mts) and its benchmark-specific helpers
   - [coordination-program.ts](/home/tetsuo/git/AgenC/tools/proof-harness/coordination-program.ts)
@@ -1053,11 +1057,17 @@ Explicitly deferred from the first bootstrap:
   - local proof fixtures and mock-router assets
 - [scripts/idl/](/home/tetsuo/git/AgenC/scripts/idl) remains protocol-owned during this phase; it is not part of the deferred AgenC-local harness bucket
 
-Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the `shared proof-harness/localnet slice` stays with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
+Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; proof-harness/localnet validation remains in `agenc-core` unless a later ADR explicitly extracts it.
 
 Scope note:
 - the new `agenc-prover` repo encodes the admin bootstrap boundary mechanically through `scripts/check-admin-bootstrap-boundary.mjs`.
-- AgenC now encodes the retained shared harness boundary mechanically through `scripts/check-proof-harness-boundary.mjs` and the dedicated `tools/proof-harness` workspace.
+- AgenC now encodes the retained proof-harness boundary mechanically through `scripts/check-proof-harness-boundary.mjs` and the dedicated `tools/proof-harness` workspace.
+
+#### 11.18 Remaining Gate 11 Closeout
+
+Gate 11 is not blocked on registry infrastructure or proof-harness ownership anymore. The remaining closeout work is:
+1. finish the final public/private operator and builder doc sync from the now-settled ownership model
+2. run the final Gate 11 exit review against the implemented topology, private distribution path, and retained internal validation seams
 
 ### 5.4 Gate 12 — Legacy Deletion And Convergence
 

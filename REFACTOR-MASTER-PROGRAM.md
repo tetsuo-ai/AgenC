@@ -84,7 +84,7 @@ The refactor program covers the whole repository, not only the runtime-heavy dir
 | Mobile app | `mobile/` | Expo / React Native app | Same requirement as web, with explicit mobile-safe contracts |
 | Demo app | `demo-app/` | React privacy / workflow demo | Convert to thin consumer over stable public surfaces |
 | Examples | `examples/` | runnable and packaged example projects, some with their own manifests and script entrypoints | Reclassify each example by owning domain, contract surface, and verification expectations |
-| Example and operator tools | `examples/private-task-demo/`, `tools/localnet-social/`, `tools/proof-harness/` | runnable example, localnet bootstrap/smoke harnesses, and shared proof-harness utilities | Treat as explicit consumer/tool surfaces with owned verification commands and package/public imports only |
+| Example and operator tools | `examples/private-task-demo/`, `tools/localnet-social/`, `tools/proof-harness/` | runnable example, localnet bootstrap/smoke harnesses, and proof-harness utilities | Treat as explicit consumer/tool surfaces with owned verification commands and package/public imports only |
 
 ### 4.3 Platform and Operational Domains
 
@@ -1490,26 +1490,27 @@ Current status:
     - pack/install/baseline proof for the public package
   - the first `agenc-prover` bootstrap is now explicitly phased:
     - the `admin bootstrap slice` is now canonical in `agenc-prover/admin-tools` (`zk-config-admin*`, `devnet-preflight`, `protocol-program`, and the supporting package/test/typecheck files)
-    - keep the `shared proof-harness/localnet slice` (`tools/proof-harness/verifier-localnet`, `tools/proof-harness/benchmark-private-e2e*`, root verifier/bootstrap scripts/tests/fixtures) in the current repo until a released shared proof-harness contract or deliberate full ownership transfer exists
+    - keep the proof-harness/localnet slice (`tools/proof-harness/verifier-localnet`, `tools/proof-harness/benchmark-private-e2e*`, root verifier/bootstrap scripts/tests/fixtures) in `agenc-core` as a private operator/integration harness
     - keep `scripts/idl/**` protocol-owned throughout that phase
-    - Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the `shared proof-harness/localnet slice` stays with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
+    - Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the proof-harness/localnet slice remains in `agenc-core` unless a future program explicitly designs a released contract for it
   - that first private bootstrap is now live in [`tetsuo-ai/agenc-prover`](https://github.com/tetsuo-ai/agenc-prover) on `main`:
     - `admin-tools/` owns the mirrored admin bootstrap slice
     - the private repo enforces the narrowed slice with `scripts/check-admin-bootstrap-boundary.mjs`
     - validation there now includes admin-tools typecheck/tests plus Rust `cargo test -p agenc-prover-server` and `cargo build --release -p agenc-prover-server --features production-prover`
-    - AgenC has now removed the mirrored admin files and retains only the dedicated shared proof-harness workspace
+    - AgenC has now removed the mirrored admin files and retains only the dedicated proof-harness workspace inside `agenc-core`
   - runtime-side visibility tightening is now materially in place in AgenC:
     - `runtime`, `mcp`, `docs-mcp`, and `desktop-tool-contracts` manifests are explicitly `private`
     - public-entrypoint docs now route external builders to `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and `@tetsuo-ai/plugin-kit`
     - a dedicated `check-private-kernel-surface` guard now enforces the manifest/doc posture in CI alongside pack-smoke and plugin-kit boundary checks
   - the private-kernel distribution contract is now materially locked:
-    - `docs/PRIVATE_KERNEL_DISTRIBUTION.md` is the canonical support-window and internal distribution policy
+    - `docs/PRIVATE_KERNEL_DISTRIBUTION.md` is the canonical internal distribution and registry policy
+    - `docs/PRIVATE_KERNEL_SUPPORT_POLICY.md` is the canonical runtime-side deprecation and support-window policy
     - `config/private-kernel-distribution.json` defines the staged internal package identities, registry contract, auth modes, and sunset criteria
     - `scripts/private-kernel-distribution.mjs` stages tarball-derived private packages under a dedicated internal scope and emits machine-readable dry-run outcomes
     - the local/CI reference backend is now implemented and validated through `scripts/private-registry-service.mjs`, `scripts/bootstrap-private-registry-user.mjs`, `scripts/private-registry-rehearsal.mjs`, and `.github/workflows/private-kernel-registry.yml`
     - that reference path now proves service-account bootstrap, authenticated dry-run publication, and live publish/install rehearsal for staged private packages
     - the permanent hosted backend is now chosen as Cloudsmith `agenc/private-kernel`, and protected hosted validation is wired through `.github/workflows/private-kernel-cloudsmith.yml`
-    - the remaining backend work is the first successful protected hosted validation run plus its auth/operations rollout; the local/CI reference path remains the untrusted reference backend and is no longer a placeholder
+    - protected hosted validation has now passed on the AgenC side (`23223356319` and `23223573814`), so the remaining backend work is auth rotation, service-account hygiene, and operator runbook hardening; the local/CI reference path remains the untrusted reference backend and is no longer a placeholder
 - Gate 12 remains blocked until the Gate 11 extraction topology is materially stable.
 
 The next work to execute under this plan is:
@@ -1522,15 +1523,16 @@ The next work to execute under this plan is:
    - this cutover landed on `2026-03-16`: runtime now consumes released `@tetsuo-ai/protocol` artifacts, `runtime/idl/**` authority is gone, `runtime/scripts/copy-idl.js` is removed, and root tests use the published package or the explicit `tests/protocol-artifacts.ts` local fallback
    - keep the local test-only `AGENC_USE_LOCAL_PROTOCOL_TARGET=1` fallback explicit and scoped to unreleased protocol development
    - update active docs and verification records so they stop claiming runtime still owns vendored protocol artifact truth
-3. finish `agenc-plugin-kit` stabilization, certification coverage, and the remaining runtime-side deprecation/private-distribution backend provisioning work after the first standalone release
+3. finish `agenc-plugin-kit` stabilization and certification coverage after the first standalone release
 4. cut over the private prover admin bootstrap slice from AgenC to `agenc-prover` authority while keeping `agenc-core` private
    - the first bootstrap is already live in `tetsuo-ai/agenc-prover`
    - de-authorize the mirrored AgenC admin slice only after the private repo completes a stable release-quality cycle as the canonical owner
-   - this cutover is now complete for AgenC admin wrappers/docs; AgenC retains only the `tools/proof-harness` shared slice (`verifier-localnet`, benchmark entrypoints/helpers, root verifier/bootstrap scripts/tests/fixtures)
+   - this cutover is now complete for AgenC admin wrappers/docs; AgenC retains only the `tools/proof-harness` private operator/integration slice (`verifier-localnet`, benchmark entrypoints/helpers, root verifier/bootstrap scripts/tests/fixtures)
    - keep `scripts/idl/**` protocol-owned during that phase
-   - Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the `shared proof-harness/localnet slice` stays with the current repo or `agenc-protocol` until a released shared proof-harness contract or deliberate full ownership transfer exists
-5. execute Gate 12 cleanup only after the Gate 11 extraction topology is materially stable
-6. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
+   - Authority rule: the first `agenc-prover` bootstrap moves only the `admin bootstrap slice`; the proof-harness/localnet slice remains in `agenc-core` as a private operator/integration harness
+5. run the final Gate 11 exit review only after the transitional docs are truth-synced one final time around the now-set proof-harness ownership
+6. execute Gate 12 cleanup only after the Gate 11 extraction topology is materially stable
+7. reopen Gate 10 only if a new split candidate reintroduces repo-relative coupling, repo-local patching, or non-portable artifact handoff
 
 No one should start Gate 11 extraction work without preserving the Gate 10 portability guarantees already proven here.
 

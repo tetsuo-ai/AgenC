@@ -4,7 +4,7 @@ Canonical desktop tool-definition contract shared by the AgenC runtime and deskt
 
 This package is part of the private kernel boundary. It is an internal handoff contract between `agenc-core` runtime and the desktop server, not a supported public plugin or builder API.
 
-Canonical private-kernel distribution and support-window policy lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](../../docs/PRIVATE_KERNEL_DISTRIBUTION.md).
+Canonical private-kernel distribution policy lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](../../docs/PRIVATE_KERNEL_DISTRIBUTION.md). Canonical runtime-side deprecation and support-window policy lives in [docs/PRIVATE_KERNEL_SUPPORT_POLICY.md](../../docs/PRIVATE_KERNEL_SUPPORT_POLICY.md).
 
 This package is the source of truth for:
 

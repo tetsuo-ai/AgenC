@@ -4,7 +4,7 @@ Private kernel package for AgenC.
 
 `@tetsuo-ai/runtime` is the current operator/runtime baseline for `agenc-core`. It remains in this repository for kernel contributors and for the existing transitional compatibility window, but it is not a supported public builder target.
 
-Canonical private-kernel distribution and support-window policy lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](../docs/PRIVATE_KERNEL_DISTRIBUTION.md).
+Canonical private-kernel distribution policy lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](../docs/PRIVATE_KERNEL_DISTRIBUTION.md). Canonical runtime-side deprecation and support-window policy lives in [docs/PRIVATE_KERNEL_SUPPORT_POLICY.md](../docs/PRIVATE_KERNEL_SUPPORT_POLICY.md).
 
 External builders should use:
 

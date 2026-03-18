@@ -44,6 +44,7 @@ Changelog entry template:
 
 - Classification: Transitional private-kernel artifact; not a supported public builder target
 - Distribution policy: `docs/PRIVATE_KERNEL_DISTRIBUTION.md`
+- Support policy: `docs/PRIVATE_KERNEL_SUPPORT_POLICY.md`
 - README: `runtime/README.md`
 - Changelog: `runtime/CHANGELOG.md`
 - Entry point: `runtime/src/index.ts`
@@ -55,6 +56,7 @@ Changelog entry template:
 
 - Classification: Transitional private-kernel artifact; not a supported public extension target
 - Distribution policy: `docs/PRIVATE_KERNEL_DISTRIBUTION.md`
+- Support policy: `docs/PRIVATE_KERNEL_SUPPORT_POLICY.md`
 - README: `mcp/README.md`
 - Changelog: `mcp/CHANGELOG.md`
 - Entry point: `mcp/src/index.ts`

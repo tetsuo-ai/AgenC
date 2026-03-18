@@ -2,7 +2,7 @@
 
 Internal reference material for the private-kernel package `@tetsuo-ai/runtime`. This document remains in the public repo for kernel contributors and auditability, but `@tetsuo-ai/runtime` is not a supported public builder target. External builders should use `@tetsuo-ai/sdk`, `@tetsuo-ai/protocol`, and `@tetsuo-ai/plugin-kit`.
 
-Canonical private-kernel distribution and support-window policy lives in [PRIVATE_KERNEL_DISTRIBUTION.md](./PRIVATE_KERNEL_DISTRIBUTION.md).
+Canonical private-kernel distribution policy lives in [PRIVATE_KERNEL_DISTRIBUTION.md](./PRIVATE_KERNEL_DISTRIBUTION.md). Canonical runtime-side deprecation and support-window policy lives in [PRIVATE_KERNEL_SUPPORT_POLICY.md](./PRIVATE_KERNEL_SUPPORT_POLICY.md).
 
 ## Getting Started
 
