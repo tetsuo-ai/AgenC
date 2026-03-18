@@ -1,53 +1,75 @@
 <h1 align="center">AgenC</h1>
 
 <p align="center">
-  <img src="assets/banner.jpg" alt="AgenC" width="600">
+  <img src="assets/banner.jpg" alt="AgenC banner" width="640">
 </p>
 
 <p align="center">
-  <strong>Public umbrella repo for the AgenC ecosystem</strong>
+  <strong>Build, integrate, and extend agent systems on top of AgenC.</strong><br>
+  This repository is the public front door for the AgenC ecosystem.
 </p>
 
-## What This Repo Is
+## What AgenC Is
 
-`AgenC` is the public front door for the project.
+AgenC is an ecosystem for building agent workflows with stable public contracts
+and a private execution core.
 
-This repo keeps:
+Public builders get:
 
-- public landing docs
-- repository topology and contributor routing
+- a TypeScript SDK for integration work
+- released protocol and IDL artifacts
+- a plugin authoring surface for add-ons and adapters
+
+The full private operator stack, including the runtime, TUI, daemon, web
+surfaces, desktop control, and internal tooling, lives outside this repo.
+
+## Start Here
+
+| I want to... | Go here |
+| --- | --- |
+| Integrate AgenC into an app or service | [`agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk) / `@tetsuo-ai/sdk` |
+| Consume the protocol, IDL, or trust-surface artifacts | [`agenc-protocol`](https://github.com/tetsuo-ai/agenc-protocol) / `@tetsuo-ai/protocol` |
+| Build add-ons, adapters, or plugins | [`agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit) / `@tetsuo-ai/plugin-kit` |
+| Work on the private runtime, TUI, daemon, web portal, or desktop surfaces | `agenc-core` (private access required) |
+| Work on proving, admin, or operator prover flows | `agenc-prover` (private access required) |
+
+## What Lives In This Repo
+
+`AgenC` is the public umbrella repo. It keeps:
+
+- top-level project positioning and routing
+- repository topology docs
 - bootstrap scripts for the multi-repo layout
 - public-safe examples
 - historical refactor records
 
-It is not the private engine repo and it is not the protocol source of truth.
+It does **not** contain the private engine and it is **not** the canonical
+source of truth for SDK, protocol, or plugin ABI packages.
 
-## Canonical Repos
+## Repository Map
 
-### Public
+| Repo | Visibility | Purpose |
+| --- | --- | --- |
+| [`AgenC`](https://github.com/tetsuo-ai/AgenC) | Public | Ecosystem hub, docs, bootstrap, public examples |
+| [`agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk) | Public | TypeScript integration surface |
+| [`agenc-protocol`](https://github.com/tetsuo-ai/agenc-protocol) | Public | Protocol, IDL, manifest, trust-surface artifacts |
+| [`agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit) | Public | Plugin/add-on authoring contract |
+| `agenc-core` | Private | Runtime, MCP, desktop, apps, TUI, daemon, internal tools |
+| `agenc-prover` | Private | Prover service, admin flows, operator proving surfaces |
 
-- [`agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk) -> `@tetsuo-ai/sdk`
-- [`agenc-protocol`](https://github.com/tetsuo-ai/agenc-protocol) -> `@tetsuo-ai/protocol`
-- [`agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit) -> `@tetsuo-ai/plugin-kit`
+More detail lives in [docs/REPOSITORY_TOPOLOGY.md](docs/REPOSITORY_TOPOLOGY.md).
 
-### Private
+## Quick Start
 
-- `agenc-core` -> private runtime, MCP, desktop, apps, and internal tools
-- `agenc-prover` -> private prover, admin, and ops
+### Bootstrap The Public Repos
 
-### Private Infrastructure
-
-- Cloudsmith `agenc/private-kernel` for internal package distribution
-
-## Bootstrap The Repo Set
-
-Clone or update the public repos side by side:
+Clone or update the public repo set side by side:
 
 ```bash
 ./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc
 ```
 
-Include private repos if you have access:
+If you have private access too:
 
 ```bash
 ./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc --private
@@ -65,40 +87,73 @@ Expected layout:
   agenc-prover/
 ```
 
-## Public Examples In This Repo
+### Validate This Umbrella Repo
 
-The retained public examples are:
-
-- [examples/simple-usage](examples/simple-usage/)
-- [examples/tetsuo-integration](examples/tetsuo-integration/)
-- [examples/helius-webhook](examples/helius-webhook/)
-- [examples/risc0-proof-demo](examples/risc0-proof-demo/)
-
-Validate them with:
+From this repo:
 
 ```bash
 npm install --no-fund
 npm run validate:umbrella
 ```
 
-## Where To Make Changes
+That validates the public examples and umbrella boundary contract only. It does
+not install or run the private AgenC core.
 
-- SDK or client API work -> `agenc-sdk`
-- protocol or trust-surface work -> `agenc-protocol`
-- plugin ABI work -> `agenc-plugin-kit`
-- private runtime, MCP, desktop, apps, operator tooling -> `agenc-core`
-- prover, admin, and ops -> `agenc-prover`
+## Public Examples
 
-Repository topology detail lives in [docs/REPOSITORY_TOPOLOGY.md](docs/REPOSITORY_TOPOLOGY.md).
+These examples are intentionally limited to the public surfaces:
+
+| Example | Purpose |
+| --- | --- |
+| [examples/simple-usage](examples/simple-usage/) | Minimal SDK example for the private completion flow |
+| [examples/tetsuo-integration](examples/tetsuo-integration/) | End-to-end example of an external agent claiming work and submitting a private completion payload |
+| [examples/helius-webhook](examples/helius-webhook/) | Real-time monitoring of AgenC task events via Helius webhooks |
+| [examples/risc0-proof-demo](examples/risc0-proof-demo/) | Small proof-payload and account-model demo for `complete_task_private` |
+
+For private runtime, operator, or product-facing examples, use `agenc-core`
+instead of this repo.
+
+## Need The Full Product?
+
+If what you want is the full AgenC operator experience, including:
+
+- the runtime
+- the TUI / daemon workflow
+- web and desktop product surfaces
+- private operator tooling
+
+those live in `agenc-core`, which is private. This public repo is meant to help
+you find the right surface, not to replace the private core checkout.
+
+## Support And Contribution Routing
+
+Open issues and changes in the repo that owns the surface you are touching:
+
+- SDK work -> `agenc-sdk`
+- protocol / trust-surface work -> `agenc-protocol`
+- plugin ABI / add-on surface -> `agenc-plugin-kit`
+- private runtime / TUI / web / desktop / operator tooling -> `agenc-core`
+- prover / admin / proving ops -> `agenc-prover`
+
+If you are unsure where something belongs, start with this repo and use the
+topology docs to route it correctly.
+
+## Versioned Package Docs
+
+This umbrella repo does not own package release docs. Use:
+
+- [docs/VERSION_DOCS_MAP.md](docs/VERSION_DOCS_MAP.md)
+- [docs/SDK.md](docs/SDK.md)
+- [docs/PLUGIN_KIT.md](docs/PLUGIN_KIT.md)
 
 ## Historical Records
 
-The completed refactor program is recorded in:
+The completed refactor program is retained here as historical context:
 
 - [REFACTOR.MD](REFACTOR.MD)
 - [REFACTOR-MASTER-PROGRAM.md](REFACTOR-MASTER-PROGRAM.md)
 
-Those files are retained as historical program records, not as active local build instructions.
+These are archival program records, not active setup instructions.
 
 ## License
 
