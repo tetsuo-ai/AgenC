@@ -34,7 +34,7 @@
   ],
   "scripts": {
     "prebuild": "npm run build --workspace=@tetsuo-ai/desktop-tool-contracts",
-    "build": "tsup && npm run check:package-entrypoints",
+    "build": "tsup --config tsup.config.ts && npm run check:package-entrypoints",
     "pretypecheck": "npm run build --workspace=@tetsuo-ai/desktop-tool-contracts",
     "typecheck": "tsc --noEmit",
     "check:package-entrypoints": "node scripts/check-package-entrypoints.mjs",

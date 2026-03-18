@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const packageJsonPath = fileURLToPath(new URL("../package.json", import.meta.url));
 const packageDir = path.dirname(packageJsonPath);
+const runtimeInternalEntrypoints = ["dist/bin/daemon.js"];
 
 function collectPackageEntryPaths(packageManifest) {
   const paths = new Set();
@@ -60,9 +61,13 @@ function collectPackageEntryPaths(packageManifest) {
 
 async function main() {
   const packageManifest = JSON.parse(await readFile(packageJsonPath, "utf8"));
+  const expectedPaths = new Set([
+    ...collectPackageEntryPaths(packageManifest),
+    ...runtimeInternalEntrypoints,
+  ]);
   const missingPaths = [];
 
-  for (const relPath of collectPackageEntryPaths(packageManifest)) {
+  for (const relPath of expectedPaths) {
     if (relPath.startsWith("node:") || relPath.startsWith("#")) {
       continue;
     }
@@ -82,7 +87,7 @@ async function main() {
   }
 
   process.stdout.write(
-    `[runtime build contract] verified ${packageManifest.name} entrypoints (${collectPackageEntryPaths(packageManifest).length})\n`,
+    `[runtime build contract] verified ${packageManifest.name} entrypoints (${expectedPaths.size})\n`,
   );
 }
 
