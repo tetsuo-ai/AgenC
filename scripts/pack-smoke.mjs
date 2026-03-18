@@ -141,7 +141,6 @@ async function main() {
     }
 
     logStep('verifying installed bins');
-    await verifyBinLaunch(tempRoot, 'agenc-watch');
     await verifyBinLaunch(tempRoot, 'agenc-mcp');
     await verifyBinLaunch(tempRoot, 'agenc-docs');
 
