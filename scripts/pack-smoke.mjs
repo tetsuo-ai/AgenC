@@ -141,6 +141,7 @@ async function main() {
     }
 
     logStep('verifying installed bins');
+    await verifyBinLaunch(tempRoot, 'agenc-watch');
     await verifyBinLaunch(tempRoot, 'agenc-mcp');
     await verifyBinLaunch(tempRoot, 'agenc-docs');
 
@@ -253,19 +254,6 @@ async function main() {
         })}`,
       );
     }
-    await assertExists(
-      path.join(
-        tempRoot,
-        'node_modules',
-        '@tetsuo-ai',
-        'runtime',
-        'dist',
-        'bin',
-        'agenc-watch.js',
-      ),
-      'runtime operator console bin',
-    );
-
     logStep('verifying installed dependency tree');
     const treeOutput = run(
       'npm',
