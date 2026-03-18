@@ -22,6 +22,7 @@ function parseArgs(argv, env = process.env) {
     token: env.PRIVATE_KERNEL_REGISTRY_TOKEN || null,
     stageRoot: env.PRIVATE_KERNEL_STAGE_ROOT ? path.resolve(repoRoot, env.PRIVATE_KERNEL_STAGE_ROOT) : defaultStageRoot,
     fixtureOnly: false,
+    expectPublicScopePublishDenied: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -45,6 +46,9 @@ function parseArgs(argv, env = process.env) {
         break;
       case "--fixture-only":
         options.fixtureOnly = true;
+        break;
+      case "--expect-public-scope-publish-denied":
+        options.expectPublicScopePublishDenied = true;
         break;
       default:
         throw new Error(`unknown argument: ${argument}`);
@@ -168,16 +172,18 @@ async function runRehearsal(options) {
         version: fixtureVersion,
       });
 
-      const publicPublish = runNpm(
-        ["publish", "--registry", options.registryUrl],
-        { cwd: publicFixtureDir, env },
-      );
-      if ((publicPublish.status ?? 1) === 0) {
-        throw new Error("public-scope publish unexpectedly succeeded against private registry");
-      }
-      const publicFailureText = `${publicPublish.stdout}\n${publicPublish.stderr}`.toLowerCase();
-      if (!publicFailureText.includes("403") && !publicFailureText.includes("forbidden")) {
-        throw new Error(`public-scope publish failed for the wrong reason\n${publicPublish.stdout}\n${publicPublish.stderr}`);
+      if (options.expectPublicScopePublishDenied) {
+        const publicPublish = runNpm(
+          ["publish", "--registry", options.registryUrl],
+          { cwd: publicFixtureDir, env },
+        );
+        if ((publicPublish.status ?? 1) === 0) {
+          throw new Error("public-scope publish unexpectedly succeeded against private registry");
+        }
+        const publicFailureText = `${publicPublish.stdout}\n${publicPublish.stderr}`.toLowerCase();
+        if (!publicFailureText.includes("403") && !publicFailureText.includes("forbidden")) {
+          throw new Error(`public-scope publish failed for the wrong reason\n${publicPublish.stdout}\n${publicPublish.stderr}`);
+        }
       }
 
       assertNpm(
@@ -232,6 +238,7 @@ async function runRehearsal(options) {
             registryUrl: options.registryUrl,
             fixtureVersion,
             fixtureOnly: options.fixtureOnly,
+            expectPublicScopePublishDenied: options.expectPublicScopePublishDenied,
             privateFixtureName,
             stagedConsumers: options.fixtureOnly ? [] : stagedConsumers,
           },
@@ -256,3 +263,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   });
 }
+
+export { parseArgs, runRehearsal };

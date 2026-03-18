@@ -40,6 +40,11 @@ The hosted rehearsal intentionally uses a disposable fixture package under the
 private scope so the permanent registry can prove live publish/view/install
 without polluting the real staged private-kernel package versions.
 
+Cloudsmith hosted validation does not require the registry to reject public
+`@tetsuo-ai/*` package names. That denial remains part of the Verdaccio
+reference backend contract, where the registry is intentionally configured to
+enforce the private scope boundary directly.
+
 ## Local/CI reference backend
 
 The current reference backend is a local/CI Verdaccio 6 registry managed by:
