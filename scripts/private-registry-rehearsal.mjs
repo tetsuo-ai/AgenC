@@ -15,6 +15,14 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const defaultStageRoot = path.join(repoRoot, ".tmp", "private-kernel-distribution", "stage");
 
+function readRequiredArgValue(argv, index, flagName) {
+  const value = argv[index + 1];
+  if (typeof value !== "string" || value.length === 0 || value.startsWith("--")) {
+    throw new Error(`${flagName} requires a value`);
+  }
+  return value;
+}
+
 function parseArgs(argv, env = process.env) {
   const options = {
     registryUrl: env.PRIVATE_KERNEL_REGISTRY_URL || "http://127.0.0.1:4873",
@@ -31,20 +39,20 @@ function parseArgs(argv, env = process.env) {
     const argument = argv[index];
     switch (argument) {
       case "--registry-url":
+        options.registryUrl = readRequiredArgValue(argv, index, argument);
         index += 1;
-        options.registryUrl = argv[index];
         break;
       case "--scope":
+        options.scope = readRequiredArgValue(argv, index, argument);
         index += 1;
-        options.scope = argv[index];
         break;
       case "--token":
+        options.token = readRequiredArgValue(argv, index, argument);
         index += 1;
-        options.token = argv[index];
         break;
       case "--stage-root":
+        options.stageRoot = path.resolve(repoRoot, readRequiredArgValue(argv, index, argument));
         index += 1;
-        options.stageRoot = path.resolve(repoRoot, argv[index]);
         break;
       case "--fixture-only":
         options.fixtureOnly = true;
@@ -53,12 +61,12 @@ function parseArgs(argv, env = process.env) {
         options.expectPublicScopePublishDenied = true;
         break;
       case "--fresh-publish-read-retries":
+        options.freshPublishReadRetries = Number.parseInt(readRequiredArgValue(argv, index, argument), 10);
         index += 1;
-        options.freshPublishReadRetries = Number.parseInt(argv[index], 10);
         break;
       case "--fresh-publish-read-delay-ms":
+        options.freshPublishReadDelayMs = Number.parseInt(readRequiredArgValue(argv, index, argument), 10);
         index += 1;
-        options.freshPublishReadDelayMs = Number.parseInt(argv[index], 10);
         break;
       default:
         throw new Error(`unknown argument: ${argument}`);
@@ -90,12 +98,16 @@ function runNpm(args, { cwd, env, input = "" }) {
 
 function assertNpm(result, context) {
   if ((result.status ?? 1) !== 0) {
-    const detail = [result.stdout?.trim(), result.stderr?.trim()].filter(Boolean).join("\n");
+    const detail = [
+      result.error instanceof Error ? result.error.message : null,
+      result.stdout?.trim(),
+      result.stderr?.trim(),
+    ].filter(Boolean).join("\n");
     throw new Error(`${context} failed${detail ? `\n${detail}` : ""}`);
   }
 }
 
-function isRetryableFreshPublishRead(result) {
+function isNotFoundResult(result) {
   const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.toLowerCase();
   return (
     (result.status ?? 1) !== 0
@@ -106,6 +118,10 @@ function isRetryableFreshPublishRead(result) {
       || text.includes("not found")
     )
   );
+}
+
+function isRetryableFreshPublishRead(result) {
+  return isNotFoundResult(result);
 }
 
 async function runNpmWithRetry(
@@ -181,7 +197,7 @@ async function runRehearsal(options) {
 
     try {
       const publicFixtureName = `@tetsuo-ai/private-registry-public-fixture-${nonce}`;
-      const privateFixtureName = `@tetsuo-ai-private/private-registry-fixture-${nonce}`;
+      const privateFixtureName = `${options.scope}/private-registry-fixture-${nonce}`;
       const fixtureVersion = "0.0.1";
 
       assertNpm(
@@ -193,7 +209,7 @@ async function runRehearsal(options) {
       );
       if (!options.fixtureOnly) {
         const privatePrePublishView = runNpm(
-          ["view", "@tetsuo-ai-private/runtime", "version", "--registry", options.registryUrl],
+          ["view", `${options.scope}/runtime`, "version", "--registry", options.registryUrl],
           {
             cwd: repoRoot,
             env,
@@ -201,6 +217,9 @@ async function runRehearsal(options) {
         );
         if ((privatePrePublishView.status ?? 1) === 0) {
           throw new Error("private scope unexpectedly resolved before staged publish");
+        }
+        if (!isNotFoundResult(privatePrePublishView)) {
+          assertNpm(privatePrePublishView, "private scope pre-publish npm view");
         }
       }
 
@@ -251,7 +270,7 @@ async function runRehearsal(options) {
         "private fixture install",
       );
 
-      const stagedConsumers = ["@tetsuo-ai-private/mcp", "@tetsuo-ai-private/desktop-server"].filter((name) =>
+      const stagedConsumers = [`${options.scope}/mcp`, `${options.scope}/desktop-server`].filter((name) =>
         stageManifest.packages.some((pkg) => pkg.stagedName === name),
       );
 
