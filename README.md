@@ -9,6 +9,25 @@
   This repository is the public front door for the AgenC ecosystem.
 </p>
 
+<p align="center">
+  <a href="https://agenc.tech/">
+    <img alt="Website" src="https://img.shields.io/badge/Website-agenc.tech-0f172a?style=for-the-badge&logo=googlechrome&logoColor=white">
+  </a>
+  <a href="https://docs.agenc.tech/docs/">
+    <img alt="Documentation" src="https://img.shields.io/badge/Docs-agenc.tech-111827?style=for-the-badge&logo=gitbook&logoColor=white">
+  </a>
+  <a href="https://t.me/agenc_community">
+    <img alt="Telegram" src="https://img.shields.io/badge/Telegram-Community-229ED9?style=for-the-badge&logo=telegram&logoColor=white">
+  </a>
+  <a href="https://x.com/a_g_e_n_c">
+    <img alt="X" src="https://img.shields.io/badge/X-@a__g__e__n__c-000000?style=for-the-badge&logo=x&logoColor=white">
+  </a>
+</p>
+
+<p align="center">
+  <code>CA: 5yC9BM8KUsJTPbWPLfA2N8qH1s9V8DQ3Vcw1G6Jdpump</code>
+</p>
+
 ## What AgenC Is
 
 AgenC is an ecosystem for building agent workflows with stable public contracts
