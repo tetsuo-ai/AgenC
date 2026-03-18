@@ -16,88 +16,50 @@ function readText(relPath) {
 
 const failures = [];
 
-function hasExactWorkspaceReference(scriptValue) {
-  return /(^|[\s&|;])--workspace=@tetsuo-ai\/plugin-kit(?=$|[\s&|;])/u.test(scriptValue);
+const extractedMirrors = ['sdk', 'plugin-kit', 'examples/private-task-demo'];
+
+for (const relPath of extractedMirrors) {
+  if (existsSync(path.join(repoRoot, relPath))) {
+    failures.push(`${relPath} still exists as a local extracted-surface mirror`);
+  }
 }
 
 const rootPkg = readJson('package.json');
 const rootWorkspaces = Array.isArray(rootPkg.workspaces) ? rootPkg.workspaces : [];
-for (const workspace of ['sdk', 'plugin-kit', 'examples/private-task-demo']) {
+for (const workspace of extractedMirrors) {
   if (rootWorkspaces.includes(workspace)) {
     failures.push(`root workspaces still include ${workspace}`);
   }
 }
 
+for (const [name, value] of Object.entries(rootPkg.scripts ?? {})) {
+  if (typeof value === 'string' && value.includes('--workspace=@tetsuo-ai/plugin-kit')) {
+    failures.push(`root script ${name} still treats @tetsuo-ai/plugin-kit as a local workspace`);
+  }
+}
+
 const rootLock = readJson('package-lock.json');
 const installedPluginKit = rootLock.packages?.['node_modules/@tetsuo-ai/plugin-kit'];
-if (!installedPluginKit || installedPluginKit.link === true || installedPluginKit.resolved === 'plugin-kit') {
-  failures.push('package-lock still resolves @tetsuo-ai/plugin-kit to the local rollback mirror');
+if (installedPluginKit && (installedPluginKit.link === true || installedPluginKit.resolved === 'plugin-kit')) {
+  failures.push('package-lock still resolves @tetsuo-ai/plugin-kit to a local rollback mirror');
 }
 if (rootLock.packages?.['examples/private-task-demo']) {
   failures.push('package-lock still contains the deleted private-task demo mirror');
 }
 
-for (const [name, value] of Object.entries(rootPkg.scripts ?? {})) {
-  if (typeof value === 'string' && hasExactWorkspaceReference(value)) {
-    failures.push(`root script ${name} still invokes @tetsuo-ai/plugin-kit as a workspace`);
-  }
-}
+const forbiddenLocalPathChecks = new Map([
+  ['README.md', [/sdk\/README\.md/u, /plugin-kit\/README\.md/u]],
+  ['docs/SDK.md', [/sdk\/README\.md/u, /sdk\/src\/index\.ts/u]],
+  ['docs/PLUGIN_KIT.md', [/plugin-kit\/README\.md/u, /plugin-kit\/src\/index\.ts/u]],
+  ['docs/VERSION_DOCS_MAP.md', [/sdk\/README\.md/u, /sdk\/src\/index\.ts/u, /plugin-kit\/README\.md/u, /plugin-kit\/src\/index\.ts/u]],
+]);
 
-const runtimePkg = readJson('runtime/package.json');
-for (const scriptName of ['prebuild', 'pretypecheck', 'pretest']) {
-  const value = runtimePkg.scripts?.[scriptName];
-  if (typeof value === 'string' && hasExactWorkspaceReference(value)) {
-    failures.push(`runtime script ${scriptName} still builds local @tetsuo-ai/plugin-kit workspace`);
-  }
-}
-
-const docsLoader = readText('docs-mcp/src/loader.ts');
-if (docsLoader.includes("'plugin-kit'")) {
-  failures.push('docs-mcp loader still indexes plugin-kit as a local package root');
-}
-if (docsLoader.includes("'sdk'")) {
-  failures.push('docs-mcp loader still indexes sdk as a local package root');
-}
-
-const breakingChanges = readText('scripts/check-breaking-changes.ts');
-if (
-  breakingChanges.includes("target: 'sdk' | 'runtime' | 'mcp' | 'plugin-kit'")
-  || breakingChanges.includes('<sdk|runtime|mcp|plugin-kit>')
-  || breakingChanges.includes('<sdk|runtime|mcp>')
-  || breakingChanges.includes("path.join(root, 'sdk', 'node_modules', 'typescript')")
-  || breakingChanges.includes("path.join(root, 'plugin-kit', 'node_modules', 'typescript')")
-) {
-  failures.push('breaking-change gate still treats sdk or plugin-kit as a local target');
-}
-
-const versionMap = readText('docs/VERSION_DOCS_MAP.md');
-if (versionMap.includes('plugin-kit/README.md') || versionMap.includes('plugin-kit/src/index.ts')) {
-  failures.push('version map still points plugin-kit docs at local monorepo paths');
-}
-if (
-  versionMap.includes('sdk/README.md')
-  || versionMap.includes('sdk/CHANGELOG.md')
-  || versionMap.includes('sdk/src/index.ts')
-) {
-  failures.push('version map still points sdk docs at local monorepo paths');
-}
-
-try {
-  readText('docs/api-baseline/plugin-kit.json');
-  failures.push('local plugin-kit API baseline still exists in the monorepo');
-} catch {
-  // expected: authority moved to the standalone repo
-}
-try {
-  readText('docs/api-baseline/sdk.json');
-  failures.push('local sdk API baseline still exists in the monorepo');
-} catch {
-  // expected: authority moved to the standalone repo
-}
-
-for (const relPath of ['sdk', 'plugin-kit', 'examples/private-task-demo']) {
-  if (existsSync(path.join(repoRoot, relPath))) {
-    failures.push(`${relPath} still exists as a local extracted-surface mirror`);
+for (const [relPath, patterns] of forbiddenLocalPathChecks.entries()) {
+  const text = readText(relPath);
+  for (const pattern of patterns) {
+    if (pattern.test(text)) {
+      failures.push(`${relPath} still contains local extracted-package path ${pattern}`);
+    }
   }
 }
 
@@ -106,4 +68,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-process.stdout.write('public contract extraction boundary check passed.\n');
+process.stdout.write('public contract boundary check passed.\n');

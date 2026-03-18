@@ -1,7 +1,7 @@
 # REFACTOR EXECUTION ROADMAP
 
 Status: **Live program roadmap and evidence log for `REFACTOR-MASTER-PROGRAM.md`.**
-Last synced: `2026-03-17`.
+Last synced: `2026-03-18`.
 
 ---
 
@@ -13,8 +13,10 @@ Last synced: `2026-03-17`.
 - Gate 11 passed its final exit review on `2026-03-17`: the public/private split topology is now materially implemented, the private registry path is proven, and the retained internal validation seams are explicitly owned.
 - Gate 11 execution landed the required waves: `agenc-sdk` extraction cutover, `agenc-protocol` trust-surface bootstrap, `agenc-plugin-kit` extraction, private prover bootstrap, runtime-side visibility tightening, and private-kernel distribution proof.
 - Gate 12 passed its final exit review on `2026-03-17`; rollback-mirror deletion, stale gate-language cleanup, compatibility-seam classification, and the dead-surface audit are now complete.
+- Umbrella cutover is physically complete as of `2026-03-18`: `AgenC` is now the public umbrella repo only, and the old mirrored core/protocol directories have been removed from this repository.
 - Standalone `docs/refactor/gate-*.md` planning documents have been retired; gate status and live evidence now belong here.
 - Audit note: parallel explorer subagents were attempted on `2026-03-16`, but all failed on model usage limits; this sync is therefore based on direct repository evidence.
+- Historical note: the detailed gate ledger below is retained as the execution record of the refactor program and may describe pre-cutover repository layouts that no longer exist inside `AgenC`.
 
 ---
 
@@ -648,7 +650,7 @@ Removal rule:
 
 The extraction sequence is intentionally conservative:
 1. Lock this boundary map and package policy in the authority docs.
-2. Freeze the current `AgenC` repo as the future `agenc-core` baseline; do not begin by exploding the private kernel into many repos.
+2. Use the current `AgenC` repo as the bootstrap baseline to create `agenc-core`; do not begin by exploding the private kernel into many repos.
 3. Extract `agenc-sdk` first, including SDK-only examples and release/docs authority for the public builder surface.
 4. Extract `agenc-protocol` second, including:
    - `programs/agenc-coordination`
@@ -679,11 +681,13 @@ The extraction sequence is intentionally conservative:
 8. Drain mixed roots (`scripts/`, `tests/`, `docs/`, `examples/`) into owner repos; do not preserve mixed top-level catch-all folders after extraction.
 9. Migrate CI, release automation, docs authority, and package distribution only after the extracted repo proves build/test/pack/install independence.
 
-Primary privatization path:
-- keep the current `AgenC` repo as the private `agenc-core` baseline and change repo visibility when operationally ready
+Primary topology path:
+- keep `AgenC` public as the umbrella repo
+- create and validate private `agenc-core`
+- de-authorize the mirrored engine copy in `AgenC` once the umbrella cutover is complete
 
-Fallback only if a clean repo-visibility change is not workable:
-- mirror the kernel into a new private `agenc-core` repo, validate it, then de-authorize the old public copy
+Rejected path:
+- do not rely on making `AgenC` private as the end-state topology
 
 #### 11.8 Rollback Points
 
@@ -714,7 +718,7 @@ Phase 0 must do all of the following before runtime-side visibility tightening:
 - record the boundary in an ADR
 - record the package distribution policy
 - record `plugin-kit` host ABI scope and explicit non-ABI internals
-- state that the current `AgenC` repo is the frozen `agenc-core` baseline
+- state that the current `AgenC` repo is the bootstrap baseline for `agenc-core`, while the end state remains `AgenC` public + `agenc-core` private
 - align `REFACTOR.MD`, `REFACTOR-MASTER-PROGRAM.md`, and the architecture ADR index with that decision
 
 Phase 0 must **not** pretend to finish the public product-surface rewrite. At the time of Phase 0 planning, full public docs de-authority was intentionally deferred; that follow-on work is now complete.
@@ -1071,7 +1075,7 @@ Gate 11 exit review passed on `2026-03-17`.
 Exit-review findings against [11.11 Gate 11 Exit Signal](#1111-gate-11-exit-signal):
 1. The public/private topology is implemented, not merely described.
    - `agenc-sdk`, `agenc-protocol`, `agenc-plugin-kit`, and `agenc-prover` all exist as standalone repos.
-   - the current `AgenC` repo is the retained `agenc-core` private-kernel baseline.
+   - the current `AgenC` repo served as the bootstrap baseline for `agenc-core`; the final topology keeps `AgenC` public as the umbrella repo and `agenc-core` as the private canonical engine owner.
 2. Public and private package distribution now follow the declared policy.
    - public contract packages are released under `@tetsuo-ai/*`
    - private-kernel manifests are explicitly `private`

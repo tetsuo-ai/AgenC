@@ -1,6 +1,6 @@
-﻿version: 2
+version: 2
 updates:
-  - package-ecosystem: cargo
-    directory: /programs/agenc-coordination
+  - package-ecosystem: npm
+    directory: /
     schedule:
       interval: weekly

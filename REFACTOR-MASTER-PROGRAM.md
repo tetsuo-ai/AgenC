@@ -6,6 +6,11 @@
 >
 > All prior refactor planning documents have been retired from the active tree. This file is the program of record.
 
+Historical note: the refactor program is complete, and `AgenC` now exists as the
+public umbrella repo only. The detailed inventory and execution record below are
+retained as the historical program record and therefore still describe
+pre-cutover repository layouts that no longer physically live inside `AgenC`.
+
 ---
 
 ## 1. Mandate
@@ -1298,7 +1303,7 @@ Guardrails:
 - `contracts/desktop-tool-contracts` stays internal/private unless a separate external use case is explicitly proven
 - public examples must be SDK-only or plugin-kit-only; examples needing private runtime internals remain private
 - `zkvm/guest` belongs with the public protocol/trust surface; `zkvm/host` and remote prover operations remain private
-- the current `AgenC` repo is the frozen `agenc-core` baseline for Gate 11 unless a later fallback mirror is explicitly invoked
+- during Gate 11, the current `AgenC` repo served as the bootstrap baseline used to create `agenc-core`; the final topology keeps `AgenC` public as the umbrella repo and `agenc-core` as the private canonical engine owner
 - runtime-side package names already published publicly are transitional artifacts only and require explicit deprecation plus migration handling before any visibility tightening
 
 Exit gate:
@@ -1523,7 +1528,8 @@ Gate 11 final exit review passed on `2026-03-17`.
 Final Gate 11 review evidence:
 - public contract repos are live: `agenc-sdk`, `agenc-protocol`, `agenc-plugin-kit`
 - private repo bootstrap is live: `agenc-prover`
-- the current `AgenC` repo remains the explicit `agenc-core` baseline
+- the current `AgenC` repo served as the bootstrap baseline for `agenc-core`; final canonical private engine ownership now belongs to `agenc-core`
+- as of `2026-03-18`, `agenc-core` also has validated bootstrap ownership of the private product surfaces (`web/`, `mobile/`, `demo-app/`) and the runtime-dependent internal examples, and `AgenC` now carries only umbrella-valid root workspaces, scripts, and CI while retaining mirrored core/protocol directories as non-authoritative transitional copies
 - runtime-side package visibility is tightened and governed by a canonical support policy
 - Cloudsmith `agenc/private-kernel` is the permanent hosted private registry, with local/CI Verdaccio retained as the validated reference backend
 - `tools/proof-harness` is explicitly retained in `agenc-core` as a private operator/integration harness rather than a speculative shared contract

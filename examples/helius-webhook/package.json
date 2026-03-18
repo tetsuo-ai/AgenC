@@ -4,6 +4,7 @@
   "description": "Real-time monitoring of AgenC task completions via Helius webhooks",
   "main": "index.ts",
   "scripts": {
+    "typecheck": "tsc --project tsconfig.json",
     "server": "tsx index.ts server",
     "subscribe": "tsx index.ts subscribe",
     "create": "tsx index.ts create",

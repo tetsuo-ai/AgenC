@@ -5,7 +5,8 @@
   "main": "index.ts",
   "scripts": {
     "demo": "tsx index.ts",
-    "build": "tsc"
+    "build": "npm run typecheck",
+    "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
     "@tetsuo-ai/sdk": "1.3.1",

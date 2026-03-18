@@ -54,10 +54,11 @@ async function main() {
   const agentPubkey = new PublicKey('7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU');
   const output = [11n, 22n, 33n, 44n];
   const salt = generateSalt();
+  const agentSecret = generateSalt();
 
   // Actual seal generation requires: generateProof(params, proverConfig)
   // with a trusted remote prover backend.
-  const hashes = computeHashes(taskPda, agentPubkey, output, salt);
+  const hashes = computeHashes(taskPda, agentPubkey, output, salt, agentSecret);
 
   const bindingSeed = bigintToBytes32(hashes.binding);
   const nullifierSeed = bigintToBytes32(hashes.nullifier);

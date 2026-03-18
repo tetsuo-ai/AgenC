@@ -1,41 +1,23 @@
-# AgenC Examples
+# AgenC Public Examples
 
-## Network Requirements
+These are the public examples retained in the umbrella repo:
 
-| Example | Cluster | Validator Required | External Service |
-|---|---|---|---|
-| autonomous-agent | devnet | No | None |
-| dispute-arbiter | devnet | No | None |
-| event-dashboard | devnet | No | None |
-| helius-webhook | devnet/mainnet | No | Helius API |
-| llm-agent | devnet | No | LLM provider (xAI/Anthropic/Ollama) |
-| memory-agent | devnet | No | None |
-| simple-usage | any | No | None |
-| skill-jupiter | mainnet | No | Jupiter DEX |
-| tetsuo-integration | any | No | None |
-| zk-proof-demo | any | No | None |
+- `simple-usage`
+- `tetsuo-integration`
+- `helius-webhook`
+- `risc0-proof-demo`
 
-## Running Examples
+They are expected to work against the public AgenC surfaces only:
 
-1. Build all packages:
+- `@tetsuo-ai/sdk`
+- `@tetsuo-ai/protocol` when needed
+- `@tetsuo-ai/plugin-kit` when needed
+
+Validate them from the repo root with:
 
 ```bash
-npm install
-npm run build
+npm install --no-fund
+npm run check:public-examples
 ```
 
-2. Copy the example environment file (if needed):
-
-```bash
-cp examples/<name>/.env.example examples/<name>/.env
-```
-
-3. Run the example:
-
-```bash
-npx tsx examples/<name>/index.ts
-```
-
-Notes:
-- Every runnable example now has its own `package.json` and can be addressed as a workspace package.
-- `demo-app` is built separately under `demo-app/`.
+For private runtime, MCP, operator, or product examples, use `agenc-core` instead of this repo.

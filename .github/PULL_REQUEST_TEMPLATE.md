@@ -1,20 +1,18 @@
-﻿# Summary
+# Summary
 
 # Changes
 
 # Testing
-- [ ] anchor test
-- [ ] cargo fmt --check
-- [ ] cargo clippy
-- [ ] cargo test
+- [ ] `npm install --no-fund`
+- [ ] `npm run validate:umbrella`
 
-# Security / Risk
-- [ ] PDA seeds/constraints reviewed (if applicable)
-- [ ] No authority bypass introduced
-- [ ] Escrow/funds safety considered (if applicable)
+# Scope Check
+- [ ] No private-kernel or protocol-owned code was reintroduced into `AgenC`
+- [ ] Public examples remain public-surface-only
+- [ ] Docs/topology pointers still match canonical repos
 
 # Checklist
-- [ ] Tests added/updated (or N/A)
-- [ ] Docs updated (if needed)
+- [ ] Docs updated if repo topology or contributor routing changed
+- [ ] No stale local-path instructions were left behind
 
 # Issue link(s)
