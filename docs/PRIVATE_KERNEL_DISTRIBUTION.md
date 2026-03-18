@@ -1,6 +1,6 @@
 # Private Kernel Distribution
 
-This document is the canonical distribution and support-window policy for the
+This document is the canonical distribution and registry policy for the
 private AgenC kernel package graph.
 
 ## Why a separate internal scope is mandatory
@@ -161,42 +161,12 @@ The staging manifest records:
 
 ## Transitional support-window policy
 
-The runtime-side public names are not the long-term public product model:
+The transition, deprecation, and support-window rules for the runtime-side
+package names now live in:
 
-- `@tetsuo-ai/runtime`
-- `@tetsuo-ai/mcp`
-- `@tetsuo-ai/docs-mcp`
-- `@tetsuo-ai/desktop-tool-contracts`
-- `@tetsuo-ai/desktop-server`
+- [PRIVATE_KERNEL_SUPPORT_POLICY.md](./PRIVATE_KERNEL_SUPPORT_POLICY.md)
 
-They are transitional artifacts while the private-kernel distribution path is
-being finalized and consumer migration guidance is being tightened.
-
-Current owner:
-
-- `Repository / Platform Architecture`
-
-Current review date:
-
-- `2026-04-17`
-
-Sunset criteria:
-
-1. the protected Cloudsmith hosted validation succeeds against
-   `agenc/private-kernel` with a service-scoped credential
-2. Cloudsmith service-account auth, GitHub environment protection, and token
-   rotation policy are documented and active
-3. runtime-side transition notices are replaced with final private distribution
-   and migration documentation
-
-Until those criteria are met:
-
-- source manifests stay `private: true`
-- runtime-side package docs remain available for kernel contributors
-- public builder guidance continues to point external builders to:
-  - `@tetsuo-ai/sdk`
-  - `@tetsuo-ai/protocol`
-  - `@tetsuo-ai/plugin-kit`
+This document owns the registry, staging, and publication mechanics only.
 
 ## Operational rule
 

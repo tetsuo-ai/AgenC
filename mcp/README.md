@@ -2,7 +2,7 @@
 
 Private kernel MCP server for AgenC. This package is part of the internal `agenc-core` operator stack and is not a supported public extension target. External builders should extend AgenC through `@tetsuo-ai/plugin-kit` and the public SDK/protocol packages instead of depending on `@tetsuo-ai/mcp` directly.
 
-Canonical private-kernel distribution and support-window policy lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](../docs/PRIVATE_KERNEL_DISTRIBUTION.md).
+Canonical private-kernel distribution policy lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](../docs/PRIVATE_KERNEL_DISTRIBUTION.md). Canonical runtime-side deprecation and support-window policy lives in [docs/PRIVATE_KERNEL_SUPPORT_POLICY.md](../docs/PRIVATE_KERNEL_SUPPORT_POLICY.md).
 
 ## Setup
 

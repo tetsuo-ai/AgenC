@@ -1,7 +1,10 @@
 # Proof Harness Tools
 
-This workspace owns the shared verifier-localnet and private-proof benchmark
-slice that still belongs to `AgenC`.
+This workspace owns the verifier-localnet and private-proof benchmark harness
+that is intentionally retained inside `agenc-core`.
+
+It is a private operator and integration-validation surface, not a released
+shared contract or public package target.
 
 It owns:
 

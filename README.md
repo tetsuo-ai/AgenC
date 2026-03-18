@@ -140,7 +140,7 @@ If you are building against AgenC from outside the private kernel, start with:
 
 The remainder of this section documents the current private-kernel baseline in this repository. Those runtime-side packages are for internal kernel/operator development and transitional compatibility, not the supported public builder API.
 
-Canonical private-kernel distribution and support-window policy now lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](./docs/PRIVATE_KERNEL_DISTRIBUTION.md).
+Canonical private-kernel distribution policy lives in [docs/PRIVATE_KERNEL_DISTRIBUTION.md](./docs/PRIVATE_KERNEL_DISTRIBUTION.md). Canonical runtime-side deprecation and support-window policy lives in [docs/PRIVATE_KERNEL_SUPPORT_POLICY.md](./docs/PRIVATE_KERNEL_SUPPORT_POLICY.md).
 
 ### Prerequisites
 
