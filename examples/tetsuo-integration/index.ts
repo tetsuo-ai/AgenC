@@ -35,6 +35,7 @@
  */
 
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { readFileSync } from 'fs';
 import chalk from 'chalk';
 import crypto from 'crypto';
 
@@ -64,7 +65,7 @@ if (!IS_DEMO_MODE) {
 // import { PrivacyClient, generateProof, generateSalt } from '@tetsuo-ai/sdk';
 
 // Simulated imports for demo
-const AGENC_PROGRAM_ID = new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7');
+const AGENC_PROGRAM_ID = new PublicKey('6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab');
 const ROUTER_PROGRAM_ID = new PublicKey('E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ');
 const VERIFIER_PROGRAM_ID = new PublicKey('3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc');
 const TRUSTED_SELECTOR = Buffer.from('525a5631', 'hex');
@@ -609,7 +610,7 @@ async function main() {
   //   - Environment variable with encrypted key
   // Never commit real keypairs to source control!
   const agentConfig: TetsuoAgentConfig = {
-    wallet: Keypair.generate(), // DEMO ONLY: Load from secure storage in production!
+    wallet: Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(process.env.SOLANA_KEYPAIR ?? `${process.env.HOME}/.config/solana/id.json`, 'utf-8')))),
     capabilities: [
       'text-generation',
       'code-generation',
