@@ -5822,10 +5822,9 @@ describe("test_1", () => {
         const task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.equal(1);
 
-        // Attempt to cancel should fail because:
-        // 1. Completions > 0 means funds already distributed
-        // 2. Additionally, escrow is closed after completion (close = creator directive)
-        // Either TaskCannotBeCancelled or AccountNotInitialized error is acceptable
+        // Attempt to cancel should fail because collaborative tasks with
+        // partial completions are still InProgress, but once any funds have
+        // been distributed they are no longer cancellable.
         try {
           await program.methods
             .cancelTask()
@@ -5845,11 +5844,7 @@ describe("test_1", () => {
           expect.fail("Expected cancel to fail after completion");
         } catch (e: any) {
           const errorCode = e.error?.errorCode?.code || e.message || "";
-          // Escrow is closed after completion, so either error is valid
-          expect(
-            errorCode.includes("TaskCannotBeCancelled") ||
-              errorCode.includes("AccountNotInitialized"),
-          ).to.be.true;
+          expect(errorCode.includes("TaskCannotBeCancelled")).to.be.true;
         }
       });
     });
@@ -6088,13 +6083,13 @@ describe("test_1", () => {
             .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
-          // Verify error occurred - Anchor returns AnchorError with errorCode
           const anchorError = e as {
             error?: { errorCode?: { code: string } };
             message?: string;
           };
-          expect(anchorError.error?.errorCode?.code || anchorError.message).to
-            .exist;
+          const errorCode =
+            anchorError.error?.errorCode?.code || anchorError.message || "";
+          expect(errorCode.includes("InvalidStatusTransition")).to.be.true;
         }
 
         // Verify no funds moved

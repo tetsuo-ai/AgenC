@@ -104,6 +104,30 @@ pub struct TokenPaymentAccounts<'info> {
     pub task_key: Pubkey,
 }
 
+/// Load a task claim while preserving protocol-level `NotClaimed` semantics.
+///
+/// Anchor account deserialization returns `AccountNotInitialized` when a closed claim PDA is
+/// passed in. For negative completion paths we want the protocol error instead.
+pub fn load_task_claim_or_not_claimed<'info>(
+    claim_info: &UncheckedAccount<'info>,
+    task_key: &Pubkey,
+) -> Result<Account<'info, TaskClaim>> {
+    if claim_info.owner == &anchor_lang::solana_program::system_program::ID
+        && claim_info.lamports() == 0
+    {
+        return err!(CoordinationError::NotClaimed);
+    }
+
+    // SAFETY: `UncheckedAccount<'info>` stores an `&'info AccountInfo<'info>`.
+    // Anchor's borrow of the wrapper can be shorter than `'info`, but the wrapped
+    // account reference itself remains valid for `'info` for the duration of the
+    // instruction. We only widen the wrapper borrow to recover that original lifetime.
+    let claim_info_ref: &'info AccountInfo<'info> = unsafe { std::mem::transmute(claim_info.as_ref()) };
+    let claim = Account::<TaskClaim>::try_from(claim_info_ref)?;
+    require!(claim.task == *task_key, CoordinationError::NotClaimed);
+    Ok(claim)
+}
+
 /// Transfer tokens from escrow ATA to worker and treasury ATAs via PDA-signed CPI.
 fn transfer_token_rewards<'info>(
     ta: &TokenPaymentAccounts<'info>,

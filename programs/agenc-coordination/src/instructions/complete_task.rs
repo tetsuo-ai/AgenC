@@ -3,12 +3,12 @@
 use crate::errors::CoordinationError;
 use crate::instructions::completion_helpers::TokenPaymentAccounts;
 use crate::instructions::completion_helpers::{
-    calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
-    validate_task_dependency,
+    calculate_fee_with_reputation, execute_completion_rewards,
+    load_task_claim_or_not_claimed, validate_completion_prereqs, validate_task_dependency,
 };
 use crate::instructions::token_helpers::{validate_token_account, validate_unchecked_token_mint};
 use crate::state::{
-    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, HASH_SIZE, RESULT_DATA_SIZE,
+    AgentRegistration, ProtocolConfig, Task, TaskEscrow, HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
@@ -26,17 +26,14 @@ pub struct CompleteTask<'info> {
     )]
     pub task: Box<Account<'info, Task>>,
 
-    /// Note: Claim account is closed after completion.
-    /// If proof-of-completion is needed later, store result_hash
-    /// in an event or separate completion record.
+    /// CHECK: Claim PDA is validated by seeds and loaded in the handler so a missing
+    /// claim can surface `NotClaimed` instead of Anchor's `AccountNotInitialized`.
     #[account(
         mut,
-        close = authority,
         seeds = [b"claim", task.key().as_ref(), worker.key().as_ref()],
-        bump = claim.bump,
-        constraint = claim.task == task.key() @ CoordinationError::NotClaimed
+        bump
     )]
-    pub claim: Box<Account<'info, TaskClaim>>,
+    pub claim: UncheckedAccount<'info>,
 
     /// Note: Escrow account is closed conditionally after the final completion.
     /// For collaborative tasks with multiple workers, it stays open until all complete.
@@ -102,23 +99,34 @@ pub struct CompleteTask<'info> {
     pub token_program: Option<Program<'info, Token>>,
 }
 
-pub fn handler(
-    ctx: Context<CompleteTask>,
+pub fn handler<'info>(
+    ctx: Context<'_, '_, '_, 'info, CompleteTask<'info>>,
+    proof_hash: [u8; HASH_SIZE],
+    result_data: Option<[u8; RESULT_DATA_SIZE]>,
+) -> Result<()> {
+    handle_complete_task(ctx.accounts, ctx.remaining_accounts, ctx.program_id, proof_hash, result_data)
+}
+
+fn handle_complete_task<'info>(
+    accounts: &mut CompleteTask<'info>,
+    remaining_accounts: &[AccountInfo<'info>],
+    program_id: &Pubkey,
     proof_hash: [u8; HASH_SIZE],
     result_data: Option<[u8; RESULT_DATA_SIZE]>,
 ) -> Result<()> {
     log_compute_units("complete_task_start");
 
-    let task = &mut ctx.accounts.task;
-    let claim = &mut ctx.accounts.claim;
-    let escrow = &mut ctx.accounts.escrow;
-    let worker = &mut ctx.accounts.worker;
+    let task_key = accounts.task.key();
+    let mut claim = load_task_claim_or_not_claimed(&accounts.claim, &task_key)?;
+    let task = &mut accounts.task;
+    let escrow = &mut accounts.escrow;
+    let worker = &mut accounts.worker;
     let clock = Clock::get()?;
 
-    check_version_compatible(&ctx.accounts.protocol_config)?;
+    check_version_compatible(&accounts.protocol_config)?;
 
     // If task has a proof dependency, verify parent task is completed (shared helper)
-    validate_task_dependency(task, ctx.remaining_accounts, ctx.program_id)?;
+    validate_task_dependency(task, remaining_accounts, program_id)?;
 
     // Use the protocol fee locked at task creation (#479), with reputation discount
     let protocol_fee_bps = calculate_fee_with_reputation(task.protocol_fee_bps, worker.reputation);
@@ -135,7 +143,7 @@ pub fn handler(
     }
 
     // Shared validation: status, transition, deadline, claim, competitive guard
-    validate_completion_prereqs(task, claim, &clock)?;
+    validate_completion_prereqs(task, &claim, &clock)?;
 
     // CRITICAL: Private tasks MUST use complete_task_private (ZK proof verification).
     // Without this guard, an attacker could bypass ZK proof requirements by calling
@@ -148,26 +156,23 @@ pub fn handler(
     // Build optional token payment accounts
     let token_accounts = if task.reward_mint.is_some() {
         require!(
-            ctx.accounts.token_escrow_ata.is_some()
-                && ctx.accounts.worker_token_account.is_some()
-                && ctx.accounts.treasury_token_account.is_some()
-                && ctx.accounts.reward_mint.is_some()
-                && ctx.accounts.token_program.is_some(),
+            accounts.token_escrow_ata.is_some()
+                && accounts.worker_token_account.is_some()
+                && accounts.treasury_token_account.is_some()
+                && accounts.reward_mint.is_some()
+                && accounts.token_program.is_some(),
             CoordinationError::MissingTokenAccounts
         );
 
-        let mint = ctx
-            .accounts
+        let mint = accounts
             .reward_mint
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?;
-        let token_escrow = ctx
-            .accounts
+        let token_escrow = accounts
             .token_escrow_ata
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?;
-        let treasury_ta = ctx
-            .accounts
+        let treasury_ta = accounts
             .treasury_token_account
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?;
@@ -184,27 +189,25 @@ pub fn handler(
         validate_token_account(
             treasury_ta,
             &mint.key(),
-            &ctx.accounts.protocol_config.treasury,
+            &accounts.protocol_config.treasury,
         )?;
         let token_escrow_starting_amount =
             anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
                 .map_err(|_| CoordinationError::TokenTransferFailed)?;
 
-        let worker_ta_info = ctx
-            .accounts
+        let worker_ta_info = accounts
             .worker_token_account
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?
             .to_account_info();
-        validate_unchecked_token_mint(&worker_ta_info, &mint.key(), &ctx.accounts.authority.key())?;
+        validate_unchecked_token_mint(&worker_ta_info, &mint.key(), &accounts.authority.key())?;
 
         Some(TokenPaymentAccounts {
             token_escrow_ata: token_escrow.to_account_info(),
             token_escrow_starting_amount,
             worker_token_account: worker_ta_info,
             treasury_token_account: treasury_ta.to_account_info(),
-            token_program: ctx
-                .accounts
+            token_program: accounts
                 .token_program
                 .as_ref()
                 .ok_or(CoordinationError::MissingTokenAccounts)?
@@ -229,18 +232,20 @@ pub fn handler(
     // Execute reward transfer, state updates, event emissions, and conditional escrow closure
     execute_completion_rewards(
         task,
-        claim,
+        &mut claim,
         escrow,
         worker,
-        &mut ctx.accounts.protocol_config,
-        &ctx.accounts.authority.to_account_info(),
-        &ctx.accounts.treasury.to_account_info(),
-        &ctx.accounts.creator.to_account_info(),
+        &mut accounts.protocol_config,
+        &accounts.authority.to_account_info(),
+        &accounts.treasury.to_account_info(),
+        &accounts.creator.to_account_info(),
         protocol_fee_bps,
         Some(claim_result_data),
         &clock,
         token_accounts,
     )?;
+
+    claim.close(accounts.authority.to_account_info())?;
 
     log_compute_units("complete_task_done");
 

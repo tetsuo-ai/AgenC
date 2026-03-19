@@ -21,14 +21,15 @@ pub struct CancelTask<'info> {
     )]
     pub task: Account<'info, Task>,
 
+    /// CHECK: Escrow PDA is validated by seeds and deserialized in the handler so
+    /// cancellation can surface protocol-specific errors before Anchor account loading.
     #[account(
         mut,
-        close = authority,
         seeds = [b"escrow", task.key().as_ref()],
-        bump = escrow.bump,
+        bump,
         constraint = escrow.key() != task.key() @ CoordinationError::InvalidInput
     )]
-    pub escrow: Account<'info, TaskEscrow>,
+    pub escrow: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -58,26 +59,39 @@ pub struct CancelTask<'info> {
     pub token_program: Option<Program<'info, Token>>,
 }
 
-pub fn process_cancel_task(ctx: Context<CancelTask>) -> Result<()> {
-    require!(
-        ctx.accounts.authority.is_signer,
-        CoordinationError::UnauthorizedTaskAction
-    );
-    process_cancel_task_impl(ctx)
+pub fn process_cancel_task<'info>(
+    ctx: Context<'_, '_, '_, 'info, CancelTask<'info>>,
+) -> Result<()> {
+    process_cancel_task_impl(ctx.accounts, ctx.remaining_accounts)
 }
 
-fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
-    check_version_compatible(&ctx.accounts.protocol_config)?;
+pub(crate) fn load_task_escrow<'info>(
+    escrow_info: &UncheckedAccount<'info>,
+) -> Result<Account<'info, TaskEscrow>> {
+    // SAFETY: same rationale as `load_task_claim_or_not_claimed`; the wrapped
+    // `AccountInfo` already lives for `'info`.
+    let escrow_info_ref: &'info AccountInfo<'info> =
+        unsafe { std::mem::transmute(escrow_info.as_ref()) };
+    Account::<TaskEscrow>::try_from(escrow_info_ref)
+}
+
+fn process_cancel_task_impl<'info>(
+    accounts: &mut CancelTask<'info>,
+    remaining_accounts: &[AccountInfo<'info>],
+) -> Result<()> {
     require!(
-        ctx.accounts.authority.is_signer,
+        accounts.authority.is_signer,
+        CoordinationError::UnauthorizedTaskAction
+    );
+    check_version_compatible(&accounts.protocol_config)?;
+    require!(
+        accounts.authority.is_signer,
         CoordinationError::UnauthorizedTaskAction
     );
 
-    let task = &mut ctx.accounts.task;
-    let escrow = &mut ctx.accounts.escrow;
+    let task = &mut accounts.task;
     let clock = Clock::get()?;
     require!(task.bump > 0, CoordinationError::CorruptedData);
-    require!(escrow.bump > 0, CoordinationError::CorruptedData);
 
     // Validate status transition is allowed (fix #538)
     require!(
@@ -99,10 +113,13 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
 
     require!(can_cancel, CoordinationError::TaskCannotBeCancelled);
 
+    let mut escrow = load_task_escrow(&accounts.escrow)?;
+    require!(escrow.bump > 0, CoordinationError::CorruptedData);
+
     // If task has workers, require accounts
     if task.current_workers > 0 {
         require!(
-            !ctx.remaining_accounts.is_empty(),
+            !remaining_accounts.is_empty(),
             CoordinationError::WorkerAccountsRequired
         );
     }
@@ -119,30 +136,26 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
     if is_token_task {
         // Token path: transfer tokens back to creator
         require!(
-            ctx.accounts.token_escrow_ata.is_some()
-                && ctx.accounts.creator_token_account.is_some()
-                && ctx.accounts.reward_mint.is_some()
-                && ctx.accounts.token_program.is_some(),
+            accounts.token_escrow_ata.is_some()
+                && accounts.creator_token_account.is_some()
+                && accounts.reward_mint.is_some()
+                && accounts.token_program.is_some(),
             CoordinationError::MissingTokenAccounts
         );
 
-        let token_escrow = ctx
-            .accounts
+        let token_escrow = accounts
             .token_escrow_ata
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?;
-        let creator_ta = ctx
-            .accounts
+        let creator_ta = accounts
             .creator_token_account
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?;
-        let mint = ctx
-            .accounts
+        let mint = accounts
             .reward_mint
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?;
-        let token_program = ctx
-            .accounts
+        let token_program = accounts
             .token_program
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?;
@@ -181,7 +194,7 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
         // SOL path: existing lamport transfer (unchanged)
         transfer_lamports(
             &escrow.to_account_info(),
-            &ctx.accounts.authority.to_account_info(),
+            &accounts.authority.to_account_info(),
             refund_amount,
         )?;
     }
@@ -202,11 +215,10 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
     //   (claim_account, worker_agent_account, worker_authority_rent_recipient)
     // Claim rent is returned to worker authority (not creator) to prevent rent siphoning.
     require!(
-        ctx.remaining_accounts.len() % 3 == 0,
+        remaining_accounts.len() % 3 == 0,
         CoordinationError::InvalidInput
     );
-    let num_triples = ctx
-        .remaining_accounts
+    let num_triples = remaining_accounts
         .len()
         .checked_div(3)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
@@ -230,9 +242,9 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
             .checked_add(2)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
 
-        let claim_info = &ctx.remaining_accounts[base];
-        let worker_info = &ctx.remaining_accounts[worker_index];
-        let rent_recipient_info = &ctx.remaining_accounts[rent_recipient_index];
+        let claim_info = &remaining_accounts[base];
+        let worker_info = &remaining_accounts[worker_index];
+        let rent_recipient_info = &remaining_accounts[rent_recipient_index];
 
         // Validate claim belongs to this task
         require!(
@@ -289,18 +301,15 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
 
     // Close token escrow ATA AFTER all worker claims are processed
     if is_token_task {
-        let token_escrow = ctx
-            .accounts
+        let token_escrow = accounts
             .token_escrow_ata
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?;
-        let token_program = ctx
-            .accounts
+        let token_program = accounts
             .token_program
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?;
-        let creator_ta = ctx
-            .accounts
+        let creator_ta = accounts
             .creator_token_account
             .as_ref()
             .ok_or(CoordinationError::MissingTokenAccounts)?;
@@ -316,7 +325,7 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
             token_escrow,
             residual_amount,
             &creator_ta.to_account_info(),
-            &ctx.accounts.authority.to_account_info(),
+            &accounts.authority.to_account_info(),
             &escrow.to_account_info(),
             escrow_seeds,
             token_program,
@@ -325,6 +334,8 @@ fn process_cancel_task_impl(ctx: Context<CancelTask>) -> Result<()> {
 
     // Reset current_workers since all workers are removed on cancel
     task.current_workers = 0;
+
+    escrow.close(accounts.authority.to_account_info())?;
 
     Ok(())
 }

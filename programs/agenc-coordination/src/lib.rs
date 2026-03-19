@@ -200,7 +200,156 @@ pub mod agenc_coordination {
         proof_hash: [u8; 32],
         result_data: Option<[u8; 64]>,
     ) -> Result<()> {
-        instructions::complete_task::handler(ctx, proof_hash, result_data)
+        crate::utils::compute_budget::log_compute_units("complete_task_start");
+
+        let task_key = ctx.accounts.task.key();
+        let mut claim = crate::instructions::completion_helpers::load_task_claim_or_not_claimed(
+            &ctx.accounts.claim,
+            &task_key,
+        )?;
+        let task = &mut ctx.accounts.task;
+        let escrow = &mut ctx.accounts.escrow;
+        let worker = &mut ctx.accounts.worker;
+        let clock = Clock::get()?;
+
+        crate::utils::version::check_version_compatible(&ctx.accounts.protocol_config)?;
+        crate::instructions::completion_helpers::validate_task_dependency(
+            task,
+            ctx.remaining_accounts,
+            ctx.program_id,
+        )?;
+
+        let protocol_fee_bps =
+            crate::instructions::completion_helpers::calculate_fee_with_reputation(
+                task.protocol_fee_bps,
+                worker.reputation,
+            );
+
+        require!(proof_hash != [0u8; 32], CoordinationError::InvalidProofHash);
+
+        if let Some(ref data) = result_data {
+            require!(
+                data.iter().any(|&b| b != 0),
+                CoordinationError::InvalidResultData
+            );
+        }
+
+        crate::instructions::completion_helpers::validate_completion_prereqs(
+            task, &claim, &clock,
+        )?;
+
+        require!(
+            task.constraint_hash == [0u8; crate::state::HASH_SIZE],
+            CoordinationError::PrivateTaskRequiresZkProof
+        );
+
+        let token_accounts = if task.reward_mint.is_some() {
+            require!(
+                ctx.accounts.token_escrow_ata.is_some()
+                    && ctx.accounts.worker_token_account.is_some()
+                    && ctx.accounts.treasury_token_account.is_some()
+                    && ctx.accounts.reward_mint.is_some()
+                    && ctx.accounts.token_program.is_some(),
+                CoordinationError::MissingTokenAccounts
+            );
+
+            let mint = ctx
+                .accounts
+                .reward_mint
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let token_escrow = ctx
+                .accounts
+                .token_escrow_ata
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let treasury_ta = ctx
+                .accounts
+                .treasury_token_account
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let expected_mint = task
+                .reward_mint
+                .ok_or(CoordinationError::InvalidTokenMint)?;
+
+            require!(
+                mint.key() == expected_mint,
+                CoordinationError::InvalidTokenMint
+            );
+
+            crate::instructions::token_helpers::validate_token_account(
+                token_escrow,
+                &mint.key(),
+                &escrow.key(),
+            )?;
+            crate::instructions::token_helpers::validate_token_account(
+                treasury_ta,
+                &mint.key(),
+                &ctx.accounts.protocol_config.treasury,
+            )?;
+            let token_escrow_starting_amount =
+                anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
+                    .map_err(|_| CoordinationError::TokenTransferFailed)?;
+
+            let worker_ta_info = ctx
+                .accounts
+                .worker_token_account
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?
+                .to_account_info();
+            crate::instructions::token_helpers::validate_unchecked_token_mint(
+                &worker_ta_info,
+                &mint.key(),
+                &ctx.accounts.authority.key(),
+            )?;
+
+            Some(crate::instructions::completion_helpers::TokenPaymentAccounts {
+                token_escrow_ata: token_escrow.to_account_info(),
+                token_escrow_starting_amount,
+                worker_token_account: worker_ta_info,
+                treasury_token_account: treasury_ta.to_account_info(),
+                token_program: ctx
+                    .accounts
+                    .token_program
+                    .as_ref()
+                    .ok_or(CoordinationError::MissingTokenAccounts)?
+                    .to_account_info(),
+                escrow_authority: escrow.to_account_info(),
+                escrow_bump: escrow.bump,
+                task_key: task.key(),
+            })
+        } else {
+            None
+        };
+
+        let claim_result_data = result_data.unwrap_or([0u8; crate::state::RESULT_DATA_SIZE]);
+        claim.proof_hash = proof_hash;
+        claim.result_data = claim_result_data;
+        claim.is_completed = true;
+        claim.completed_at = clock.unix_timestamp;
+
+        crate::utils::compute_budget::log_compute_units("complete_task_validated");
+
+        crate::instructions::completion_helpers::execute_completion_rewards(
+            task,
+            &mut claim,
+            escrow,
+            worker,
+            &mut ctx.accounts.protocol_config,
+            &ctx.accounts.authority.to_account_info(),
+            &ctx.accounts.treasury.to_account_info(),
+            &ctx.accounts.creator.to_account_info(),
+            protocol_fee_bps,
+            Some(claim_result_data),
+            &clock,
+            token_accounts,
+        )?;
+
+        claim.close(ctx.accounts.authority.to_account_info())?;
+
+        crate::utils::compute_budget::log_compute_units("complete_task_done");
+
+        Ok(())
     }
 
     /// Complete a task with private proof verification.
@@ -209,7 +358,56 @@ pub mod agenc_coordination {
         task_id: u64,
         proof: PrivateCompletionPayload,
     ) -> Result<()> {
-        instructions::complete_task_private::complete_task_private(ctx, task_id, proof)
+        let clock = Clock::get()?;
+        let task_key = ctx.accounts.task.key();
+        let mut claim = crate::instructions::completion_helpers::load_task_claim_or_not_claimed(
+            &ctx.accounts.claim,
+            &task_key,
+        )?;
+        let decoded_proof =
+            crate::instructions::complete_task_private::verify_private_completion_stage(
+                ctx.accounts,
+                ctx.remaining_accounts,
+                ctx.program_id,
+                &task_key,
+                &claim,
+                task_id,
+                &proof,
+                &clock,
+            )?;
+        let worker_key = ctx.accounts.worker.key();
+        crate::instructions::complete_task_private::record_private_spends(
+            task_key,
+            worker_key,
+            &mut ctx.accounts.binding_spend,
+            &mut ctx.accounts.nullifier_spend,
+            &decoded_proof.parsed_journal,
+            &clock,
+            ctx.bumps.binding_spend,
+            ctx.bumps.nullifier_spend,
+        );
+        let token_accounts =
+            crate::instructions::complete_task_private::build_token_payment_accounts(
+                ctx.accounts,
+            )?;
+        let authority_info = ctx.accounts.authority.to_account_info();
+        let treasury_info = ctx.accounts.treasury.to_account_info();
+        let creator_info = ctx.accounts.creator.to_account_info();
+        crate::instructions::complete_task_private::finalize_private_completion(
+            &mut ctx.accounts.task,
+            &mut claim,
+            &mut ctx.accounts.escrow,
+            &mut ctx.accounts.worker,
+            &mut ctx.accounts.protocol_config,
+            authority_info,
+            treasury_info,
+            creator_info,
+            decoded_proof.parsed_journal.output_commitment,
+            &clock,
+            token_accounts,
+        )?;
+        claim.close(ctx.accounts.authority.to_account_info())?;
+        Ok(())
     }
 
     /// Initialize the trusted ZK image ID config.
@@ -231,7 +429,232 @@ pub mod agenc_coordination {
             ctx.accounts.authority.is_signer,
             CoordinationError::UnauthorizedTaskAction
         );
-        instructions::cancel_task::process_cancel_task(ctx)
+        crate::utils::version::check_version_compatible(&ctx.accounts.protocol_config)?;
+
+        let task = &mut ctx.accounts.task;
+        let clock = Clock::get()?;
+        require!(task.bump > 0, CoordinationError::CorruptedData);
+
+        require!(
+            task.status.can_transition_to(crate::state::TaskStatus::Cancelled),
+            CoordinationError::InvalidStatusTransition
+        );
+
+        let can_cancel = match task.status {
+            crate::state::TaskStatus::Open => true,
+            crate::state::TaskStatus::InProgress => {
+                task.deadline > 0 && clock.unix_timestamp > task.deadline && task.completions == 0
+            }
+            _ => false,
+        };
+
+        require!(can_cancel, CoordinationError::TaskCannotBeCancelled);
+
+        let mut escrow = crate::instructions::cancel_task::load_task_escrow(&ctx.accounts.escrow)?;
+        require!(escrow.bump > 0, CoordinationError::CorruptedData);
+
+        if task.current_workers > 0 {
+            require!(
+                !ctx.remaining_accounts.is_empty(),
+                CoordinationError::WorkerAccountsRequired
+            );
+        }
+
+        let refund_amount = escrow
+            .amount
+            .checked_sub(escrow.distributed)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+        let is_token_task = task.reward_mint.is_some();
+        let mut token_escrow_starting_amount: Option<u64> = None;
+        if is_token_task {
+            require!(
+                ctx.accounts.token_escrow_ata.is_some()
+                    && ctx.accounts.creator_token_account.is_some()
+                    && ctx.accounts.reward_mint.is_some()
+                    && ctx.accounts.token_program.is_some(),
+                CoordinationError::MissingTokenAccounts
+            );
+
+            let token_escrow = ctx
+                .accounts
+                .token_escrow_ata
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let creator_ta = ctx
+                .accounts
+                .creator_token_account
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let mint = ctx
+                .accounts
+                .reward_mint
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let token_program = ctx
+                .accounts
+                .token_program
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let expected_mint = task
+                .reward_mint
+                .ok_or(CoordinationError::InvalidTokenMint)?;
+
+            require!(
+                mint.key() == expected_mint,
+                CoordinationError::InvalidTokenMint
+            );
+            crate::instructions::token_helpers::validate_token_account(
+                token_escrow,
+                &mint.key(),
+                &escrow.key(),
+            )?;
+            token_escrow_starting_amount = Some(
+                anchor_spl::token::accessor::amount(&token_escrow.to_account_info())
+                    .map_err(|_| CoordinationError::TokenTransferFailed)?,
+            );
+
+            let task_key = task.key();
+            let task_key_bytes = task_key.to_bytes();
+            let bump_slice = [escrow.bump];
+            let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+
+            crate::instructions::token_helpers::transfer_tokens_from_escrow(
+                token_escrow,
+                &creator_ta.to_account_info(),
+                &escrow.to_account_info(),
+                refund_amount,
+                escrow_seeds,
+                token_program,
+            )?;
+        } else {
+            crate::instructions::lamport_transfer::transfer_lamports(
+                &escrow.to_account_info(),
+                &ctx.accounts.authority.to_account_info(),
+                refund_amount,
+            )?;
+        }
+
+        task.status = crate::state::TaskStatus::Cancelled;
+        escrow.is_closed = true;
+
+        emit!(crate::events::TaskCancelled {
+            task_id: task.task_id,
+            creator: task.creator,
+            refund_amount,
+            timestamp: clock.unix_timestamp,
+        });
+
+        require!(
+            ctx.remaining_accounts.len() % 3 == 0,
+            CoordinationError::InvalidInput
+        );
+        let num_triples = ctx
+            .remaining_accounts
+            .len()
+            .checked_div(3)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        require!(
+            num_triples == task.current_workers as usize,
+            CoordinationError::IncompleteWorkerAccounts
+        );
+
+        for i in 0..num_triples {
+            let base = i
+                .checked_mul(3)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            let worker_index = base
+                .checked_add(1)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            let rent_recipient_index = base
+                .checked_add(2)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+            let claim_info = &ctx.remaining_accounts[base];
+            let worker_info = &ctx.remaining_accounts[worker_index];
+            let rent_recipient_info = &ctx.remaining_accounts[rent_recipient_index];
+
+            require!(
+                claim_info.owner == &crate::ID,
+                CoordinationError::InvalidAccountOwner
+            );
+            require!(claim_info.is_writable, CoordinationError::InvalidInput);
+            let claim_data = claim_info.try_borrow_data()?;
+            let claim = crate::state::TaskClaim::try_deserialize(&mut &claim_data[..])?;
+            require!(claim.task == task.key(), CoordinationError::InvalidInput);
+            drop(claim_data);
+
+            require!(
+                worker_info.owner == &crate::ID,
+                CoordinationError::InvalidAccountOwner
+            );
+            require!(worker_info.is_writable, CoordinationError::InvalidInput);
+            require!(
+                worker_info.key() == claim.worker,
+                CoordinationError::InvalidInput
+            );
+            let mut worker_data = worker_info.try_borrow_mut_data()?;
+            let mut worker =
+                crate::state::AgentRegistration::try_deserialize(&mut &worker_data[..])?;
+            require!(
+                worker.authority == rent_recipient_info.key(),
+                CoordinationError::InvalidRentRecipient
+            );
+            require!(rent_recipient_info.is_writable, CoordinationError::InvalidInput);
+            worker.active_tasks = worker.active_tasks.saturating_sub(1);
+            AnchorSerialize::serialize(&worker, &mut &mut worker_data[8..])
+                .map_err(|_| anchor_lang::error::ErrorCode::AccountDidNotSerialize)?;
+
+            let claim_lamports = claim_info.lamports();
+            **claim_info.try_borrow_mut_lamports()? = 0;
+            **rent_recipient_info.try_borrow_mut_lamports()? = rent_recipient_info
+                .lamports()
+                .checked_add(claim_lamports)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            let mut claim_data = claim_info.try_borrow_mut_data()?;
+            claim_data.fill(0);
+            claim_data[..8].copy_from_slice(&[255u8; 8]);
+        }
+
+        if is_token_task {
+            let token_escrow = ctx
+                .accounts
+                .token_escrow_ata
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let token_program = ctx
+                .accounts
+                .token_program
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let creator_ta = ctx
+                .accounts
+                .creator_token_account
+                .as_ref()
+                .ok_or(CoordinationError::MissingTokenAccounts)?;
+            let residual_amount = token_escrow_starting_amount
+                .ok_or(CoordinationError::MissingTokenAccounts)?
+                .checked_sub(refund_amount)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            let task_key = task.key();
+            let task_key_bytes = task_key.to_bytes();
+            let bump_slice = [escrow.bump];
+            let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+            crate::instructions::token_helpers::close_token_escrow(
+                token_escrow,
+                residual_amount,
+                &creator_ta.to_account_info(),
+                &ctx.accounts.authority.to_account_info(),
+                &escrow.to_account_info(),
+                escrow_seeds,
+                token_program,
+            )?;
+        }
+
+        task.current_workers = 0;
+        escrow.close(ctx.accounts.authority.to_account_info())?;
+
+        Ok(())
     }
 
     /// Cancel a dispute before any votes are cast.

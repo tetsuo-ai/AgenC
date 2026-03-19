@@ -471,6 +471,35 @@ describe("Task lifecycle guards (#959)", () => {
     }
   });
 
+  it("rejects completion without claim (NotClaimed)", async () => {
+    const taskId = nextTaskId();
+    const { taskPda, escrowPda } = await createExclusiveTask(
+      creator,
+      creatorAgentPda,
+      taskId,
+    );
+
+    const claimant = await createFreshWorker();
+    await claimTask(taskPda, claimant);
+
+    const nonClaimant = await createFreshWorker();
+    const missingClaimPda = deriveClaimPda(taskPda, nonClaimant.agentPda);
+
+    try {
+      await completeTask(
+        taskPda,
+        escrowPda,
+        missingClaimPda,
+        nonClaimant,
+        creator.publicKey,
+      );
+      expect.fail("Should have rejected completion without a claim");
+    } catch (e: unknown) {
+      const code = getErrorCode(e);
+      expect(code).to.equal("NotClaimed");
+    }
+  });
+
   it("rejects cancel on completed task (InvalidStatusTransition)", async () => {
     const taskId = nextTaskId();
     const { taskPda, escrowPda } = await createExclusiveTask(
@@ -501,16 +530,8 @@ describe("Task lifecycle guards (#959)", () => {
         .rpc();
       expect.fail("Should have rejected cancel on completed task");
     } catch (e: unknown) {
-      // Escrow is already closed after completion, so Anchor account constraint
-      // will fail before status check. Either error is acceptable.
       const code = getErrorCode(e);
-      const msg = (e as { message?: string })?.message ?? "";
-      expect(
-        code === "InvalidStatusTransition" ||
-          msg.includes("AccountNotInitialized") ||
-          msg.includes("does not exist") ||
-          msg.includes("Error processing Instruction"),
-      ).to.be.true;
+      expect(code).to.equal("InvalidStatusTransition");
     }
   });
 
