@@ -35,6 +35,7 @@ obj/
 !Anchor.toml
 !package.json
 !tsconfig.json
+!examples/tsconfig.public-example.base.json
 !runtime/idl/*.json
 !runtime/src/replay/alert-schema-lockfile.json
 !runtime/benchmarks/v1/delegation-manifest.json
