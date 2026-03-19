@@ -17,13 +17,21 @@ cd examples/helius-webhook
 npm install
 ```
 
+This example requires:
+
+- `HELIUS_API_KEY` for all commands
+- `HELIUS_WEBHOOK_SECRET` when running the webhook server
+
 ## Usage
 
 ### Start Webhook Server
 
 ```bash
-# Set your Helius API key (or use default)
-export HELIUS_API_KEY=9b627fa6-114a-4a92-843e-3ad38c64565a
+# Required for all Helius API calls
+export HELIUS_API_KEY=your-helius-api-key
+
+# Required by the webhook receiver for signature verification
+export HELIUS_WEBHOOK_SECRET=your-webhook-secret-from-helius
 
 # Start server on port 3000
 npm run server
@@ -104,18 +112,21 @@ function emitTaskCompletion(event: TaskCompletionEvent) {
 
 ## Security
 
-**Production Requirements:**
+**Server Requirements:**
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `HELIUS_WEBHOOK_SECRET` | **Yes** | Webhook signature verification secret from Helius dashboard |
-| `NODE_ENV` | Recommended | Set to `production` to enforce security checks |
+| `HELIUS_API_KEY` | **Yes** | Helius API key used for webhook management and RPC access |
+| `HELIUS_WEBHOOK_SECRET` | **Yes** for `npm run server` | Webhook signature verification secret from Helius dashboard |
+| `NODE_ENV` | Recommended | Set to `production` to enforce stricter webhook URL checks |
 
-Without `HELIUS_WEBHOOK_SECRET`, the webhook endpoint cannot verify that requests originate from Helius. The server will reject all webhooks in production mode if this is not set.
+Without `HELIUS_WEBHOOK_SECRET`, the webhook server will not start because it
+cannot verify that requests originate from Helius.
 
 ```bash
 # Production deployment
 export NODE_ENV=production
+export HELIUS_API_KEY=your-helius-api-key
 export HELIUS_WEBHOOK_SECRET=your-webhook-secret-from-helius
 npm run server
 ```

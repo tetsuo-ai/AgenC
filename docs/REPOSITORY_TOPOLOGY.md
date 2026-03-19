@@ -1,5 +1,9 @@
 # Repository Topology
 
+If you are trying to install or use AgenC, start with
+[GETTING_STARTED.md](./GETTING_STARTED.md). This document explains repo
+ownership and boundaries, not first-run usage.
+
 This document describes the final AgenC repository layout.
 
 ## Public Repos

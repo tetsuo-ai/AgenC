@@ -28,6 +28,88 @@
   <code>CA: 5yC9BM8KUsJTPbWPLfA2N8qH1s9V8DQ3Vcw1G6Jdpump</code>
 </p>
 
+## Start Here
+
+If you are here to install or use AgenC, start with the path that matches what
+you actually need:
+
+| I want to... | Do this |
+| --- | --- |
+| Try a working AgenC example locally | `npm install --no-fund` then `npm run example:simple-usage` |
+| Integrate AgenC into an app or service | `npm install @tetsuo-ai/sdk` |
+| Consume the public protocol / IDL artifacts | `npm install @tetsuo-ai/protocol` |
+| Build an AgenC plugin or adapter | `npm install @tetsuo-ai/plugin-kit` |
+| Clone the full public repo set side by side | `./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc` |
+| Use the full operator/runtime product | Request access to `agenc-core` because the product runtime is private |
+
+For the step-by-step version, use [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md).
+
+## Fastest Local Try
+
+From this repo:
+
+```bash
+npm install --no-fund
+npm run example:simple-usage
+```
+
+Other example entry points from the repo root:
+
+```bash
+npm run example:tetsuo-integration
+npm run example:risc0-proof-demo
+npm run example:helius-webhook:server
+npm run example:helius-webhook:subscribe
+```
+
+The examples are public-safe and live under [examples/](examples/). They help
+you understand the SDK and public protocol surface, not the private operator
+runtime.
+
+The Helius commands require `HELIUS_API_KEY`. The server variant also requires
+`HELIUS_WEBHOOK_SECRET`.
+
+## Install The Right Package
+
+### App Integration
+
+Install the public SDK:
+
+```bash
+npm install @tetsuo-ai/sdk
+```
+
+Canonical docs live in [`agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk)
+and are summarized in [docs/SDK.md](docs/SDK.md).
+
+### Protocol / IDL Consumption
+
+Install the published protocol package:
+
+```bash
+npm install @tetsuo-ai/protocol
+```
+
+The canonical source of truth is
+[`agenc-protocol`](https://github.com/tetsuo-ai/agenc-protocol).
+
+### Plugin / Adapter Authoring
+
+Install the plugin authoring contract:
+
+```bash
+npm install @tetsuo-ai/plugin-kit
+```
+
+The canonical source of truth is
+[`agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit).
+
+### Full Product Access
+
+The runtime, operator workflow, TUI, web surfaces, desktop control, and
+internal tooling live in `agenc-core`, which is private. This public umbrella
+repo does not install or run that product surface.
+
 ## What AgenC Is
 
 AgenC is an ecosystem for building agent workflows with stable public contracts
@@ -39,10 +121,7 @@ Public builders get:
 - released protocol and IDL artifacts
 - a plugin authoring surface for add-ons and adapters
 
-The full private operator stack, including the runtime, TUI, daemon, web
-surfaces, desktop control, and internal tooling, lives outside this repo.
-
-## Start Here
+## Find The Right Repo
 
 | I want to... | Go here |
 | --- | --- |
@@ -78,9 +157,7 @@ source of truth for SDK, protocol, or plugin ABI packages.
 
 More detail lives in [docs/REPOSITORY_TOPOLOGY.md](docs/REPOSITORY_TOPOLOGY.md).
 
-## Quick Start
-
-### Bootstrap The Public Repos
+## Public Workspace Bootstrap
 
 Clone or update the public repo set side by side:
 
@@ -106,16 +183,14 @@ Expected layout:
   agenc-prover/
 ```
 
-### Validate This Umbrella Repo
-
-From this repo:
+## Validate This Repo
 
 ```bash
 npm install --no-fund
 npm run validate:umbrella
 ```
 
-That validates the public examples and umbrella boundary contract only. It does
+This validates the public examples and umbrella boundary contract only. It does
 not install or run the private AgenC core.
 
 ## Public Examples
@@ -129,8 +204,8 @@ These examples are intentionally limited to the public surfaces:
 | [examples/helius-webhook](examples/helius-webhook/) | Real-time monitoring of AgenC task events via Helius webhooks |
 | [examples/risc0-proof-demo](examples/risc0-proof-demo/) | Small proof-payload and account-model demo for `complete_task_private` |
 
-For private runtime, operator, or product-facing examples, use `agenc-core`
-instead of this repo.
+See [examples/README.md](examples/README.md) for the root-level commands that
+run them.
 
 ## Need The Full Product?
 
@@ -161,6 +236,7 @@ topology docs to route it correctly.
 
 This umbrella repo does not own package release docs. Use:
 
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
 - [docs/VERSION_DOCS_MAP.md](docs/VERSION_DOCS_MAP.md)
 - [docs/SDK.md](docs/SDK.md)
 - [docs/PLUGIN_KIT.md](docs/PLUGIN_KIT.md)
