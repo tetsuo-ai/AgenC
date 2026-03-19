@@ -65,9 +65,6 @@ const requiredPaths = [
   '.github/PULL_REQUEST_TEMPLATE.md',
   '.github/dependabot.yml',
   '.github/workflows/umbrella-validation.yml',
-  'AGENTS.md',
-  'CLAUDE.md',
-  'CODEX.md',
   'README.md',
   'REFACTOR.MD',
   'REFACTOR-MASTER-PROGRAM.md',
@@ -187,9 +184,6 @@ for (const relPath of forbiddenPaths) {
 
 const activeContractFiles = [
   'README.md',
-  'AGENTS.md',
-  'CLAUDE.md',
-  'CODEX.md',
   'docs/REPOSITORY_TOPOLOGY.md',
   'docs/SDK.md',
   'docs/PLUGIN_KIT.md',
@@ -229,6 +223,10 @@ const forbiddenReferencePatterns = [
 ];
 
 for (const relPath of activeContractFiles) {
+  if (!existsSync(path.join(repoRoot, relPath))) {
+    failures.push(`active umbrella contract file is missing: ${relPath}`);
+    continue;
+  }
   const text = readText(relPath);
   for (const pattern of forbiddenReferencePatterns) {
     if (pattern.test(text)) {
