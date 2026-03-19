@@ -14,6 +14,11 @@
     "check:public-contract-boundary": "node scripts/check-public-contract-boundary.mjs",
     "check:umbrella-boundary": "node scripts/check-umbrella-boundary.mjs",
     "check:public-examples": "./scripts/smoke-test-examples.sh",
+    "example:helius-webhook:server": "npm run server --workspace agenc-helius-webhook",
+    "example:helius-webhook:subscribe": "npm run subscribe --workspace agenc-helius-webhook",
+    "example:risc0-proof-demo": "npm run start --workspace @tetsuo-ai/example-risc0-proof-demo",
+    "example:simple-usage": "npm run start --workspace @tetsuo-ai/simple-usage",
+    "example:tetsuo-integration": "npm run demo --workspace tetsuo-agenc-integration",
     "validate:umbrella": "npm run check:public-contract-boundary && npm run check:umbrella-boundary && npm run check:public-examples && ./scripts/bootstrap-agenc-repos.sh --help >/dev/null"
   }
 }
