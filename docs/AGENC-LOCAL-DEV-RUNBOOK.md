@@ -397,3 +397,21 @@ Key directories inside `agenc-core`:
 | ADR-003 | `forks/agenc-core/docs/architecture/adr/adr-003-public-framework-product.md` |
 | Refactor program record | `REFACTOR-MASTER-PROGRAM.md` in AgenC repo |
 | Devnet compatibility report | `forks/agenc-sdk/docs/devnet-compatibility.md` |
+
+---
+
+## agenc-sdk Validation Gates
+
+Before committing or opening a PR against `tetsuo-ai/agenc-sdk`, run these in order.
+Established by PR #10 (2026-03-19) as the canonical validation suite:
+```bash
+cd ~/workshop/agencproj/forks/agenc-sdk
+npm run typecheck
+npm test
+npm run build
+npm run pack:smoke
+npx -y node@20 scripts/pack-smoke.mjs
+```
+
+The `node@20 scripts/pack-smoke.mjs` step specifically tests packaged CJS/ESM
+interop in Node 20 — the regression that catches the anchor.BN issue fixed in PR #9.
