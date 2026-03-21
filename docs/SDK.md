@@ -1,14 +1,70 @@
-# SDK
+# SDK Surface
 
-`@tetsuo-ai/sdk` is owned by the standalone public repository:
+`@tetsuo-ai/sdk` is owned by `agenc-sdk`.
 
-- Repo: `https://github.com/tetsuo-ai/agenc-sdk`
-- npm: `@tetsuo-ai/sdk`
+## Canonical Repo
 
-Canonical docs:
+- repo: `agenc-sdk`
+- package: `@tetsuo-ai/sdk`
+- primary README: [`agenc-sdk/README.md`](../agenc-sdk/README.md)
+- changelog: [`agenc-sdk/CHANGELOG.md`](../agenc-sdk/CHANGELOG.md)
 
-- README: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/README.md`
-- CHANGELOG: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/CHANGELOG.md`
-- API baseline: `https://github.com/tetsuo-ai/agenc-sdk/blob/main/docs/api-baseline/sdk.json`
+## What It Owns
 
-This umbrella repo keeps only this pointer document.
+The SDK repo owns:
+
+- the published `@tetsuo-ai/sdk` package
+- the SDK API baseline in `agenc-sdk/docs/api-baseline/sdk.json`
+- the curated starter example in `agenc-sdk/examples/private-task-demo`
+- SDK tests, pack smoke, and release validation
+
+Main source modules:
+
+- `agents.ts`
+- `anchor-utils.ts`
+- `bids.ts`
+- `client.ts`
+- `constants.ts`
+- `disputes.ts`
+- `errors.ts`
+- `governance.ts`
+- `proof-validation.ts`
+- `proofs.ts`
+- `protocol.ts`
+- `prover.ts`
+- `queries.ts`
+- `skills.ts`
+- `spl-token.ts`
+- `state.ts`
+- `tasks.ts`
+- `tokens.ts`
+- `validation.ts`
+
+## When To Use It
+
+Use `@tetsuo-ai/sdk` when you are:
+
+- integrating AgenC into an app or service
+- generating proof payloads
+- submitting task/task-proof transactions
+- querying protocol state from TypeScript
+
+Do not use the root repo or `agenc-core` as the canonical SDK source of truth.
+
+## Validation
+
+From `agenc-sdk/`:
+
+```bash
+npm run build
+npm run typecheck
+npm run test
+npm run api:baseline:check
+npm run pack:smoke
+```
+
+## Related Docs
+
+- [VERSION_DOCS_MAP.md](./VERSION_DOCS_MAP.md)
+- [DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md)
+- [DOCS_INDEX.md](./DOCS_INDEX.md)

@@ -3,6 +3,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import {
+  umbrellaActiveContractFiles,
+  umbrellaRequiredPaths,
+} from './umbrella-contract-manifest.mjs';
 
 const repoRoot = process.cwd();
 
@@ -60,29 +64,6 @@ const forbiddenScripts = new Set([
   'localnet:social:smoke',
   'benchmark:private:e2e',
 ]);
-
-const requiredPaths = [
-  '.github/PULL_REQUEST_TEMPLATE.md',
-  '.github/dependabot.yml',
-  '.github/workflows/umbrella-validation.yml',
-  'README.md',
-  'REFACTOR.MD',
-  'REFACTOR-MASTER-PROGRAM.md',
-  'docs/PLUGIN_KIT.md',
-  'docs/REPOSITORY_TOPOLOGY.md',
-  'docs/SDK.md',
-  'docs/VERSION_DOCS_MAP.md',
-  'examples/README.md',
-  'examples/helius-webhook',
-  'examples/risc0-proof-demo',
-  'examples/simple-usage',
-  'examples/tetsuo-integration',
-  'examples/tsconfig.public-example.base.json',
-  'scripts/bootstrap-agenc-repos.sh',
-  'scripts/check-public-contract-boundary.mjs',
-  'scripts/check-umbrella-boundary.mjs',
-  'scripts/smoke-test-examples.sh',
-];
 
 const forbiddenPaths = [
   '.github/workflows/package-pack-smoke.yml',
@@ -170,7 +151,7 @@ for (const name of Object.keys(rootPkg.scripts ?? {})) {
   }
 }
 
-for (const relPath of requiredPaths) {
+for (const relPath of umbrellaRequiredPaths) {
   if (!existsSync(path.join(repoRoot, relPath))) {
     failures.push(`required umbrella path is missing: ${relPath}`);
   }
@@ -182,47 +163,16 @@ for (const relPath of forbiddenPaths) {
   }
 }
 
-const activeContractFiles = [
-  'README.md',
-  'docs/REPOSITORY_TOPOLOGY.md',
-  'docs/SDK.md',
-  'docs/PLUGIN_KIT.md',
-  'docs/VERSION_DOCS_MAP.md',
-  'examples/README.md',
-  '.github/PULL_REQUEST_TEMPLATE.md',
-  '.github/dependabot.yml',
-  '.github/workflows/umbrella-validation.yml',
-  'scripts/bootstrap-agenc-repos.sh',
-  'scripts/check-public-contract-boundary.mjs',
-  'scripts/smoke-test-examples.sh',
-];
-
 const forbiddenReferencePatterns = [
-  /runtime\//u,
-  /mcp\//u,
-  /docs-mcp\//u,
-  /contracts\/desktop-tool-contracts/u,
-  /containers\/desktop\/server/u,
-  /web\//u,
-  /mobile\//u,
-  /demo-app\//u,
-  /tools\/localnet-social/u,
-  /tools\/proof-harness/u,
-  /programs\/agenc-coordination/u,
-  /migrations\//u,
-  /zkvm\//u,
-  /benchmarks\//u,
-  /config\/private-kernel/u,
-  /@tetsuo-ai\/runtime/u,
-  /@tetsuo-ai\/mcp/u,
-  /@tetsuo-ai\/docs-mcp/u,
-  /npm run build:private-kernel/u,
-  /npm run build --workspace=@tetsuo-ai\/runtime/u,
-  /npm run build --workspace=@tetsuo-ai\/mcp/u,
-  /npm run build --workspace=@tetsuo-ai\/docs-mcp/u,
+  /agenc-apps/u,
+  /optional later split/u,
+  /request access to `agenc-core`/iu,
+  /agenc-core`, which is private/u,
+  /private access required/u,
+  /final AgenC repository layout/u,
 ];
 
-for (const relPath of activeContractFiles) {
+for (const relPath of umbrellaActiveContractFiles) {
   if (!existsSync(path.join(repoRoot, relPath))) {
     failures.push(`active umbrella contract file is missing: ${relPath}`);
     continue;
