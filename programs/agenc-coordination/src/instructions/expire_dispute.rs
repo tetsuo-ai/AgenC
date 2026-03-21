@@ -14,6 +14,9 @@
 
 use crate::errors::CoordinationError;
 use crate::events::{ArbiterVotesCleanedUp, DisputeExpired};
+use crate::instructions::bid_settlement_helpers::{
+    settle_accepted_bid, AcceptedBidBondDisposition, AcceptedBidBookDisposition,
+};
 use crate::instructions::dispute_helpers::{
     check_duplicate_arbiters, check_duplicate_workers, process_arbiter_vote_pair,
     process_worker_claim_pair, validate_remaining_accounts_structure,
@@ -25,11 +28,30 @@ use crate::instructions::token_helpers::{
 };
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task, TaskClaim, TaskEscrow,
-    TaskStatus,
+    TaskStatus, TaskType,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
+
+fn remaining_account_info<'info>(
+    remaining_accounts: &[AccountInfo<'info>],
+    index: usize,
+) -> &'info AccountInfo<'info> {
+    // SAFETY: `remaining_accounts` already stores `AccountInfo<'info>` values.
+    // We only widen the reference itself back to `'info` for downstream helpers.
+    unsafe { std::mem::transmute(&remaining_accounts[index]) }
+}
+
+fn remaining_account_slice<'info>(
+    remaining_accounts: &[AccountInfo<'info>],
+    start: usize,
+    end: usize,
+) -> &'info [AccountInfo<'info>] {
+    // SAFETY: same rationale as `remaining_account_info`; the slice elements
+    // already carry `'info`, so only the slice reference needs rebinding.
+    unsafe { std::mem::transmute(&remaining_accounts[start..end]) }
+}
 
 /// Note: Large accounts use Box<Account<...>> to avoid stack overflow
 /// Consistent with Anchor best practices for accounts > 10KB
@@ -122,7 +144,7 @@ pub struct ExpireDispute<'info> {
 /// - Prevents disputes from being permanently stuck
 /// - Allows third-party cleanup services
 /// - No economic risk since only valid expirations succeed
-pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, ExpireDispute<'info>>) -> Result<()> {
     require!(
         ctx.accounts.authority.is_signer,
         CoordinationError::InvalidInput
@@ -176,6 +198,29 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         &ctx.accounts.worker_wallet,
         &task.key(),
     )?;
+
+    let (dispute_remaining_accounts, accepted_bid_accounts) =
+        if task.task_type == TaskType::BidExclusive {
+            require!(
+                ctx.remaining_accounts.len() >= 3,
+                CoordinationError::BidSettlementAccountsRequired
+            );
+            let split_at = ctx
+                .remaining_accounts
+                .len()
+                .checked_sub(3)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            (
+                remaining_account_slice(ctx.remaining_accounts, 0, split_at),
+                Some((
+                    remaining_account_info(ctx.remaining_accounts, split_at),
+                    remaining_account_info(ctx.remaining_accounts, split_at + 1),
+                    remaining_account_info(ctx.remaining_accounts, split_at + 2),
+                )),
+            )
+        } else {
+            (ctx.remaining_accounts, None)
+        };
 
     let remaining_funds = escrow
         .amount
@@ -355,6 +400,41 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         }
     }
 
+    if let Some((bid_book_info, accepted_bid_info, bidder_market_state_info)) =
+        accepted_bid_accounts
+    {
+        let bond_disposition = if no_votes && worker_completed {
+            AcceptedBidBondDisposition::Refund
+        } else {
+            AcceptedBidBondDisposition::FullSlashToCreator
+        };
+        let worker_claim = ctx
+            .accounts
+            .worker_claim
+            .as_ref()
+            .ok_or(CoordinationError::WorkerClaimRequired)?;
+        let worker_wallet = ctx
+            .accounts
+            .worker_wallet
+            .as_ref()
+            .ok_or(CoordinationError::IncompleteWorkerAccounts)?;
+        let worker_wallet_info = worker_wallet.to_account_info();
+        let creator_info = ctx.accounts.creator.to_account_info();
+
+        settle_accepted_bid(
+            &task_key,
+            worker_claim.as_ref(),
+            bid_book_info,
+            accepted_bid_info,
+            bidder_market_state_info,
+            worker_wallet_info,
+            Some(creator_info),
+            clock.unix_timestamp,
+            AcceptedBidBookDisposition::Close,
+            bond_disposition,
+        )?;
+    }
+
     // Decrement defendant counters deterministically (fix #544, #842)
     let worker = ctx
         .accounts
@@ -374,16 +454,16 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     // - First: (vote, arbiter) pairs for total_voters
     // - Then: optional (claim, worker) pairs for additional workers on collaborative tasks
     let arbiter_accounts =
-        validate_remaining_accounts_structure(ctx.remaining_accounts, dispute.total_voters)?;
-    check_duplicate_arbiters(ctx.remaining_accounts, arbiter_accounts)?;
+        validate_remaining_accounts_structure(dispute_remaining_accounts, dispute.total_voters)?;
+    check_duplicate_arbiters(dispute_remaining_accounts, arbiter_accounts)?;
 
     for i in (0..arbiter_accounts).step_by(2) {
         let arbiter_index = i
             .checked_add(1)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
         process_arbiter_vote_pair(
-            &ctx.remaining_accounts[i],
-            &ctx.remaining_accounts[arbiter_index],
+            &dispute_remaining_accounts[i],
+            &dispute_remaining_accounts[arbiter_index],
             &dispute.key(),
             &crate::ID,
         )?;
@@ -395,8 +475,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         arbiter_count: dispute.total_voters,
     });
 
-    let remaining_worker_accounts = ctx
-        .remaining_accounts
+    let remaining_worker_accounts = dispute_remaining_accounts
         .len()
         .checked_sub(arbiter_accounts)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
@@ -415,19 +494,19 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
 
     // Check for duplicate workers before processing (fix #826)
     check_duplicate_workers(
-        ctx.remaining_accounts,
+        dispute_remaining_accounts,
         arbiter_accounts,
         Some(defendant_worker_key),
     )?;
 
     // Process additional worker (claim, worker) pairs to decrement active_tasks (fix #333)
-    for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
+    for i in (arbiter_accounts..dispute_remaining_accounts.len()).step_by(2) {
         let worker_index = i
             .checked_add(1)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
         process_worker_claim_pair(
-            &ctx.remaining_accounts[i],
-            &ctx.remaining_accounts[worker_index],
+            &dispute_remaining_accounts[i],
+            &dispute_remaining_accounts[worker_index],
             &task.key(),
             &crate::ID,
         )?;

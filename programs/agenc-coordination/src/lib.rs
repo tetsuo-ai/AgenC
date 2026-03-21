@@ -172,6 +172,129 @@ pub mod agenc_coordination {
         )
     }
 
+    /// Initialize Marketplace V2 global configuration.
+    #[allow(clippy::too_many_arguments)]
+    pub fn initialize_bid_marketplace(
+        ctx: Context<InitializeBidMarketplace>,
+        min_bid_bond_lamports: u64,
+        bid_creation_cooldown_secs: i64,
+        max_bids_per_24h: u16,
+        max_active_bids_per_task: u16,
+        max_bid_lifetime_secs: i64,
+        accepted_no_show_slash_bps: u16,
+    ) -> Result<()> {
+        instructions::bid_marketplace::initialize_bid_marketplace_handler(
+            ctx,
+            min_bid_bond_lamports,
+            bid_creation_cooldown_secs,
+            max_bids_per_24h,
+            max_active_bids_per_task,
+            max_bid_lifetime_secs,
+            accepted_no_show_slash_bps,
+        )
+    }
+
+    /// Update Marketplace V2 global configuration.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_bid_marketplace_config(
+        ctx: Context<UpdateBidMarketplaceConfig>,
+        min_bid_bond_lamports: u64,
+        bid_creation_cooldown_secs: i64,
+        max_bids_per_24h: u16,
+        max_active_bids_per_task: u16,
+        max_bid_lifetime_secs: i64,
+        accepted_no_show_slash_bps: u16,
+    ) -> Result<()> {
+        instructions::bid_marketplace::update_bid_marketplace_config_handler(
+            ctx,
+            min_bid_bond_lamports,
+            bid_creation_cooldown_secs,
+            max_bids_per_24h,
+            max_active_bids_per_task,
+            max_bid_lifetime_secs,
+            accepted_no_show_slash_bps,
+        )
+    }
+
+    /// Initialize a bid book for a Marketplace V2 task.
+    #[allow(clippy::too_many_arguments)]
+    pub fn initialize_bid_book(
+        ctx: Context<InitializeBidBook>,
+        policy: u8,
+        price_weight_bps: u16,
+        eta_weight_bps: u16,
+        confidence_weight_bps: u16,
+        reliability_weight_bps: u16,
+    ) -> Result<()> {
+        instructions::bid_marketplace::initialize_bid_book_handler(
+            ctx,
+            policy,
+            price_weight_bps,
+            eta_weight_bps,
+            confidence_weight_bps,
+            reliability_weight_bps,
+        )
+    }
+
+    /// Create a Marketplace V2 bid for a task.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_bid(
+        ctx: Context<CreateBid>,
+        requested_reward_lamports: u64,
+        eta_seconds: u32,
+        confidence_bps: u16,
+        quality_guarantee_hash: [u8; 32],
+        metadata_hash: [u8; 32],
+        expires_at: i64,
+    ) -> Result<()> {
+        instructions::bid_marketplace::create_bid_handler(
+            ctx,
+            requested_reward_lamports,
+            eta_seconds,
+            confidence_bps,
+            quality_guarantee_hash,
+            metadata_hash,
+            expires_at,
+        )
+    }
+
+    /// Update an existing Marketplace V2 bid.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_bid(
+        ctx: Context<UpdateBid>,
+        requested_reward_lamports: u64,
+        eta_seconds: u32,
+        confidence_bps: u16,
+        quality_guarantee_hash: [u8; 32],
+        metadata_hash: [u8; 32],
+        expires_at: i64,
+    ) -> Result<()> {
+        instructions::bid_marketplace::update_bid_handler(
+            ctx,
+            requested_reward_lamports,
+            eta_seconds,
+            confidence_bps,
+            quality_guarantee_hash,
+            metadata_hash,
+            expires_at,
+        )
+    }
+
+    /// Cancel an open or parked Marketplace V2 bid.
+    pub fn cancel_bid(ctx: Context<CancelBid>) -> Result<()> {
+        instructions::bid_marketplace::cancel_bid_handler(ctx)
+    }
+
+    /// Accept a Marketplace V2 bid and convert it into a normal task claim.
+    pub fn accept_bid(ctx: Context<AcceptBid>) -> Result<()> {
+        instructions::bid_marketplace::accept_bid_handler(ctx)
+    }
+
+    /// Expire an unaccepted Marketplace V2 bid.
+    pub fn expire_bid(ctx: Context<ExpireBid>) -> Result<()> {
+        instructions::bid_marketplace::expire_bid_handler(ctx)
+    }
+
     /// Claim a task to signal intent to work on it.
     /// Agent must have required capabilities and task must be claimable.
     pub fn claim_task(ctx: Context<ClaimTask>) -> Result<()> {
@@ -180,7 +303,7 @@ pub mod agenc_coordination {
 
     /// Expire a stale claim to free up task slot.
     /// Can only be called after claim.expires_at has passed.
-    pub fn expire_claim(ctx: Context<ExpireClaim>) -> Result<()> {
+    pub fn expire_claim<'info>(ctx: Context<'_, '_, '_, 'info, ExpireClaim<'info>>) -> Result<()> {
         require!(
             ctx.accounts.authority.is_signer,
             CoordinationError::InvalidInput
@@ -195,8 +318,8 @@ pub mod agenc_coordination {
     /// * `ctx` - Context with task, worker claim, and reward accounts
     /// * `proof_hash` - 32-byte hash of the proof of work
     /// * `result_data` - Optional result data or pointer
-    pub fn complete_task(
-        ctx: Context<CompleteTask>,
+    pub fn complete_task<'info>(
+        ctx: Context<'_, '_, '_, 'info, CompleteTask<'info>>,
         proof_hash: [u8; 32],
         result_data: Option<[u8; 64]>,
     ) -> Result<()> {
@@ -204,16 +327,29 @@ pub mod agenc_coordination {
     }
 
     /// Complete a task with private proof verification.
-    pub fn complete_task_private(
-        ctx: Context<CompleteTaskPrivate>,
+    pub fn complete_task_private<'info>(
+        ctx: Context<'_, '_, '_, 'info, CompleteTaskPrivate<'info>>,
         task_id: u64,
         proof: PrivateCompletionPayload,
     ) -> Result<()> {
         instructions::complete_task_private::complete_task_private(ctx, task_id, proof)
     }
 
+    /// Initialize the trusted ZK image ID config.
+    pub fn initialize_zk_config(
+        ctx: Context<InitializeZkConfig>,
+        active_image_id: [u8; 32],
+    ) -> Result<()> {
+        instructions::initialize_zk_config::handler(ctx, active_image_id)
+    }
+
+    /// Rotate the trusted ZK image ID.
+    pub fn update_zk_image_id(ctx: Context<UpdateZkImageId>, new_image_id: [u8; 32]) -> Result<()> {
+        instructions::update_zk_image_id::handler(ctx, new_image_id)
+    }
+
     /// Cancel an unclaimed or expired task and reclaim funds.
-    pub fn cancel_task(ctx: Context<CancelTask>) -> Result<()> {
+    pub fn cancel_task<'info>(ctx: Context<'_, '_, '_, 'info, CancelTask<'info>>) -> Result<()> {
         require!(
             ctx.accounts.authority.is_signer,
             CoordinationError::UnauthorizedTaskAction
@@ -279,7 +415,9 @@ pub mod agenc_coordination {
 
     /// Execute the resolved dispute outcome.
     /// Requires sufficient votes to meet threshold.
-    pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
+    pub fn resolve_dispute<'info>(
+        ctx: Context<'_, '_, '_, 'info, ResolveDispute<'info>>,
+    ) -> Result<()> {
         require!(
             ctx.accounts.authority.is_signer,
             CoordinationError::UnauthorizedResolver
@@ -308,7 +446,9 @@ pub mod agenc_coordination {
     }
 
     /// Expire a dispute after the maximum duration has passed.
-    pub fn expire_dispute(ctx: Context<ExpireDispute>) -> Result<()> {
+    pub fn expire_dispute<'info>(
+        ctx: Context<'_, '_, '_, 'info, ExpireDispute<'info>>,
+    ) -> Result<()> {
         require!(
             ctx.accounts.authority.is_signer,
             CoordinationError::InvalidInput

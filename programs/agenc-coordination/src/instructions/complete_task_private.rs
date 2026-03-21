@@ -1,15 +1,18 @@
 //! Private task completion with RISC Zero verifier-router verification.
 
 use crate::errors::CoordinationError;
+use crate::instructions::bid_settlement_helpers::{
+    finalize_bid_task_completion, load_bid_task_completion_meta,
+};
 use crate::instructions::completion_helpers::TokenPaymentAccounts;
 use crate::instructions::completion_helpers::{
-    calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
-    validate_task_dependency,
+    calculate_fee_with_reputation, execute_completion_rewards, load_task_claim_or_not_claimed,
+    validate_completion_prereqs, validate_task_dependency,
 };
 use crate::instructions::token_helpers::{validate_token_account, validate_unchecked_token_mint};
 use crate::state::{
     AgentRegistration, BindingSpend, NullifierSpend, ProtocolConfig, Task, TaskClaim, TaskEscrow,
-    HASH_SIZE, RESULT_DATA_SIZE,
+    ZkConfig, HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -21,7 +24,7 @@ use solana_sha256_hasher::hashv;
 const RISC0_JOURNAL_LEN: usize = 192;
 const RISC0_SELECTOR_LEN: usize = 4;
 const RISC0_IMAGE_ID_LEN: usize = 32;
-const RISC0_SEAL_BORSH_LEN: usize = 260;
+const RISC0_SEAL_BYTES_LEN: usize = 260;
 
 // Journal field offsets (each field is HASH_SIZE=32 bytes)
 const JOURNAL_TASK_PDA_OFFSET: usize = 0;
@@ -45,16 +48,9 @@ const VERIFIER_ENTRY_ESTOPPED_OFFSET: usize = 44;
 
 const TRUSTED_RISC0_SELECTOR: [u8; RISC0_SELECTOR_LEN] = [0x52, 0x5a, 0x56, 0x4d];
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID: Pubkey =
-    Pubkey::from_str_const("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
+    Pubkey::from_str_const("E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ");
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID: Pubkey =
-    Pubkey::from_str_const("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
-// SHA-256 digest of the RISC Zero guest ELF (agenc-zkvm-methods AGENC_GUEST_ID).
-// Regenerate with: cargo run -p agenc-zkvm-host --features production-prover -- image-id
-// This value MUST match TRUSTED_RISC0_IMAGE_ID in sdk/src/constants.ts exactly.
-const TRUSTED_RISC0_IMAGE_ID: [u8; RISC0_IMAGE_ID_LEN] = [
-    202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245, 211, 97, 58, 48, 7, 14,
-    121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
-];
+    Pubkey::from_str_const("3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc");
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PrivateCompletionPayload {
@@ -77,12 +73,12 @@ pub struct CompleteTaskPrivate<'info> {
 
     #[account(
         mut,
-        close = authority,
         seeds = [b"claim", task.key().as_ref(), worker.key().as_ref()],
-        bump = claim.bump,
-        constraint = claim.task == task.key() @ CoordinationError::NotClaimed
+        bump
     )]
-    pub claim: Box<Account<'info, TaskClaim>>,
+    /// CHECK: Claim PDA is validated by seeds and loaded in the handler so a missing
+    /// claim can surface `NotClaimed` instead of Anchor's `AccountNotInitialized`.
+    pub claim: UncheckedAccount<'info>,
 
     #[account(
         mut,
@@ -112,6 +108,12 @@ pub struct CompleteTaskPrivate<'info> {
         bump = protocol_config.bump
     )]
     pub protocol_config: Box<Account<'info, ProtocolConfig>>,
+
+    #[account(
+        seeds = [b"zk_config"],
+        bump = zk_config.bump
+    )]
+    pub zk_config: Box<Account<'info, ZkConfig>>,
 
     #[account(
         init,
@@ -177,113 +179,166 @@ pub struct CompleteTaskPrivate<'info> {
 
     // === Optional SPL Token accounts (only required for token-denominated tasks) ===
     #[account(mut)]
-    pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
+    pub token_escrow_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     /// CHECK: Validated in handler
     #[account(mut)]
     pub worker_token_account: Option<UncheckedAccount<'info>>,
 
     #[account(mut)]
-    pub treasury_token_account: Option<Account<'info, TokenAccount>>,
+    pub treasury_token_account: Option<Box<Account<'info, TokenAccount>>>,
 
-    pub reward_mint: Option<Account<'info, Mint>>,
+    pub reward_mint: Option<Box<Account<'info, Mint>>>,
 
     pub token_program: Option<Program<'info, Token>>,
 }
 
-pub fn complete_task_private(
-    mut ctx: Context<CompleteTaskPrivate>,
+pub fn complete_task_private<'info>(
+    ctx: Context<'_, '_, '_, 'info, CompleteTaskPrivate<'info>>,
+    task_id: u64,
+    proof: PrivateCompletionPayload,
+) -> Result<()> {
+    complete_task_private_impl(
+        ctx.accounts,
+        ctx.remaining_accounts,
+        ctx.program_id,
+        ctx.bumps.binding_spend,
+        ctx.bumps.nullifier_spend,
+        task_id,
+        proof,
+    )
+}
+
+fn complete_task_private_impl<'info>(
+    accounts: &mut CompleteTaskPrivate<'info>,
+    remaining_accounts: &[AccountInfo<'info>],
+    program_id: &Pubkey,
+    binding_spend_bump: u8,
+    nullifier_spend_bump: u8,
     task_id: u64,
     proof: PrivateCompletionPayload,
 ) -> Result<()> {
     let clock = Clock::get()?;
-    let task_key = ctx.accounts.task.key();
-    let decoded_proof = verify_private_completion_stage(&ctx, &task_key, task_id, &proof, &clock)?;
-    settle_private_completion(&mut ctx, &decoded_proof, &clock)
-}
-
-#[inline(never)]
-fn settle_private_completion(
-    ctx: &mut Context<CompleteTaskPrivate>,
-    decoded_proof: &DecodedPrivateProof,
-    clock: &Clock,
-) -> Result<()> {
+    let task_key = accounts.task.key();
+    let mut claim = load_task_claim_or_not_claimed(&accounts.claim, &task_key)?;
+    let decoded_proof = verify_private_completion_stage(
+        accounts,
+        remaining_accounts,
+        program_id,
+        &task_key,
+        &claim,
+        task_id,
+        &proof,
+        &clock,
+    )?;
+    let worker_key = accounts.worker.key();
     record_private_spends(
-        ctx.accounts,
+        task_key,
+        worker_key,
+        &mut accounts.binding_spend,
+        &mut accounts.nullifier_spend,
         &decoded_proof.parsed_journal,
-        clock,
-        ctx.bumps.binding_spend,
-        ctx.bumps.nullifier_spend,
+        &clock,
+        binding_spend_bump,
+        nullifier_spend_bump,
     );
-    let token_accounts = build_token_payment_accounts(ctx.accounts)?;
+    let token_accounts = build_token_payment_accounts(accounts)?;
+    let bid_settlement = load_bid_task_completion_meta(
+        accounts.task.as_ref(),
+        &task_key,
+        &claim,
+        remaining_accounts,
+    )?;
+    let reward_amount_override = bid_settlement
+        .as_ref()
+        .map(|settlement| settlement.accepted_bid_price);
+    let authority_info = accounts.authority.to_account_info();
+    let treasury_info = accounts.treasury.to_account_info();
+    let creator_info = accounts.creator.to_account_info();
     finalize_private_completion(
-        ctx.accounts,
+        &mut accounts.task,
+        &mut claim,
+        &mut accounts.escrow,
+        &mut accounts.worker,
+        &mut accounts.protocol_config,
+        authority_info,
+        treasury_info,
+        creator_info,
         decoded_proof.parsed_journal.output_commitment,
-        clock,
+        &clock,
+        reward_amount_override,
         token_accounts,
-    )
+    )?;
+    if let Some(settlement) = &bid_settlement {
+        finalize_bid_task_completion(
+            remaining_accounts,
+            &task_key,
+            &claim,
+            settlement,
+            clock.unix_timestamp,
+        )?;
+    }
+    claim.close(accounts.authority.to_account_info())?;
+    Ok(())
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Risc0Groth16Proof {
     pi_a: [u8; 64],
     pi_b: [u8; 128],
     pi_c: [u8; 64],
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Risc0Seal {
     selector: [u8; RISC0_SELECTOR_LEN],
     proof: Risc0Groth16Proof,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-struct RouterVerifyArgs {
-    seal: Risc0Seal,
-    image_id: [u8; RISC0_IMAGE_ID_LEN],
-    journal_digest: [u8; HASH_SIZE],
-}
-
 #[derive(Clone, Copy, Debug)]
-struct ParsedJournal {
-    task_pda: [u8; HASH_SIZE],
-    agent_authority: [u8; HASH_SIZE],
-    constraint_hash: [u8; HASH_SIZE],
-    output_commitment: [u8; HASH_SIZE],
-    binding: [u8; HASH_SIZE],
-    nullifier: [u8; HASH_SIZE],
+pub(crate) struct ParsedJournal {
+    pub(crate) task_pda: [u8; HASH_SIZE],
+    pub(crate) agent_authority: [u8; HASH_SIZE],
+    pub(crate) constraint_hash: [u8; HASH_SIZE],
+    pub(crate) output_commitment: [u8; HASH_SIZE],
+    pub(crate) binding: [u8; HASH_SIZE],
+    pub(crate) nullifier: [u8; HASH_SIZE],
 }
 
 #[derive(Clone, Debug)]
-struct DecodedPrivateProof {
+pub(crate) struct DecodedPrivateProof {
     seal: Risc0Seal,
-    parsed_journal: ParsedJournal,
+    pub(crate) parsed_journal: ParsedJournal,
     journal_digest: [u8; HASH_SIZE],
 }
 
 #[inline(never)]
-fn verify_private_completion_stage(
-    ctx: &Context<CompleteTaskPrivate>,
+pub(crate) fn verify_private_completion_stage(
+    accounts: &CompleteTaskPrivate,
+    remaining_accounts: &[AccountInfo<'_>],
+    program_id: &Pubkey,
     task_key: &Pubkey,
+    claim: &TaskClaim,
     task_id: u64,
     proof: &PrivateCompletionPayload,
     clock: &Clock,
 ) -> Result<DecodedPrivateProof> {
     let decoded_proof = decode_private_completion_payload(proof)?;
     validate_completion_inputs(
-        &ctx.accounts.task,
+        &accounts.task,
         task_key,
-        &ctx.accounts.claim,
-        &ctx.accounts.protocol_config,
-        ctx.remaining_accounts,
-        ctx.program_id,
-        &ctx.accounts.authority.key(),
+        claim,
+        &accounts.protocol_config,
+        &accounts.zk_config,
+        remaining_accounts,
+        program_id,
+        &accounts.authority.key(),
         task_id,
         proof,
         &decoded_proof.parsed_journal,
         clock,
     )?;
-    invoke_router_verification(ctx.accounts, proof, &decoded_proof)?;
+    invoke_router_verification(accounts, proof, &decoded_proof)?;
     Ok(decoded_proof)
 }
 
@@ -292,11 +347,10 @@ fn decode_private_completion_payload(
     proof: &PrivateCompletionPayload,
 ) -> Result<DecodedPrivateProof> {
     require!(
-        proof.seal_bytes.len() == RISC0_SEAL_BORSH_LEN,
+        proof.seal_bytes.len() == RISC0_SEAL_BYTES_LEN,
         CoordinationError::InvalidSealEncoding
     );
-    let seal = crate::utils::borsh::try_from_slice_non_zst::<Risc0Seal>(&proof.seal_bytes)
-        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    let seal = decode_seal_bytes(&proof.seal_bytes)?;
     require!(
         seal.selector == TRUSTED_RISC0_SELECTOR,
         CoordinationError::TrustedSelectorMismatch
@@ -318,6 +372,7 @@ fn validate_completion_inputs<'info>(
     task_key: &Pubkey,
     claim: &TaskClaim,
     protocol_config: &ProtocolConfig,
+    zk_config: &ZkConfig,
     remaining_accounts: &[AccountInfo<'info>],
     program_id: &Pubkey,
     authority: &Pubkey,
@@ -340,7 +395,7 @@ fn validate_completion_inputs<'info>(
         task.constraint_hash != [0u8; HASH_SIZE],
         CoordinationError::NotPrivateTask
     );
-    validate_parsed_journal(task, task_key, authority, proof, parsed_journal)?;
+    validate_parsed_journal(task, task_key, authority, zk_config, proof, parsed_journal)?;
 
     Ok(())
 }
@@ -358,6 +413,7 @@ fn validate_parsed_journal(
     task: &Task,
     task_key: &Pubkey,
     authority: &Pubkey,
+    zk_config: &ZkConfig,
     proof: &PrivateCompletionPayload,
     parsed_journal: &ParsedJournal,
 ) -> Result<()> {
@@ -382,7 +438,7 @@ fn validate_parsed_journal(
         CoordinationError::InvalidNullifier
     );
     require!(
-        proof.image_id == TRUSTED_RISC0_IMAGE_ID,
+        proof.image_id == zk_config.active_image_id,
         CoordinationError::InvalidImageId
     );
     Ok(())
@@ -475,13 +531,7 @@ fn build_router_verify_ix(
 ) -> Result<Instruction> {
     let mut cpi_data = Vec::with_capacity(332);
     cpi_data.extend_from_slice(&ROUTER_VERIFY_IX_DISCRIMINATOR);
-    RouterVerifyArgs {
-        seal: seal.clone(),
-        image_id,
-        journal_digest,
-    }
-    .serialize(&mut cpi_data)
-    .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    append_router_verify_args(&mut cpi_data, seal, image_id, journal_digest);
 
     Ok(Instruction {
         program_id: *router_program_key,
@@ -495,24 +545,61 @@ fn build_router_verify_ix(
     })
 }
 
-fn record_private_spends<'info>(
-    accounts: &mut CompleteTaskPrivate<'info>,
+fn decode_seal_bytes(seal_bytes: &[u8]) -> Result<Risc0Seal> {
+    require!(
+        seal_bytes.len() == RISC0_SEAL_BYTES_LEN,
+        CoordinationError::InvalidSealEncoding
+    );
+
+    let selector = seal_bytes[0..RISC0_SELECTOR_LEN]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    let pi_a = seal_bytes[RISC0_SELECTOR_LEN..RISC0_SELECTOR_LEN + 64]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    let pi_b = seal_bytes[RISC0_SELECTOR_LEN + 64..RISC0_SELECTOR_LEN + 64 + 128]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+    let pi_c = seal_bytes[RISC0_SELECTOR_LEN + 64 + 128..RISC0_SEAL_BYTES_LEN]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidSealEncoding))?;
+
+    Ok(Risc0Seal {
+        selector,
+        proof: Risc0Groth16Proof { pi_a, pi_b, pi_c },
+    })
+}
+
+fn append_router_verify_args(
+    out: &mut Vec<u8>,
+    seal: &Risc0Seal,
+    image_id: [u8; RISC0_IMAGE_ID_LEN],
+    journal_digest: [u8; HASH_SIZE],
+) {
+    out.extend_from_slice(&seal.selector);
+    out.extend_from_slice(&seal.proof.pi_a);
+    out.extend_from_slice(&seal.proof.pi_b);
+    out.extend_from_slice(&seal.proof.pi_c);
+    out.extend_from_slice(&image_id);
+    out.extend_from_slice(&journal_digest);
+}
+
+pub(crate) fn record_private_spends<'info>(
+    task_key: Pubkey,
+    worker_key: Pubkey,
+    binding_spend: &mut Account<'info, BindingSpend>,
+    nullifier_spend: &mut Account<'info, NullifierSpend>,
     parsed_journal: &ParsedJournal,
     clock: &Clock,
     binding_spend_bump: u8,
     nullifier_spend_bump: u8,
 ) {
-    let task_key = accounts.task.key();
-    let worker_key = accounts.worker.key();
-
-    let binding_spend = &mut accounts.binding_spend;
     binding_spend.binding = parsed_journal.binding;
     binding_spend.task = task_key;
     binding_spend.agent = worker_key;
     binding_spend.spent_at = clock.unix_timestamp;
     binding_spend.bump = binding_spend_bump;
 
-    let nullifier_spend = &mut accounts.nullifier_spend;
     nullifier_spend.nullifier = parsed_journal.nullifier;
     nullifier_spend.task = task_key;
     nullifier_spend.agent = worker_key;
@@ -521,17 +608,20 @@ fn record_private_spends<'info>(
 }
 
 #[inline(never)]
-fn finalize_private_completion<'info>(
-    accounts: &mut CompleteTaskPrivate<'info>,
+pub(crate) fn finalize_private_completion<'info>(
+    task: &mut Account<'info, Task>,
+    claim: &mut Account<'info, TaskClaim>,
+    escrow: &mut Account<'info, TaskEscrow>,
+    worker: &mut Account<'info, AgentRegistration>,
+    protocol_config: &mut Account<'info, ProtocolConfig>,
+    authority: AccountInfo<'info>,
+    treasury: AccountInfo<'info>,
+    creator: AccountInfo<'info>,
     output_commitment: [u8; HASH_SIZE],
     clock: &Clock,
+    reward_amount_override: Option<u64>,
     token_accounts: Option<TokenPaymentAccounts<'info>>,
 ) -> Result<()> {
-    let task = &mut accounts.task;
-    let claim = &mut accounts.claim;
-    let escrow = &mut accounts.escrow;
-    let worker = &mut accounts.worker;
-
     claim.proof_hash = output_commitment;
     claim.result_data = [0u8; RESULT_DATA_SIZE];
     claim.is_completed = true;
@@ -543,11 +633,12 @@ fn finalize_private_completion<'info>(
         claim,
         escrow,
         worker,
-        &mut accounts.protocol_config,
-        &accounts.authority.to_account_info(),
-        &accounts.treasury.to_account_info(),
-        &accounts.creator.to_account_info(),
+        protocol_config,
+        &authority,
+        &treasury,
+        &creator,
         protocol_fee_bps,
+        reward_amount_override,
         None,
         clock,
         token_accounts,
@@ -555,7 +646,7 @@ fn finalize_private_completion<'info>(
 }
 
 #[inline(never)]
-fn build_token_payment_accounts<'info>(
+pub(crate) fn build_token_payment_accounts<'info>(
     accounts: &CompleteTaskPrivate<'info>,
 ) -> Result<Option<TokenPaymentAccounts<'info>>> {
     let task = &accounts.task;

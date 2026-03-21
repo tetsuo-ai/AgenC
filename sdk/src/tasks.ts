@@ -11,6 +11,7 @@ import {
   Keypair,
   SystemProgram,
   ComputeBudgetProgram,
+  type AccountMeta,
 } from "@solana/web3.js";
 import anchor, { type Program } from "@coral-xyz/anchor";
 import {
@@ -131,6 +132,9 @@ export interface CompleteTaskPrivateWithPreflightOptions {
   nullifierCache?: NullifierCache;
   proofGeneratedAtMs?: number;
   maxProofAgeMs?: number;
+  parentTaskPda?: PublicKey;
+  acceptedBidSettlement?: TaskCompletionAcceptedBidSettlement;
+  bidderAuthority?: PublicKey;
 }
 
 /**
@@ -139,6 +143,47 @@ export interface CompleteTaskPrivateWithPreflightOptions {
  */
 export interface CompleteTaskPrivateSafeOptions extends CompleteTaskPrivateWithPreflightOptions {
   validatePreconditions?: boolean;
+}
+
+export interface TaskCompletionAcceptedBidSettlement {
+  bidBook: PublicKey;
+  acceptedBid: PublicKey;
+  bidderMarketState: PublicKey;
+}
+
+export interface TaskCompletionOptions {
+  parentTaskPda?: PublicKey;
+  acceptedBidSettlement?: TaskCompletionAcceptedBidSettlement;
+  bidderAuthority?: PublicKey;
+}
+
+export interface ExpireClaimBidMarketplaceSettlement {
+  bidMarketplace: PublicKey;
+  bidBook: PublicKey;
+  acceptedBid: PublicKey;
+  bidderMarketState: PublicKey;
+  creator: PublicKey;
+}
+
+export interface ExpireClaimOptions {
+  bidMarketplaceSettlement?: ExpireClaimBidMarketplaceSettlement;
+}
+
+export interface CancelTaskWorkerCleanupTriple {
+  claimPda: PublicKey;
+  workerAgentPda: PublicKey;
+  rentRecipient: PublicKey;
+}
+
+export interface CancelTaskBidMarketplaceSettlement {
+  bidBook: PublicKey;
+  acceptedBid?: PublicKey;
+  bidderMarketState?: PublicKey;
+}
+
+export interface CancelTaskOptions {
+  workerCleanupTriples?: CancelTaskWorkerCleanupTriple[];
+  bidMarketplaceSettlement?: CancelTaskBidMarketplaceSettlement;
 }
 
 export interface TaskLifecycleEvent {
@@ -395,6 +440,178 @@ function buildCompletionTokenAccounts(
   };
 }
 
+function buildTaskCompletionRemainingAccounts(
+  options: TaskCompletionOptions | undefined,
+  defaultBidderAuthority: PublicKey,
+): AccountMeta[] {
+  const metas: AccountMeta[] = [];
+
+  if (options?.parentTaskPda) {
+    metas.push({
+      pubkey: options.parentTaskPda,
+      isSigner: false,
+      isWritable: false,
+    });
+  }
+
+  if (options?.acceptedBidSettlement) {
+    const bidderAuthority = options.bidderAuthority ?? defaultBidderAuthority;
+    metas.push(
+      {
+        pubkey: options.acceptedBidSettlement.bidBook,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: options.acceptedBidSettlement.acceptedBid,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: options.acceptedBidSettlement.bidderMarketState,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: bidderAuthority,
+        isSigner: false,
+        isWritable: true,
+      },
+    );
+  }
+
+  return metas;
+}
+
+function buildExpireClaimRemainingAccounts(
+  options: ExpireClaimOptions | undefined,
+): AccountMeta[] {
+  const settlement = options?.bidMarketplaceSettlement;
+  if (!settlement) {
+    return [];
+  }
+
+  return [
+    {
+      pubkey: settlement.bidMarketplace,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: settlement.bidBook,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: settlement.acceptedBid,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: settlement.bidderMarketState,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: settlement.creator,
+      isSigner: false,
+      isWritable: true,
+    },
+  ];
+}
+
+function buildLegacyCancelTaskRemainingAccounts(
+  workerPairs?: Array<{ claimPda: PublicKey; workerAgentPda: PublicKey }>,
+): AccountMeta[] {
+  return (workerPairs ?? []).flatMap((pair) => [
+    { pubkey: pair.claimPda, isSigner: false, isWritable: true },
+    { pubkey: pair.workerAgentPda, isSigner: false, isWritable: true },
+  ]);
+}
+
+function buildCancelTaskRemainingAccounts(
+  workerPairs: Array<{ claimPda: PublicKey; workerAgentPda: PublicKey }> | undefined,
+  options: CancelTaskOptions | undefined,
+): AccountMeta[] {
+  const settlement = options?.bidMarketplaceSettlement;
+  const hasMarketplaceAccounts =
+    settlement !== undefined || (options?.workerCleanupTriples?.length ?? 0) > 0;
+
+  if (!hasMarketplaceAccounts) {
+    return buildLegacyCancelTaskRemainingAccounts(workerPairs);
+  }
+
+  if (!settlement) {
+    throw new Error(
+      "CancelTaskOptions.bidMarketplaceSettlement is required when providing Marketplace V2 cleanup accounts",
+    );
+  }
+
+  const hasAcceptedBidSuffix =
+    settlement.acceptedBid !== undefined ||
+    settlement.bidderMarketState !== undefined;
+  if (
+    hasAcceptedBidSuffix &&
+    (settlement.acceptedBid === undefined ||
+      settlement.bidderMarketState === undefined)
+  ) {
+    throw new Error(
+      "CancelTaskOptions.bidMarketplaceSettlement.acceptedBid and bidderMarketState must be provided together",
+    );
+  }
+
+  if (
+    hasAcceptedBidSuffix &&
+    options?.workerCleanupTriples === undefined &&
+    (workerPairs?.length ?? 0) > 0
+  ) {
+    throw new Error(
+      "CancelTaskOptions.workerCleanupTriples are required for bid-marketplace cancellation with accepted worker claims",
+    );
+  }
+
+  if (
+    !hasAcceptedBidSuffix &&
+    (options?.workerCleanupTriples?.length ?? 0) > 0
+  ) {
+    throw new Error(
+      "CancelTaskOptions.workerCleanupTriples require acceptedBid and bidderMarketState settlement accounts",
+    );
+  }
+
+  const metas: AccountMeta[] = [];
+  for (const triple of options?.workerCleanupTriples ?? []) {
+    metas.push(
+      { pubkey: triple.claimPda, isSigner: false, isWritable: true },
+      { pubkey: triple.workerAgentPda, isSigner: false, isWritable: true },
+      { pubkey: triple.rentRecipient, isSigner: false, isWritable: true },
+    );
+  }
+
+  metas.push({
+    pubkey: settlement.bidBook,
+    isSigner: false,
+    isWritable: true,
+  });
+
+  if (settlement.acceptedBid && settlement.bidderMarketState) {
+    metas.push(
+      {
+        pubkey: settlement.acceptedBid,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: settlement.bidderMarketState,
+        isSigner: false,
+        isWritable: true,
+      },
+    );
+  }
+
+  return metas;
+}
+
 interface CompletionContext {
   task: {
     creator: PublicKey;
@@ -613,6 +830,7 @@ export async function expireClaim(
   taskPda: PublicKey,
   workerAgentId: Uint8Array | number[],
   rentRecipient: PublicKey = caller.publicKey,
+  options?: ExpireClaimOptions,
 ): Promise<{ txSignature: string }> {
   const programId = program.programId;
   const workerAgentPda = deriveAgentPda(workerAgentId, programId);
@@ -620,7 +838,7 @@ export async function expireClaim(
   const escrowPda = deriveEscrowPda(taskPda, programId);
   const protocolPda = deriveProtocolPda(programId);
 
-  const tx = await program.methods
+  const builder = program.methods
     .expireClaim()
     .accountsPartial({
       authority: caller.publicKey,
@@ -637,8 +855,14 @@ export async function expireClaim(
         units: RECOMMENDED_CU_EXPIRE_CLAIM,
       }),
     ])
-    .signers([caller])
-    .rpc();
+    .signers([caller]);
+
+  const remainingAccounts = buildExpireClaimRemainingAccounts(options);
+  if (remainingAccounts.length > 0) {
+    builder.remainingAccounts(remainingAccounts);
+  }
+
+  const tx = await builder.rpc();
 
   await connection.confirmTransaction(tx, "confirmed");
 
@@ -659,6 +883,7 @@ export async function completeTask(
   taskPda: PublicKey,
   proofHash: Uint8Array | number[],
   resultData?: Uint8Array | number[] | null,
+  options?: TaskCompletionOptions,
 ): Promise<{ txSignature: string }> {
   const programId = program.programId;
   const workerAgentPda = deriveAgentPda(workerAgentId, programId);
@@ -687,7 +912,7 @@ export async function completeTask(
     ? RECOMMENDED_CU_COMPLETE_TASK_TOKEN
     : RECOMMENDED_CU_COMPLETE_TASK;
 
-  const tx = await program.methods
+  const builder = program.methods
     .completeTask(proofHashArr, resultDataBuf)
     .accountsPartial({
       task: taskPda,
@@ -704,8 +929,17 @@ export async function completeTask(
     .preInstructions([
       ComputeBudgetProgram.setComputeUnitLimit({ units: cuLimit }),
     ])
-    .signers([worker])
-    .rpc();
+    .signers([worker]);
+
+  const remainingAccounts = buildTaskCompletionRemainingAccounts(
+    options,
+    worker.publicKey,
+  );
+  if (remainingAccounts.length > 0) {
+    builder.remainingAccounts(remainingAccounts);
+  }
+
+  const tx = await builder.rpc();
 
   await connection.confirmTransaction(tx, "confirmed");
 
@@ -725,6 +959,7 @@ export async function completeTaskPrivate(
   workerAgentId: Uint8Array | number[],
   taskPda: PublicKey,
   proof: PrivateCompletionPayload,
+  options?: TaskCompletionOptions,
 ): Promise<{ txSignature: string }> {
   const programId = program.programId;
   const workerAgentPda = deriveAgentPda(workerAgentId, programId);
@@ -793,7 +1028,7 @@ export async function completeTaskPrivate(
     ? RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN
     : RECOMMENDED_CU_COMPLETE_TASK_PRIVATE;
 
-  const tx = await program.methods
+  const builder = program.methods
     .completeTaskPrivate(taskIdU64, {
       sealBytes: Array.from(sealBytes),
       journal: Array.from(journal),
@@ -822,8 +1057,17 @@ export async function completeTaskPrivate(
     .preInstructions([
       ComputeBudgetProgram.setComputeUnitLimit({ units: cuLimit }),
     ])
-    .signers([worker])
-    .rpc();
+    .signers([worker]);
+
+  const remainingAccounts = buildTaskCompletionRemainingAccounts(
+    options,
+    worker.publicKey,
+  );
+  if (remainingAccounts.length > 0) {
+    builder.remainingAccounts(remainingAccounts);
+  }
+
+  const tx = await builder.rpc();
 
   await connection.confirmTransaction(tx, "confirmed");
 
@@ -884,6 +1128,11 @@ export async function completeTaskPrivateWithPreflight(
       workerAgentId,
       taskPda,
       proof,
+      {
+        parentTaskPda: options.parentTaskPda,
+        acceptedBidSettlement: options.acceptedBidSettlement,
+        bidderAuthority: options.bidderAuthority,
+      },
     );
 
     // Confirm nullifier usage after successful on-chain transaction
@@ -958,6 +1207,7 @@ export async function cancelTask(
   creator: Keypair,
   taskPda: PublicKey,
   workerPairs?: Array<{ claimPda: PublicKey; workerAgentPda: PublicKey }>,
+  options?: CancelTaskOptions,
 ): Promise<{ txSignature: string }> {
   const programId = program.programId;
   const escrowPda = deriveEscrowPda(taskPda, programId);
@@ -992,10 +1242,7 @@ export async function cancelTask(
   }
 
   // Build remaining accounts for worker claim pairs
-  const remainingAccounts = (workerPairs ?? []).flatMap((pair) => [
-    { pubkey: pair.claimPda, isSigner: false, isWritable: true },
-    { pubkey: pair.workerAgentPda, isSigner: false, isWritable: true },
-  ]);
+  const remainingAccounts = buildCancelTaskRemainingAccounts(workerPairs, options);
 
   const cuLimit = mint
     ? RECOMMENDED_CU_CANCEL_TASK_TOKEN

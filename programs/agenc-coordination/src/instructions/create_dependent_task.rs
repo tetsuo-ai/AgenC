@@ -13,8 +13,8 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 use super::rate_limit_helpers::check_task_creation_rate_limits;
 use super::task_init_helpers::{
-    increment_total_tasks, init_escrow_fields, init_task_fields, validate_deadline,
-    validate_task_params,
+    increment_total_tasks, init_escrow_fields, init_task_fields, validate_bid_task_mode,
+    validate_deadline, validate_task_params,
 };
 
 #[derive(Accounts)]
@@ -119,6 +119,7 @@ pub fn handler(
         task_type,
         min_reputation,
     )?;
+    validate_bid_task_mode(task_type, max_workers, reward_mint)?;
     // Validate parent task belongs to same creator (#520)
     require!(
         ctx.accounts.parent_task.creator == ctx.accounts.creator.key(),

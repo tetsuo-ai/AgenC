@@ -15,8 +15,14 @@
 //! to incentivize timely cleanup of expired claims.
 
 use crate::errors::CoordinationError;
+use crate::instructions::bid_settlement_helpers::{
+    settle_accepted_bid, AcceptedBidBondDisposition, AcceptedBidBookDisposition,
+};
 use crate::instructions::lamport_transfer::transfer_lamports;
-use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus};
+use crate::state::{
+    AgentRegistration, BidMarketplaceConfig, ProtocolConfig, Task, TaskClaim, TaskEscrow,
+    TaskStatus, TaskType,
+};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
@@ -28,6 +34,15 @@ const CLEANUP_REWARD: u64 = 1000;
 /// authority can expire the claim. This prevents griefing attacks where
 /// malicious actors race workers to expire their claims. (Issue #421)
 const GRACE_PERIOD: i64 = 60;
+
+fn remaining_account_info<'info>(
+    remaining_accounts: &[AccountInfo<'info>],
+    index: usize,
+) -> &'info AccountInfo<'info> {
+    // SAFETY: the slice already stores `AccountInfo<'info>` values; we only
+    // widen the reference itself back to `'info` for Anchor deserialization.
+    unsafe { std::mem::transmute(&remaining_accounts[index]) }
+}
 
 #[derive(Accounts)]
 pub struct ExpireClaim<'info> {
@@ -93,7 +108,7 @@ pub struct ExpireClaim<'info> {
 /// # Cleanup Reward
 /// Callers receive a small reward from the task escrow to incentivize
 /// timely cleanup of expired claims.
-pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, ExpireClaim<'info>>) -> Result<()> {
     check_version_compatible(&ctx.accounts.protocol_config)?;
     require!(
         ctx.accounts.authority.is_signer,
@@ -169,6 +184,45 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     // (Don't reopen cancelled/completed/disputed tasks - prevents zombie task attack)
     if task.current_workers == 0 && task.status == TaskStatus::InProgress {
         task.status = TaskStatus::Open;
+    }
+
+    if task.task_type == TaskType::BidExclusive {
+        require!(
+            ctx.remaining_accounts.len() >= 5,
+            CoordinationError::BidSettlementAccountsRequired
+        );
+
+        let bid_marketplace_info = remaining_account_info(ctx.remaining_accounts, 0);
+        let bid_book_info = remaining_account_info(ctx.remaining_accounts, 1);
+        let accepted_bid_info = remaining_account_info(ctx.remaining_accounts, 2);
+        let bidder_market_state_info = remaining_account_info(ctx.remaining_accounts, 3);
+        let creator_info = remaining_account_info(ctx.remaining_accounts, 4);
+
+        require!(
+            bid_marketplace_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        let bid_marketplace = Account::<BidMarketplaceConfig>::try_from(bid_marketplace_info)?;
+        require!(
+            creator_info.key() == task.creator,
+            CoordinationError::InvalidCreator
+        );
+        let bidder_authority_info = ctx.accounts.rent_recipient.to_account_info();
+
+        settle_accepted_bid(
+            &task.key(),
+            claim,
+            bid_book_info,
+            accepted_bid_info,
+            bidder_market_state_info,
+            bidder_authority_info,
+            Some(creator_info.clone()),
+            clock.unix_timestamp,
+            AcceptedBidBookDisposition::Reopen,
+            AcceptedBidBondDisposition::SlashByBpsToCreator(
+                bid_marketplace.accepted_no_show_slash_bps,
+            ),
+        )?;
     }
 
     // Decrement worker active tasks

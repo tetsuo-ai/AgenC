@@ -94,6 +94,57 @@ pub enum CoordinationError {
     #[msg("Invalid task type")]
     InvalidTaskType,
 
+    #[msg("Task is not a Marketplace V2 bid-exclusive task")]
+    TaskNotBidExclusive,
+
+    #[msg("Bid-exclusive tasks must use max_workers = 1")]
+    BidExclusiveRequiresSingleWorker,
+
+    #[msg("Marketplace V2 bid tasks are SOL-only in v2")]
+    BidTaskSolOnly,
+
+    #[msg("Bid-exclusive tasks require bid acceptance and cannot be claimed directly")]
+    BidTaskRequiresAcceptance,
+
+    #[msg("Bid book is not open")]
+    BidBookNotOpen,
+
+    #[msg("Bid book is not in accepted state")]
+    BidBookNotAccepted,
+
+    #[msg("Bid settlement accounts are required")]
+    BidSettlementAccountsRequired,
+
+    #[msg("Bid price exceeds task budget")]
+    BidPriceExceedsTaskBudget,
+
+    #[msg("Bid expiry is invalid")]
+    InvalidBidExpiry,
+
+    #[msg("Bid ETA must be greater than zero")]
+    InvalidBidEta,
+
+    #[msg("Bid confidence must be between 0 and 10000 basis points")]
+    InvalidBidConfidence,
+
+    #[msg("Invalid matching policy")]
+    InvalidMatchingPolicy,
+
+    #[msg("Weighted score weights must sum to 10000 basis points")]
+    InvalidWeightedScoreWeights,
+
+    #[msg("Bid is not active")]
+    BidNotActive,
+
+    #[msg("Bid has already been accepted")]
+    BidAlreadyAccepted,
+
+    #[msg("Bid has not expired and bid book is not closed")]
+    BidNotExpired,
+
+    #[msg("Bid book has reached its active bid capacity")]
+    BidBookCapacityReached,
+
     #[msg("Invalid deadline: deadline must be greater than zero")]
     InvalidDeadline,
 
@@ -397,6 +448,9 @@ pub enum CoordinationError {
 
     #[msg("Only upgrade authority can perform this action")]
     UnauthorizedUpgrade,
+
+    #[msg("Only protocol authority can perform this action")]
+    UnauthorizedProtocolAuthority,
 
     #[msg("Minimum version cannot exceed current protocol version")]
     InvalidMinVersion,

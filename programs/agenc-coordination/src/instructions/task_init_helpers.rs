@@ -33,11 +33,28 @@ pub fn validate_task_params(
         max_workers > 0 && max_workers <= 100,
         CoordinationError::InvalidMaxWorkers
     );
-    require!(task_type <= 2, CoordinationError::InvalidTaskType);
+    require!(task_type <= 3, CoordinationError::InvalidTaskType);
     require!(
         min_reputation <= MAX_REPUTATION,
         CoordinationError::InvalidMinReputation
     );
+
+    Ok(())
+}
+
+/// Validates Marketplace V2 task restrictions that depend on reward denomination.
+pub fn validate_bid_task_mode(
+    task_type: u8,
+    max_workers: u8,
+    reward_mint: Option<Pubkey>,
+) -> Result<()> {
+    if task_type == 3 {
+        require!(
+            max_workers == 1,
+            CoordinationError::BidExclusiveRequiresSingleWorker
+        );
+        require!(reward_mint.is_none(), CoordinationError::BidTaskSolOnly);
+    }
 
     Ok(())
 }
@@ -96,6 +113,7 @@ pub fn init_task_fields(
         0 => TaskType::Exclusive,
         1 => TaskType::Collaborative,
         2 => TaskType::Competitive,
+        3 => TaskType::BidExclusive,
         _ => return Err(CoordinationError::InvalidTaskType.into()),
     };
     task.created_at = timestamp;

@@ -11,8 +11,8 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 use super::rate_limit_helpers::check_task_creation_rate_limits;
 use super::task_init_helpers::{
-    increment_total_tasks, init_escrow_fields, init_task_fields, validate_deadline,
-    validate_task_params,
+    increment_total_tasks, init_escrow_fields, init_task_fields, validate_bid_task_mode,
+    validate_deadline, validate_task_params,
 };
 
 #[derive(Accounts)]
@@ -89,8 +89,8 @@ pub struct CreateTask<'info> {
 /// Creates a new task.
 ///
 /// # Parameters
-/// - `task_type`: Task execution type (0=Exclusive, 1=Collaborative, 2=Competitive)
-///   Validated to be in range 0-2.
+/// - `task_type`: Task execution type
+///   (`0=Exclusive`, `1=Collaborative`, `2=Competitive`, `3=BidExclusive`).
 #[allow(clippy::too_many_arguments)]
 pub fn handler(
     ctx: Context<CreateTask>,
@@ -113,6 +113,7 @@ pub fn handler(
         task_type,
         min_reputation,
     )?;
+    validate_bid_task_mode(task_type, max_workers, reward_mint)?;
     // Validate reward is not zero (#540) - not in shared validator since dependent tasks allow zero
     require!(reward_amount > 0, CoordinationError::InvalidReward);
 

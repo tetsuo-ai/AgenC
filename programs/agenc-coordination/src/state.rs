@@ -137,6 +137,47 @@ pub enum TaskType {
     /// Race condition handling: Claims are first-come-first-served.
     /// Only the first valid completion receives the reward.
     Competitive = 2,
+    /// Bid-market exclusive task. Direct `claim_task` is disallowed; the creator
+    /// must explicitly accept a bid before a normal `TaskClaim` is created.
+    BidExclusive = 3,
+}
+
+/// Bid book state for Marketplace V2.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
+#[repr(u8)]
+pub enum BidBookState {
+    #[default]
+    Open = 0,
+    Accepted = 1,
+    Closed = 2,
+}
+
+/// Matching policy declared on a bid book.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
+#[repr(u8)]
+pub enum MatchingPolicy {
+    #[default]
+    BestPrice = 0,
+    BestEta = 1,
+    WeightedScore = 2,
+}
+
+/// Bid lifecycle state.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
+#[repr(u8)]
+pub enum TaskBidState {
+    #[default]
+    Active = 0,
+    Accepted = 1,
+}
+
+/// Weight configuration used when a bid book declares `WeightedScore`.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
+pub struct WeightedScoreWeights {
+    pub price_weight_bps: u16,
+    pub eta_weight_bps: u16,
+    pub confidence_weight_bps: u16,
+    pub reliability_weight_bps: u16,
 }
 
 /// Task dependency type for speculative execution decisions
@@ -323,6 +364,37 @@ impl ProtocolConfig {
     /// Called during migration to ensure no data corruption.
     pub fn validate_padding_fields(&self) -> bool {
         self._padding == [0u8; 2]
+    }
+}
+
+/// ZK verifier configuration account
+/// PDA seeds: ["zk_config"]
+#[account]
+#[derive(InitSpace)]
+pub struct ZkConfig {
+    /// Active trusted RISC Zero guest image ID.
+    pub active_image_id: [u8; HASH_SIZE],
+    /// Bump seed for PDA.
+    pub bump: u8,
+    /// Reserved for future ZK config extensions.
+    pub _reserved: [u8; 31],
+}
+
+impl Default for ZkConfig {
+    fn default() -> Self {
+        Self {
+            active_image_id: [0u8; HASH_SIZE],
+            bump: 0,
+            _reserved: [0u8; 31],
+        }
+    }
+}
+
+impl ZkConfig {
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8);
+
+    pub fn validate_reserved_fields(&self) -> bool {
+        self._reserved == [0u8; 31]
     }
 }
 
@@ -715,6 +787,93 @@ pub struct TaskEscrow {
 
 impl TaskEscrow {
     pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8); // bump
+}
+
+/// Marketplace V2 configuration account
+/// PDA seeds: ["bid_marketplace"]
+#[account]
+#[derive(Default, InitSpace)]
+pub struct BidMarketplaceConfig {
+    pub authority: Pubkey,
+    pub min_bid_bond_lamports: u64,
+    pub bid_creation_cooldown_secs: i64,
+    pub max_bids_per_24h: u16,
+    pub max_active_bids_per_task: u16,
+    pub max_bid_lifetime_secs: i64,
+    pub accepted_no_show_slash_bps: u16,
+    pub bump: u8,
+}
+
+impl BidMarketplaceConfig {
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8);
+}
+
+/// Per-bidder bid-market activity state
+/// PDA seeds: ["bidder_market", bidder_agent]
+#[account]
+#[derive(Default, InitSpace)]
+pub struct BidderMarketState {
+    pub bidder: Pubkey,
+    pub last_bid_created_at: i64,
+    pub bid_window_started_at: i64,
+    pub bids_created_in_window: u16,
+    pub active_bid_count: u16,
+    pub total_bids_created: u64,
+    pub total_bids_accepted: u64,
+    pub bump: u8,
+}
+
+impl BidderMarketState {
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8);
+}
+
+/// Bid book for a Marketplace V2 task
+/// PDA seeds: ["bid_book", task]
+#[account]
+#[derive(Default, InitSpace)]
+pub struct TaskBidBook {
+    pub task: Pubkey,
+    pub state: BidBookState,
+    pub policy: MatchingPolicy,
+    pub weights: WeightedScoreWeights,
+    pub accepted_bid: Option<Pubkey>,
+    pub version: u64,
+    pub total_bids: u32,
+    pub active_bids: u16,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub bump: u8,
+}
+
+impl TaskBidBook {
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8);
+}
+
+/// Single active bid per bidder per task in Marketplace V2
+/// PDA seeds: ["bid", task, bidder_agent]
+#[account]
+#[derive(Default, InitSpace)]
+pub struct TaskBid {
+    pub task: Pubkey,
+    pub bid_book: Pubkey,
+    pub bidder: Pubkey,
+    pub bidder_authority: Pubkey,
+    pub requested_reward_lamports: u64,
+    pub eta_seconds: u32,
+    pub confidence_bps: u16,
+    pub reputation_snapshot_bps: u16,
+    pub quality_guarantee_hash: [u8; 32],
+    pub metadata_hash: [u8; 32],
+    pub expires_at: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub state: TaskBidState,
+    pub bond_lamports: u64,
+    pub bump: u8,
+}
+
+impl TaskBid {
+    pub const SIZE: usize = <Self as anchor_lang::Space>::INIT_SPACE.saturating_add(8);
 }
 
 /// Agent's speculation bond account
@@ -1177,6 +1336,11 @@ mod tests {
     }
 
     #[test]
+    fn test_zk_config_size() {
+        test_size_constant!(ZkConfig);
+    }
+
+    #[test]
     fn test_task_size() {
         test_size_constant!(Task);
     }
@@ -1229,6 +1393,26 @@ mod tests {
     #[test]
     fn test_nullifier_spend_size() {
         test_size_constant!(NullifierSpend);
+    }
+
+    #[test]
+    fn test_bid_marketplace_config_size() {
+        test_size_constant!(BidMarketplaceConfig);
+    }
+
+    #[test]
+    fn test_bidder_market_state_size() {
+        test_size_constant!(BidderMarketState);
+    }
+
+    #[test]
+    fn test_task_bid_book_size() {
+        test_size_constant!(TaskBidBook);
+    }
+
+    #[test]
+    fn test_task_bid_size() {
+        test_size_constant!(TaskBid);
     }
 
     #[test]
@@ -1317,5 +1501,24 @@ mod tests {
         let mut config = ProtocolConfig::default();
         config._padding[0] = 0xFF;
         assert!(!config.validate_padding_fields());
+    }
+
+    #[test]
+    fn test_zk_config_reserved_fields_default_to_zero() {
+        let config = ZkConfig::default();
+        assert_eq!(config._reserved, [0u8; 31]);
+    }
+
+    #[test]
+    fn test_zk_config_validate_reserved_fields_ok() {
+        let config = ZkConfig::default();
+        assert!(config.validate_reserved_fields());
+    }
+
+    #[test]
+    fn test_zk_config_validate_reserved_fields_corrupted() {
+        let mut config = ZkConfig::default();
+        config._reserved[0] = 0xFF;
+        assert!(!config.validate_reserved_fields());
     }
 }

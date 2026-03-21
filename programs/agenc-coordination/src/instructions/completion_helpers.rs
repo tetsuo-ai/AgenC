@@ -21,9 +21,10 @@ use anchor_spl::token::{self, Transfer};
 ///
 /// For collaborative tasks, splits reward among required completions.
 /// For exclusive/competitive tasks, uses full reward amount.
-pub fn calculate_reward_split(task: &Task, protocol_fee_bps: u16) -> Result<(u64, u64)> {
-    let reward_per_worker = calculate_reward_per_worker(task)?;
-
+fn calculate_reward_split_for_amount(
+    reward_per_worker: u64,
+    protocol_fee_bps: u16,
+) -> Result<(u64, u64)> {
     let protocol_fee = reward_per_worker
         .checked_mul(protocol_fee_bps as u64)
         .ok_or(CoordinationError::ArithmeticOverflow)?
@@ -40,6 +41,11 @@ pub fn calculate_reward_split(task: &Task, protocol_fee_bps: u16) -> Result<(u64
     Ok((worker_reward, protocol_fee))
 }
 
+pub fn calculate_reward_split(task: &Task, protocol_fee_bps: u16) -> Result<(u64, u64)> {
+    let reward_per_worker = calculate_reward_per_worker(task)?;
+    calculate_reward_split_for_amount(reward_per_worker, protocol_fee_bps)
+}
+
 /// Calculate worker reward and protocol fee with volume-based tiered discounts (issue #40).
 ///
 /// High-volume creators (measured by completed_tasks on their agent account) receive
@@ -52,7 +58,9 @@ pub fn calculate_reward_split_tiered(
     creator_completed_tasks: u64,
 ) -> Result<(u64, u64, u16)> {
     let effective_fee_bps = calculate_tiered_fee(base_fee_bps, creator_completed_tasks);
-    let (worker_reward, protocol_fee) = calculate_reward_split(task, effective_fee_bps)?;
+    let reward_per_worker = calculate_reward_per_worker(task)?;
+    let (worker_reward, protocol_fee) =
+        calculate_reward_split_for_amount(reward_per_worker, effective_fee_bps)?;
     Ok((worker_reward, protocol_fee, effective_fee_bps))
 }
 
@@ -84,7 +92,9 @@ fn calculate_reward_per_worker(task: &Task) -> Result<u64> {
                 Ok(base_share)
             }
         }
-        TaskType::Competitive | TaskType::Exclusive => Ok(task.reward_amount),
+        TaskType::Competitive | TaskType::Exclusive | TaskType::BidExclusive => {
+            Ok(task.reward_amount)
+        }
     }
 }
 
@@ -102,6 +112,30 @@ pub struct TokenPaymentAccounts<'info> {
     pub escrow_authority: AccountInfo<'info>,
     pub escrow_bump: u8,
     pub task_key: Pubkey,
+}
+
+/// Load a task claim while preserving protocol-level `NotClaimed` semantics.
+///
+/// Anchor account deserialization returns `AccountNotInitialized` when a closed claim PDA is
+/// passed in. For negative completion paths we want the protocol error instead.
+pub fn load_task_claim_or_not_claimed<'info>(
+    claim_info: &UncheckedAccount<'info>,
+    task_key: &Pubkey,
+) -> Result<Account<'info, TaskClaim>> {
+    if claim_info.owner == &anchor_lang::solana_program::system_program::ID
+        && claim_info.lamports() == 0
+    {
+        return err!(CoordinationError::NotClaimed);
+    }
+
+    // SAFETY: `UncheckedAccount<'info>` stores an `&'info AccountInfo<'info>`.
+    // The wrapper borrow can be shorter than `'info`, but the wrapped account
+    // reference itself is valid for the full instruction lifetime.
+    let claim_info_ref: &'info AccountInfo<'info> =
+        unsafe { std::mem::transmute(claim_info.as_ref()) };
+    let claim = Account::<TaskClaim>::try_from(claim_info_ref)?;
+    require!(claim.task == *task_key, CoordinationError::NotClaimed);
+    Ok(claim)
 }
 
 /// Transfer tokens from escrow ATA to worker and treasury ATAs via PDA-signed CPI.
@@ -402,11 +436,16 @@ pub fn execute_completion_rewards<'info>(
     treasury_info: &AccountInfo<'info>,
     creator_info: &AccountInfo<'info>,
     protocol_fee_bps: u16,
+    reward_amount_override: Option<u64>,
     result_data_for_task: Option<[u8; RESULT_DATA_SIZE]>,
     clock: &Clock,
     token_accounts: Option<TokenPaymentAccounts<'info>>,
 ) -> Result<()> {
-    let (worker_reward, protocol_fee) = calculate_reward_split(task, protocol_fee_bps)?;
+    let settlement_amount = reward_amount_override.unwrap_or(task.reward_amount);
+    let (worker_reward, protocol_fee) = match reward_amount_override {
+        Some(amount) => calculate_reward_split_for_amount(amount, protocol_fee_bps)?,
+        None => calculate_reward_split(task, protocol_fee_bps)?,
+    };
 
     // Checks: validate escrow balance for SOL path before any state mutations.
     if token_accounts.is_none() {
@@ -438,7 +477,7 @@ pub fn execute_completion_rewards<'info>(
     }
 
     if task_completed {
-        update_protocol_stats(protocol_config, task.reward_amount)?;
+        update_protocol_stats(protocol_config, settlement_amount)?;
     }
 
     emit!(TaskCompleted {
@@ -589,6 +628,13 @@ mod tests {
         }
 
         #[test]
+        fn test_bid_exclusive_task_full_reward() {
+            let task = build_test_task_fixture(TaskType::BidExclusive, 1000, 1, 0);
+            let reward = calculate_reward_per_worker(&task).unwrap();
+            assert_eq!(reward, 1000);
+        }
+
+        #[test]
         fn test_collaborative_task_even_split() {
             // 1000 / 4 = 250 per worker
             let task = build_test_task_fixture(TaskType::Collaborative, 1000, 4, 0);
@@ -715,6 +761,13 @@ mod tests {
             let (worker, fee) = calculate_reward_split(&task, 100).unwrap();
             assert_eq!(fee, 0);
             assert_eq!(worker, 1);
+        }
+
+        #[test]
+        fn test_bid_price_override_fee_split() {
+            let (worker, fee) = calculate_reward_split_for_amount(8_000, 500).unwrap();
+            assert_eq!(fee, 400);
+            assert_eq!(worker, 7_600);
         }
     }
 

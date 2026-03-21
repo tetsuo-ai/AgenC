@@ -25,7 +25,7 @@ pub struct ApplyInitiatorSlash<'info> {
         seeds = [b"dispute", dispute.dispute_id.as_ref()],
         bump = dispute.bump
     )]
-    pub dispute: Account<'info, Dispute>,
+    pub dispute: Box<Account<'info, Dispute>>,
 
     /// Task being disputed - validates initiator was a participant
     #[account(
@@ -33,20 +33,20 @@ pub struct ApplyInitiatorSlash<'info> {
         bump = task.bump,
         constraint = dispute.task == task.key() @ CoordinationError::TaskNotFound
     )]
-    pub task: Account<'info, Task>,
+    pub task: Box<Account<'info, Task>>,
 
     #[account(
         mut,
         seeds = [b"agent", initiator_agent.agent_id.as_ref()],
         bump = initiator_agent.bump
     )]
-    pub initiator_agent: Account<'info, AgentRegistration>,
+    pub initiator_agent: Box<Account<'info, AgentRegistration>>,
 
     #[account(
         seeds = [b"protocol"],
         bump = protocol_config.bump
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     /// CHECK: Treasury account to receive slashed lamports
     #[account(

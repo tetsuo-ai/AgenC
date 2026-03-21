@@ -3,6 +3,7 @@
 //! These events can be monitored via WebSocket subscriptions
 //! for real-time coordination between agents.
 
+use crate::state::HASH_SIZE;
 use anchor_lang::prelude::*;
 
 /// Dispute resolution outcome constants (fix #425)
@@ -121,6 +122,92 @@ pub struct TaskCancelled {
     pub timestamp: i64,
 }
 
+/// Emitted when Marketplace V2 configuration is initialized.
+#[event]
+pub struct BidMarketplaceInitialized {
+    pub authority: Pubkey,
+    pub min_bid_bond_lamports: u64,
+    pub bid_creation_cooldown_secs: i64,
+    pub max_bids_per_24h: u16,
+    pub max_active_bids_per_task: u16,
+    pub max_bid_lifetime_secs: i64,
+    pub accepted_no_show_slash_bps: u16,
+    pub timestamp: i64,
+}
+
+/// Emitted when a bid book is initialized for a task.
+#[event]
+pub struct BidBookInitialized {
+    pub task: Pubkey,
+    pub bid_book: Pubkey,
+    pub state: u8,
+    pub policy: u8,
+    pub book_version: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a bid is created.
+#[event]
+pub struct BidCreated {
+    pub task: Pubkey,
+    pub bid: Pubkey,
+    pub bidder: Pubkey,
+    pub bid_book: Pubkey,
+    pub book_version: u64,
+    pub requested_reward_lamports: u64,
+    pub eta_seconds: u32,
+    pub expires_at: i64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a bid is updated.
+#[event]
+pub struct BidUpdated {
+    pub task: Pubkey,
+    pub bid: Pubkey,
+    pub bidder: Pubkey,
+    pub bid_book: Pubkey,
+    pub book_version: u64,
+    pub requested_reward_lamports: u64,
+    pub eta_seconds: u32,
+    pub expires_at: i64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a bid is accepted.
+#[event]
+pub struct BidAccepted {
+    pub task: Pubkey,
+    pub bid: Pubkey,
+    pub bidder: Pubkey,
+    pub bid_book: Pubkey,
+    pub book_version: u64,
+    pub policy: u8,
+    pub timestamp: i64,
+}
+
+/// Emitted when a parked or open bid is cancelled.
+#[event]
+pub struct BidCancelled {
+    pub task: Pubkey,
+    pub bid: Pubkey,
+    pub bidder: Pubkey,
+    pub bid_book: Pubkey,
+    pub book_version: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a bid is expired and cleaned up.
+#[event]
+pub struct BidExpired {
+    pub task: Pubkey,
+    pub bid: Pubkey,
+    pub bidder: Pubkey,
+    pub bid_book: Pubkey,
+    pub book_version: u64,
+    pub timestamp: i64,
+}
+
 /// Emitted when coordination state is updated
 #[event]
 pub struct StateUpdated {
@@ -214,6 +301,23 @@ pub struct ProtocolInitialized {
 pub struct TreasuryUpdated {
     pub old_treasury: Pubkey,
     pub new_treasury: Pubkey,
+    pub updated_by: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when the trusted ZK image ID config is initialized.
+#[event]
+pub struct ZkConfigInitialized {
+    pub image_id: [u8; HASH_SIZE],
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when the trusted ZK image ID is rotated.
+#[event]
+pub struct ZkImageIdUpdated {
+    pub old_image_id: [u8; HASH_SIZE],
+    pub new_image_id: [u8; HASH_SIZE],
     pub updated_by: Pubkey,
     pub timestamp: i64,
 }

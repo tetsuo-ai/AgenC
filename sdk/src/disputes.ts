@@ -60,6 +60,11 @@ export interface ResolveDisputeParams {
   workerAuthority?: PublicKey | null;
   arbiterPairs?: Array<{ votePda: PublicKey; agentPda: PublicKey }>;
   workerPairs?: Array<{ claimPda: PublicKey; agentPda: PublicKey }>;
+  acceptedBidSettlement?: {
+    bidBook: PublicKey;
+    acceptedBid: PublicKey;
+    bidderMarketState: PublicKey;
+  };
 }
 
 export interface ApplyDisputeSlashParams {
@@ -84,6 +89,11 @@ export interface ExpireDisputeParams {
   workerAuthority?: PublicKey | null;
   arbiterPairs?: Array<{ votePda: PublicKey; agentPda: PublicKey }>;
   workerPairs?: Array<{ claimPda: PublicKey; agentPda: PublicKey }>;
+  acceptedBidSettlement?: {
+    bidBook: PublicKey;
+    acceptedBid: PublicKey;
+    bidderMarketState: PublicKey;
+  };
 }
 
 export interface DisputeState {
@@ -147,6 +157,11 @@ function deriveAuthorityVotePda(
 function buildRemainingAccounts(
   arbiterPairs?: Array<{ votePda: PublicKey; agentPda: PublicKey }>,
   workerPairs?: Array<{ claimPda: PublicKey; agentPda: PublicKey }>,
+  acceptedBidSettlement?: {
+    bidBook: PublicKey;
+    acceptedBid: PublicKey;
+    bidderMarketState: PublicKey;
+  },
 ): AccountMeta[] {
   const metas: AccountMeta[] = [];
   for (const pair of arbiterPairs ?? []) {
@@ -156,6 +171,25 @@ function buildRemainingAccounts(
   for (const pair of workerPairs ?? []) {
     metas.push({ pubkey: pair.claimPda, isSigner: false, isWritable: true });
     metas.push({ pubkey: pair.agentPda, isSigner: false, isWritable: true });
+  }
+  if (acceptedBidSettlement) {
+    metas.push(
+      {
+        pubkey: acceptedBidSettlement.bidBook,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: acceptedBidSettlement.acceptedBid,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: acceptedBidSettlement.bidderMarketState,
+        isSigner: false,
+        isWritable: true,
+      },
+    );
   }
   return metas;
 }
@@ -414,6 +448,7 @@ export async function resolveDispute(
   const remainingAccounts = buildRemainingAccounts(
     params.arbiterPairs,
     params.workerPairs,
+    params.acceptedBidSettlement,
   );
   if (remainingAccounts.length > 0) {
     builder.remainingAccounts(remainingAccounts);
@@ -569,6 +604,7 @@ export async function expireDispute(
   const remainingAccounts = buildRemainingAccounts(
     params.arbiterPairs,
     params.workerPairs,
+    params.acceptedBidSettlement,
   );
   if (remainingAccounts.length > 0) {
     builder.remainingAccounts(remainingAccounts);

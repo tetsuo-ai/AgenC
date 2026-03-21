@@ -5,7 +5,9 @@ use crate::events::{reputation_reason, ReputationChanged, TaskClaimed};
 use crate::instructions::constants::{
     MAX_REPUTATION, REPUTATION_DECAY_MIN, REPUTATION_DECAY_PERIOD, REPUTATION_DECAY_RATE,
 };
-use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig, Task, TaskClaim, TaskStatus};
+use crate::state::{
+    AgentRegistration, AgentStatus, ProtocolConfig, Task, TaskClaim, TaskStatus, TaskType,
+};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
@@ -81,6 +83,10 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
     require!(
         task.status == TaskStatus::Open || task.status == TaskStatus::InProgress,
         CoordinationError::TaskNotOpen
+    );
+    require!(
+        task.task_type != TaskType::BidExclusive,
+        CoordinationError::BidTaskRequiresAcceptance
     );
 
     // Validate status transition is allowed (fix #538)
