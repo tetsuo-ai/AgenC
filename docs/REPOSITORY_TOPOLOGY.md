@@ -1,123 +1,95 @@
 # Repository Topology
 
-If you are trying to install or use AgenC, start with
-[GETTING_STARTED.md](./GETTING_STARTED.md). This document explains repo
-ownership and boundaries, not first-run usage.
+This document is the ownership and boundary reference for the current AgenC
+workspace.
 
-This document describes the final AgenC repository layout.
+If you need onboarding or commands first, use:
 
-## Public Repos
+- [GETTING_STARTED.md](./GETTING_STARTED.md)
+- [COMMANDS_AND_VALIDATION.md](./COMMANDS_AND_VALIDATION.md)
 
-### `AgenC`
+## Workspace Model
 
-Role:
+`AgenC` is both:
 
-- public umbrella repo
-- landing docs
-- topology and contributor routing
-- bootstrap scripts
-- public-safe examples
-- historical refactor records
+- the umbrella git repo
+- the local workspace root for the canonical nested repos
 
-### `agenc-sdk`
+The root repo owns:
 
-Role:
+- workspace-level developer docs
+- public examples
+- bootstrap and boundary scripts
+- public assets
 
-- public TypeScript SDK
-- canonical owner of `@tetsuo-ai/sdk`
+It does not own the canonical SDK, protocol, plugin ABI, framework/runtime, or
+prover implementations.
 
-### `agenc-protocol`
+## Canonical Repos
 
-Role:
+| Repo | Owns |
+| --- | --- |
+| `AgenC` | Workspace docs, examples, bootstrap, boundaries |
+| `agenc-core` | Framework/runtime/operator implementation, `packages/agenc`, runtime-side packages, UI surfaces, internal examples, operator tools |
+| `agenc-protocol` | Anchor program, committed artifacts, migrations, verifier/router IDL, zkVM guest, `@tetsuo-ai/protocol` |
+| `agenc-sdk` | `@tetsuo-ai/sdk`, SDK tests, API baseline, starter example |
+| `agenc-plugin-kit` | `@tetsuo-ai/plugin-kit`, compatibility matrix, certification harness, starter template |
+| `agenc-prover` | Proving server, guest/method crates, private admin tools |
 
-- public protocol and trust-surface repo
-- canonical owner of `@tetsuo-ai/protocol`
-
-### `agenc-plugin-kit`
-
-Role:
-
-- public plugin ABI and certification harness
-- canonical owner of `@tetsuo-ai/plugin-kit`
-
-## Private Repos
-
-### `agenc-core`
-
-Role:
-
-- private engine
-- runtime
-- MCP
-- desktop control
-- product surfaces
-- internal tooling
-
-### `agenc-prover`
-
-Role:
-
-- private prover
-- admin tools
-- ops surfaces
-
-### `agenc-apps`
-
-Optional later split only if product/UI churn needs its own private repo.
-
-## Private Infrastructure
-
-- Cloudsmith `agenc/private-kernel` for private runtime-side package distribution
-
-## What Stays In `AgenC`
-
-- `README.md`
-- public topology and pointer docs
-- public examples under `examples/`
-- bootstrap and boundary scripts under `scripts/`
-- historical program records like `REFACTOR.MD`
-
-## What Does Not Stay In `AgenC`
-
-`AgenC` is not:
-
-- the private engine repo
-- the protocol source-of-truth repo
-- a shadow workspace for runtime-side packages
-- a place where public examples depend on private runtime internals
-
-## Add-On Model
-
-Third-party builders extend AgenC through:
-
-- `@tetsuo-ai/plugin-kit`
-- optionally `@tetsuo-ai/sdk`
-- optionally `@tetsuo-ai/protocol`
-
-They do not import private engine internals directly.
-
-## Bootstrap
-
-Public-only:
-
-```bash
-./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc
-```
-
-With private access:
-
-```bash
-./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc --private
-```
-
-Expected checkout layout:
+## Current Layout
 
 ```text
-/path/to/agenc/
-  AgenC/
-  agenc-sdk/
-  agenc-protocol/
-  agenc-plugin-kit/
+AgenC/
+  assets/
+  docs/
+  examples/
+  scripts/
   agenc-core/
+  agenc-protocol/
+  agenc-sdk/
+  agenc-plugin-kit/
   agenc-prover/
 ```
+
+## Cross-Repo Relationships
+
+- `agenc-core` consumes the public protocol artifacts published from
+  `agenc-protocol`.
+- `agenc-core` provides the framework/runtime/operator implementation and the
+  `@tetsuo-ai/agenc` install surface.
+- `agenc-sdk` is the supported TypeScript integration surface for external
+  apps/services.
+- `agenc-plugin-kit` is the supported plugin/add-on authoring surface.
+- `agenc-prover` is the separate proving/admin repo for proof-generation and
+  private admin flows.
+- The root repo documents these relationships and keeps public examples that
+  depend only on supported public surfaces.
+
+## Ownership Rules
+
+- Root docs/examples/bootstrap changes belong in `AgenC`.
+- SDK changes belong in `agenc-sdk`.
+- Protocol changes belong in `agenc-protocol`.
+- Plugin ABI changes belong in `agenc-plugin-kit`.
+- Runtime/operator/framework changes belong in `agenc-core`.
+- Prover/admin changes belong in `agenc-prover`.
+
+## What The Root Repo Must Not Reintroduce
+
+The umbrella repo must not grow back into a shadow monorepo. At the root, do
+not reintroduce:
+
+- `runtime/`, `mcp/`, `web/`, `mobile/`, `programs/`, `zkvm/`, or similar
+  implementation directories
+- build/test/package scripts for nested repos
+- private-runtime or protocol source-of-truth code
+- local rollback mirrors for extracted public packages
+
+## Related Docs
+
+- [DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md)
+- [CODEBASE_MAP.md](./CODEBASE_MAP.md)
+- [DOCS_INDEX.md](./DOCS_INDEX.md)
+- [SDK.md](./SDK.md)
+- [PLUGIN_KIT.md](./PLUGIN_KIT.md)
+- [VERSION_DOCS_MAP.md](./VERSION_DOCS_MAP.md)

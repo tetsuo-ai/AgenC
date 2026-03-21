@@ -5,8 +5,9 @@
 </p>
 
 <p align="center">
-  <strong>Build, integrate, and extend agent systems on top of AgenC.</strong><br>
-  This repository is the public front door for the AgenC ecosystem.
+  <strong>Developer documentation front door for the full AgenC project.</strong><br>
+  This workspace contains the umbrella repo plus the canonical nested repos that
+  make up the product, protocol, SDK, plugin ABI, and prover surfaces.
 </p>
 
 <p align="center">
@@ -30,225 +31,104 @@
 
 ## Start Here
 
-If you are here to install or use AgenC, start with the path that matches what
-you actually need:
+If you are working on AgenC as a developer, use this doc set first:
 
-| I want to... | Do this |
-| --- | --- |
-| Try a working AgenC example locally | `npm install --no-fund` then `npm run example:simple-usage` |
-| Integrate AgenC into an app or service | `npm install @tetsuo-ai/sdk` |
-| Consume the public protocol / IDL artifacts | `npm install @tetsuo-ai/protocol` |
-| Build an AgenC plugin or adapter | `npm install @tetsuo-ai/plugin-kit` |
-| Clone the full public repo set side by side | `./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc` |
-| Use the full operator/runtime product | Request access to `agenc-core` because the product runtime is private |
+- [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) - project overview, repo roles, and cross-repo relationships
+- [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md) - top-level source map for every repo in the workspace
+- [docs/COMMANDS_AND_VALIDATION.md](docs/COMMANDS_AND_VALIDATION.md) - setup, build, test, and validation commands
+- [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) - where the active docs live across the project
+- [docs/REPOSITORY_TOPOLOGY.md](docs/REPOSITORY_TOPOLOGY.md) - ownership and boundary reference
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) - first-run setup for the workspace
 
-For the step-by-step version, use [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md).
+## Workspace At A Glance
 
-## Fastest Local Try
-
-From this repo:
-
-```bash
-npm install --no-fund
-npm run example:simple-usage
-```
-
-Other example entry points from the repo root:
-
-```bash
-npm run example:tetsuo-integration
-npm run example:risc0-proof-demo
-npm run example:helius-webhook:server
-npm run example:helius-webhook:subscribe
-```
-
-The examples are public-safe and live under [examples/](examples/). They help
-you understand the SDK and public protocol surface, not the private operator
-runtime.
-
-The Helius commands require `HELIUS_API_KEY`. The server variant also requires
-`HELIUS_WEBHOOK_SECRET`.
-
-## Install The Right Package
-
-### App Integration
-
-Install the public SDK:
-
-```bash
-npm install @tetsuo-ai/sdk
-```
-
-Canonical docs live in [`agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk)
-and are summarized in [docs/SDK.md](docs/SDK.md).
-
-### Protocol / IDL Consumption
-
-Install the published protocol package:
-
-```bash
-npm install @tetsuo-ai/protocol
-```
-
-The canonical source of truth is
-[`agenc-protocol`](https://github.com/tetsuo-ai/agenc-protocol).
-
-### Plugin / Adapter Authoring
-
-Install the plugin authoring contract:
-
-```bash
-npm install @tetsuo-ai/plugin-kit
-```
-
-The canonical source of truth is
-[`agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit).
-
-### Full Product Access
-
-The runtime, operator workflow, TUI, web surfaces, desktop control, and
-internal tooling live in `agenc-core`, which is private. This public umbrella
-repo does not install or run that product surface.
-
-## What AgenC Is
-
-AgenC is an ecosystem for building agent workflows with stable public contracts
-and a private execution core.
-
-Public builders get:
-
-- a TypeScript SDK for integration work
-- released protocol and IDL artifacts
-- a plugin authoring surface for add-ons and adapters
-
-## Find The Right Repo
-
-| I want to... | Go here |
-| --- | --- |
-| Integrate AgenC into an app or service | [`agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk) / `@tetsuo-ai/sdk` |
-| Consume the protocol, IDL, or trust-surface artifacts | [`agenc-protocol`](https://github.com/tetsuo-ai/agenc-protocol) / `@tetsuo-ai/protocol` |
-| Build add-ons, adapters, or plugins | [`agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit) / `@tetsuo-ai/plugin-kit` |
-| Work on the private runtime, TUI, daemon, web portal, or desktop surfaces | `agenc-core` (private access required) |
-| Work on proving, admin, or operator prover flows | `agenc-prover` (private access required) |
-
-## What Lives In This Repo
-
-`AgenC` is the public umbrella repo. It keeps:
-
-- top-level project positioning and routing
-- repository topology docs
-- bootstrap scripts for the multi-repo layout
-- public-safe examples
-- historical refactor records
-
-It does **not** contain the private engine and it is **not** the canonical
-source of truth for SDK, protocol, or plugin ABI packages.
-
-## Repository Map
-
-| Repo | Visibility | Purpose |
+| Repo | Role | Key surfaces |
 | --- | --- | --- |
-| [`AgenC`](https://github.com/tetsuo-ai/AgenC) | Public | Ecosystem hub, docs, bootstrap, public examples |
-| [`agenc-sdk`](https://github.com/tetsuo-ai/agenc-sdk) | Public | TypeScript integration surface |
-| [`agenc-protocol`](https://github.com/tetsuo-ai/agenc-protocol) | Public | Protocol, IDL, manifest, trust-surface artifacts |
-| [`agenc-plugin-kit`](https://github.com/tetsuo-ai/agenc-plugin-kit) | Public | Plugin/add-on authoring contract |
-| `agenc-core` | Private | Runtime, MCP, desktop, apps, TUI, daemon, internal tools |
-| `agenc-prover` | Private | Prover service, admin flows, operator proving surfaces |
+| `AgenC` | Workspace root and developer-doc index | root docs, bootstrap scripts, public examples, boundary checks |
+| `agenc-core` | Framework/runtime/operator implementation repo | `runtime/`, `mcp/`, `docs-mcp/`, `packages/agenc/`, `web/`, `mobile/`, `demo-app/`, internal examples, operator tools |
+| `agenc-protocol` | Protocol and trust-surface source of truth | Anchor program, canonical artifacts, migrations, verifier/router IDL, zkVM guest, `@tetsuo-ai/protocol` |
+| `agenc-sdk` | Public integration SDK | `@tetsuo-ai/sdk`, proof/task/query helpers, tests, API baseline, starter example |
+| `agenc-plugin-kit` | Public plugin authoring ABI | `@tetsuo-ai/plugin-kit`, compatibility matrix, certification harness, starter template |
+| `agenc-prover` | Separate proving and admin repo | proving server, guest/method crates, private admin tools |
 
-More detail lives in [docs/REPOSITORY_TOPOLOGY.md](docs/REPOSITORY_TOPOLOGY.md).
-
-## Public Workspace Bootstrap
-
-Clone or update the public repo set side by side:
-
-```bash
-./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc
-```
-
-If you have private access too:
-
-```bash
-./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc --private
-```
-
-Expected layout:
+## Current Checkout Layout
 
 ```text
-/path/to/agenc/
-  AgenC/
-  agenc-sdk/
-  agenc-protocol/
-  agenc-plugin-kit/
+AgenC/
+  docs/
+  examples/
+  scripts/
+  assets/
   agenc-core/
+  agenc-protocol/
+  agenc-sdk/
+  agenc-plugin-kit/
   agenc-prover/
 ```
 
-## Validate This Repo
+The root repo is the umbrella workspace and documentation hub. The canonical
+package and implementation ownership lives in the nested repos listed above.
+
+## Public Packages And Operator Surfaces
+
+| Surface | Canonical repo | Notes |
+| --- | --- | --- |
+| `@tetsuo-ai/sdk` | `agenc-sdk` | App/service integration SDK |
+| `@tetsuo-ai/protocol` | `agenc-protocol` | Released protocol artifacts and IDL package |
+| `@tetsuo-ai/plugin-kit` | `agenc-plugin-kit` | Plugin/add-on authoring boundary |
+| `@tetsuo-ai/agenc` | `agenc-core` | Public CLI/launcher package for the framework install path |
+| `@tetsuo-ai/runtime` | `agenc-core` | Implementation runtime package; not the end-user install identity |
+| `@tetsuo-ai/mcp` | `agenc-core` | Runtime-side MCP server package |
+| `@tetsuo-ai/docs-mcp` | `agenc-core` | Docs indexing/search MCP package |
+
+## Common Entry Paths
+
+| I need to... | Start here |
+| --- | --- |
+| Understand the whole project | [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) |
+| Find the repo or folder that owns a surface | [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md) |
+| Run setup or validation | [docs/COMMANDS_AND_VALIDATION.md](docs/COMMANDS_AND_VALIDATION.md) |
+| Find the canonical docs for a subsystem | [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) |
+| Work on protocol contracts or Anchor artifacts | [`agenc-protocol/docs/DOCS_INDEX.md`](agenc-protocol/docs/DOCS_INDEX.md) |
+| Work on the framework/runtime/operator stack | [`agenc-core/docs/DOCS_INDEX.md`](agenc-core/docs/DOCS_INDEX.md) |
+| Work on the public SDK | [`agenc-sdk/docs/DOCS_INDEX.md`](agenc-sdk/docs/DOCS_INDEX.md) |
+| Work on the plugin ABI | [`agenc-plugin-kit/docs/DOCS_INDEX.md`](agenc-plugin-kit/docs/DOCS_INDEX.md) |
+| Work on proving/admin flows | [`agenc-prover/docs/DOCS_INDEX.md`](agenc-prover/docs/DOCS_INDEX.md) |
+
+## Root Validation
+
+From the workspace root:
 
 ```bash
 npm install --no-fund
 npm run validate:umbrella
 ```
 
-This validates the public examples and umbrella boundary contract only. It does
-not install or run the private AgenC core.
+That validates the root docs/examples/bootstrap contract. It does not replace
+the repo-specific validation commands documented in
+[docs/COMMANDS_AND_VALIDATION.md](docs/COMMANDS_AND_VALIDATION.md).
 
 ## Public Examples
 
-These examples are intentionally limited to the public surfaces:
+The root repo keeps only public-surface-safe examples:
 
-| Example | Purpose |
-| --- | --- |
-| [examples/simple-usage](examples/simple-usage/) | Minimal SDK example for the private completion flow |
-| [examples/tetsuo-integration](examples/tetsuo-integration/) | End-to-end example of an external agent claiming work and submitting a private completion payload |
-| [examples/helius-webhook](examples/helius-webhook/) | Real-time monitoring of AgenC task events via Helius webhooks |
-| [examples/risc0-proof-demo](examples/risc0-proof-demo/) | Small proof-payload and account-model demo for `complete_task_private` |
+- [examples/simple-usage](examples/simple-usage/)
+- [examples/tetsuo-integration](examples/tetsuo-integration/)
+- [examples/helius-webhook](examples/helius-webhook/)
+- [examples/risc0-proof-demo](examples/risc0-proof-demo/)
 
-See [examples/README.md](examples/README.md) for the root-level commands that
-run them.
+Run them from the root with:
 
-## Need The Full Product?
+```bash
+npm run example:simple-usage
+npm run example:tetsuo-integration
+npm run example:risc0-proof-demo
+npm run example:helius-webhook:server
+npm run example:helius-webhook:subscribe
+```
 
-If what you want is the full AgenC operator experience, including:
-
-- the runtime
-- the TUI / daemon workflow
-- web and desktop product surfaces
-- private operator tooling
-
-those live in `agenc-core`, which is private. This public repo is meant to help
-you find the right surface, not to replace the private core checkout.
-
-## Support And Contribution Routing
-
-Open issues and changes in the repo that owns the surface you are touching:
-
-- SDK work -> `agenc-sdk`
-- protocol / trust-surface work -> `agenc-protocol`
-- plugin ABI / add-on surface -> `agenc-plugin-kit`
-- private runtime / TUI / web / desktop / operator tooling -> `agenc-core`
-- prover / admin / proving ops -> `agenc-prover`
-
-If you are unsure where something belongs, start with this repo and use the
-topology docs to route it correctly.
-
-## Versioned Package Docs
-
-This umbrella repo does not own package release docs. Use:
-
-- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
-- [docs/VERSION_DOCS_MAP.md](docs/VERSION_DOCS_MAP.md)
-- [docs/SDK.md](docs/SDK.md)
-- [docs/PLUGIN_KIT.md](docs/PLUGIN_KIT.md)
-
-## Historical Records
-
-The completed refactor program is retained here as historical context:
-
-- [REFACTOR.MD](REFACTOR.MD)
-- [REFACTOR-MASTER-PROGRAM.md](REFACTOR-MASTER-PROGRAM.md)
-
-These are archival program records, not active setup instructions.
+The Helius example requires `HELIUS_API_KEY`, and the server entrypoint also
+requires `HELIUS_WEBHOOK_SECRET`.
 
 ## License
 
