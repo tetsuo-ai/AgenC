@@ -50,7 +50,7 @@ export interface TaskTemplate {
   maxWorkers: number;
   /** Unix timestamp deadline (0 = no deadline) */
   deadline: number;
-  /** 0=Exclusive, 1=Collaborative, 2=Competitive */
+  /** 0=Exclusive, 1=Collaborative, 2=Competitive, 3=BidExclusive */
   taskType: number;
   /** For private tasks: hash of expected output (32 bytes). Null = public task. */
   constraintHash?: Uint8Array;

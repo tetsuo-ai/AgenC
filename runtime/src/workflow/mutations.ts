@@ -61,7 +61,7 @@ const DEFAULT_MUTATION_CONFIG: ResolvedMutationConfig = {
   includeTaskTypeMutations: true,
   includeRewardMutations: true,
   includeDeadlineMutations: true,
-  allowedTaskTypes: [0, 1, 2],
+  allowedTaskTypes: [0, 1, 2, 3],
   rewardScaleBps: [80, 90, 110, 125],
   deadlineOffsetSeconds: [-3_600, -900, 900, 3_600],
 };

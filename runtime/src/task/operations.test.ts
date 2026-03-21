@@ -147,11 +147,13 @@ function createMockProgram() {
 
   const completeTaskBuilder = {
     accountsPartial: vi.fn().mockReturnThis(),
+    remainingAccounts: vi.fn().mockReturnThis(),
     rpc: completeTaskRpc,
   };
 
   const completeTaskPrivateBuilder = {
     accountsPartial: vi.fn().mockReturnThis(),
+    remainingAccounts: vi.fn().mockReturnThis(),
     rpc: completeTaskPrivateRpc,
   };
   const completeTaskPrivateMethod = vi
@@ -665,6 +667,47 @@ describe("TaskOperations", () => {
       expect(result.success).toBe(true);
     });
 
+    it("appends Marketplace V2 completion remaining accounts in canonical order", async () => {
+      const taskPda = Keypair.generate().publicKey;
+      const task = createParsedTask();
+      const parentTaskPda = Keypair.generate().publicKey;
+      const bidBook = Keypair.generate().publicKey;
+      const acceptedBid = Keypair.generate().publicKey;
+      const bidderMarketState = Keypair.generate().publicKey;
+
+      await ops.completeTask(
+        taskPda,
+        task,
+        new Uint8Array(32).fill(0xab),
+        new Uint8Array(64).fill(0xcd),
+        {
+          parentTaskPda,
+          acceptedBidSettlement: {
+            bidBook,
+            acceptedBid,
+            bidderMarketState,
+          },
+        },
+      );
+
+      const remainingCall = mocks.completeTaskBuilder.remainingAccounts.mock
+        .calls[0][0] as Array<{
+        pubkey: PublicKey;
+        isSigner: boolean;
+        isWritable: boolean;
+      }>;
+
+      expect(remainingCall).toHaveLength(5);
+      expect(remainingCall[0].pubkey.equals(parentTaskPda)).toBe(true);
+      expect(remainingCall[0].isWritable).toBe(false);
+      expect(remainingCall[1].pubkey.equals(bidBook)).toBe(true);
+      expect(remainingCall[2].pubkey.equals(acceptedBid)).toBe(true);
+      expect(remainingCall[3].pubkey.equals(bidderMarketState)).toBe(true);
+      expect(
+        remainingCall[4].pubkey.equals(mockProgram.provider.publicKey),
+      ).toBe(true);
+    });
+
     it("throws TaskSubmissionError on failure", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
@@ -732,6 +775,48 @@ describe("TaskOperations", () => {
       expect(accounts.router).toBeInstanceOf(PublicKey);
       expect(accounts.verifierEntry).toBeInstanceOf(PublicKey);
       expect((accounts.creator as PublicKey).equals(task.creator)).toBe(true);
+    });
+
+    it("appends explicit bidder authority for private Marketplace V2 completion", async () => {
+      const taskPda = Keypair.generate().publicKey;
+      const task = createParsedTask();
+      const bidderAuthority = Keypair.generate().publicKey;
+      const bidBook = Keypair.generate().publicKey;
+      const acceptedBid = Keypair.generate().publicKey;
+      const bidderMarketState = Keypair.generate().publicKey;
+      const sealBytes = new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(0x01);
+      sealBytes.set(TRUSTED_RISC0_SELECTOR, 0);
+
+      await ops.completeTaskPrivate(
+        taskPda,
+        task,
+        sealBytes,
+        new Uint8Array(RISC0_JOURNAL_LEN).fill(0x02),
+        new Uint8Array(RISC0_IMAGE_ID_LEN).fill(0x03),
+        new Uint8Array(HASH_SIZE).fill(0x04),
+        new Uint8Array(HASH_SIZE).fill(0x05),
+        {
+          acceptedBidSettlement: {
+            bidBook,
+            acceptedBid,
+            bidderMarketState,
+          },
+          bidderAuthority,
+        },
+      );
+
+      const remainingCall = mocks.completeTaskPrivateBuilder.remainingAccounts
+        .mock.calls[0][0] as Array<{
+        pubkey: PublicKey;
+        isSigner: boolean;
+        isWritable: boolean;
+      }>;
+
+      expect(remainingCall).toHaveLength(4);
+      expect(remainingCall[0].pubkey.equals(bidBook)).toBe(true);
+      expect(remainingCall[1].pubkey.equals(acceptedBid)).toBe(true);
+      expect(remainingCall[2].pubkey.equals(bidderMarketState)).toBe(true);
+      expect(remainingCall[3].pubkey.equals(bidderAuthority)).toBe(true);
     });
 
     it("throws TaskSubmissionError on failure", async () => {

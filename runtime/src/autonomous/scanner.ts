@@ -423,6 +423,7 @@ export class TaskScanner {
       if ("exclusive" in taskType) return 0;
       if ("collaborative" in taskType) return 1;
       if ("competitive" in taskType) return 2;
+      if ("bidExclusive" in taskType) return 3;
     }
     return undefined;
   }

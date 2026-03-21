@@ -69,7 +69,7 @@ export interface OnChainTask {
   currentWorkers: number;
   /** Current task status */
   status: OnChainTaskStatus;
-  /** Task type (Exclusive, Collaborative, Competitive) */
+  /** Task type (Exclusive, Collaborative, Competitive, BidExclusive) */
   taskType: TaskType;
   /** Creation timestamp (Unix seconds) */
   createdAt: number;
@@ -149,7 +149,12 @@ export interface RawOnChainTask {
       }
     | number;
   taskType:
-    | { exclusive?: object; collaborative?: object; competitive?: object }
+    | {
+        exclusive?: object;
+        collaborative?: object;
+        competitive?: object;
+        bidExclusive?: object;
+      }
     | number;
   createdAt: { toNumber: () => number };
   deadline: { toNumber: () => number };
@@ -393,11 +398,16 @@ export function parseTaskStatus(
  */
 export function parseTaskType(
   type:
-    | { exclusive?: object; collaborative?: object; competitive?: object }
+    | {
+        exclusive?: object;
+        collaborative?: object;
+        competitive?: object;
+        bidExclusive?: object;
+      }
     | number,
 ): TaskType {
   if (typeof type === "number") {
-    if (type < TaskType.Exclusive || type > TaskType.Competitive) {
+    if (type < TaskType.Exclusive || type > TaskType.BidExclusive) {
       throw new Error(`Invalid task type value: ${type}`);
     }
     return type;
@@ -406,6 +416,7 @@ export function parseTaskType(
   if ("exclusive" in type) return TaskType.Exclusive;
   if ("collaborative" in type) return TaskType.Collaborative;
   if ("competitive" in type) return TaskType.Competitive;
+  if ("bidExclusive" in type) return TaskType.BidExclusive;
 
   throw new Error("Invalid task type format");
 }
@@ -609,6 +620,7 @@ export function taskStatusToString(status: OnChainTaskStatus): string {
  * ```typescript
  * taskTypeToString(TaskType.Exclusive); // "Exclusive"
  * taskTypeToString(TaskType.Competitive); // "Competitive"
+ * taskTypeToString(TaskType.BidExclusive); // "BidExclusive"
  * ```
  */
 export function taskTypeToString(type: TaskType): string {
@@ -619,6 +631,8 @@ export function taskTypeToString(type: TaskType): string {
       return "Collaborative";
     case TaskType.Competitive:
       return "Competitive";
+    case TaskType.BidExclusive:
+      return "BidExclusive";
     default:
       return `Unknown (${type})`;
   }
@@ -755,6 +769,30 @@ export interface TaskOperationsConfig {
   claimTimeoutMs: number;
   /** Timeout for completion operations (milliseconds) */
   completionTimeoutMs: number;
+}
+
+/**
+ * Accepted-bid settlement accounts required when completing a BidExclusive task.
+ */
+export interface TaskCompletionAcceptedBidSettlement {
+  /** Bid book PDA */
+  bidBook: PublicKey;
+  /** Accepted bid PDA */
+  acceptedBid: PublicKey;
+  /** Bidder market state PDA */
+  bidderMarketState: PublicKey;
+}
+
+/**
+ * Optional completion accounts for Marketplace V2 task settlement.
+ */
+export interface TaskCompletionOptions {
+  /** Parent task PDA for dependent-task completion settlement */
+  parentTaskPda?: PublicKey;
+  /** Accepted-bid settlement suffix for BidExclusive tasks */
+  acceptedBidSettlement?: TaskCompletionAcceptedBidSettlement;
+  /** Bidder authority wallet, defaults to the provider public key */
+  bidderAuthority?: PublicKey;
 }
 
 /**

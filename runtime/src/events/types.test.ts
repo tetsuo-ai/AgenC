@@ -12,6 +12,7 @@ describe("Event Type Enums", () => {
       expect(TaskType.Exclusive).toBe(0);
       expect(TaskType.Collaborative).toBe(1);
       expect(TaskType.Competitive).toBe(2);
+      expect(TaskType.BidExclusive).toBe(3);
     });
   });
 

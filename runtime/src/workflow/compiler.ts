@@ -678,8 +678,8 @@ function parseNonNegativeInt(value: number, field: string): number {
 }
 
 function parseTaskType(value: number, field: string): number {
-  if (!Number.isInteger(value) || value < 0 || value > 2) {
-    throw new WorkflowValidationError(`${field} must be 0, 1, or 2`);
+  if (!Number.isInteger(value) || value < 0 || value > 3) {
+    throw new WorkflowValidationError(`${field} must be 0, 1, 2, or 3`);
   }
   return value;
 }

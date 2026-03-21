@@ -43,6 +43,7 @@ export enum TaskType {
   Exclusive = 0,
   Collaborative = 1,
   Competitive = 2,
+  BidExclusive = 3,
 }
 
 /**

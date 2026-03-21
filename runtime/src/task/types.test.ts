@@ -157,20 +157,22 @@ describe("parseTaskStatus", () => {
 });
 
 describe("parseTaskType", () => {
-  it("parses numeric values (0-2)", () => {
+  it("parses numeric values (0-3)", () => {
     expect(parseTaskType(0)).toBe(TaskType.Exclusive);
     expect(parseTaskType(1)).toBe(TaskType.Collaborative);
     expect(parseTaskType(2)).toBe(TaskType.Competitive);
+    expect(parseTaskType(3)).toBe(TaskType.BidExclusive);
   });
 
   it("parses Anchor enum objects", () => {
     expect(parseTaskType({ exclusive: {} })).toBe(TaskType.Exclusive);
     expect(parseTaskType({ collaborative: {} })).toBe(TaskType.Collaborative);
     expect(parseTaskType({ competitive: {} })).toBe(TaskType.Competitive);
+    expect(parseTaskType({ bidExclusive: {} })).toBe(TaskType.BidExclusive);
   });
 
   it("throws on invalid input", () => {
-    expect(() => parseTaskType(3)).toThrow("Invalid task type value: 3");
+    expect(() => parseTaskType(4)).toThrow("Invalid task type value: 4");
     expect(() => parseTaskType({} as any)).toThrow("Invalid task type format");
   });
 });
@@ -257,6 +259,13 @@ describe("parseOnChainTask", () => {
     const parsed = parseOnChainTask(raw);
 
     expect(parsed.taskType).toBe(TaskType.Competitive);
+  });
+
+  it("parses bidExclusive taskType enum from Anchor object format", () => {
+    const raw = createMockRawTask({ taskType: { bidExclusive: {} } });
+    const parsed = parseOnChainTask(raw);
+
+    expect(parsed.taskType).toBe(TaskType.BidExclusive);
   });
 
   it("preserves numeric fields", () => {
@@ -503,6 +512,7 @@ describe("taskTypeToString", () => {
     expect(taskTypeToString(TaskType.Exclusive)).toBe("Exclusive");
     expect(taskTypeToString(TaskType.Collaborative)).toBe("Collaborative");
     expect(taskTypeToString(TaskType.Competitive)).toBe("Competitive");
+    expect(taskTypeToString(TaskType.BidExclusive)).toBe("BidExclusive");
   });
 
   it("returns Unknown for invalid values", () => {

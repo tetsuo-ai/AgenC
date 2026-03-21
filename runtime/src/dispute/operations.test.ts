@@ -1070,6 +1070,87 @@ describe("DisputeOperations", () => {
         true,
       );
     });
+
+    it("appends accepted-bid settlement accounts after arbiter and worker pairs", async () => {
+      const arbiterVotes = [
+        { votePda: randomPubkey(), arbiterAgentPda: randomPubkey() },
+      ];
+      const extraWorkers = [
+        { claimPda: randomPubkey(), workerPda: randomPubkey() },
+      ];
+      const acceptedBidSettlement = {
+        bidBook: randomPubkey(),
+        acceptedBid: randomPubkey(),
+        bidderMarketState: randomPubkey(),
+      };
+
+      await ops.resolveDispute({
+        disputePda: randomPubkey(),
+        taskPda: randomPubkey(),
+        creatorPubkey: randomPubkey(),
+        arbiterVotes,
+        extraWorkers,
+        acceptedBidSettlement,
+      });
+
+      const remainingCall =
+        program._methodBuilder.remainingAccounts.mock.calls[0][0];
+      expect(remainingCall).toHaveLength(7);
+      expect(remainingCall[0].pubkey.equals(arbiterVotes[0].votePda)).toBe(
+        true,
+      );
+      expect(
+        remainingCall[1].pubkey.equals(arbiterVotes[0].arbiterAgentPda),
+      ).toBe(true);
+      expect(remainingCall[2].pubkey.equals(extraWorkers[0].claimPda)).toBe(
+        true,
+      );
+      expect(remainingCall[3].pubkey.equals(extraWorkers[0].workerPda)).toBe(
+        true,
+      );
+      expect(
+        remainingCall[4].pubkey.equals(acceptedBidSettlement.bidBook),
+      ).toBe(true);
+      expect(
+        remainingCall[5].pubkey.equals(acceptedBidSettlement.acceptedBid),
+      ).toBe(true);
+      expect(
+        remainingCall[6].pubkey.equals(
+          acceptedBidSettlement.bidderMarketState,
+        ),
+      ).toBe(true);
+    });
+
+    it("supports accepted-bid settlement accounts for dispute expiry", async () => {
+      const acceptedBidSettlement = {
+        bidBook: randomPubkey(),
+        acceptedBid: randomPubkey(),
+        bidderMarketState: randomPubkey(),
+      };
+
+      await ops.expireDispute({
+        disputePda: randomPubkey(),
+        taskPda: randomPubkey(),
+        creatorPubkey: randomPubkey(),
+        arbiterVotes: [],
+        acceptedBidSettlement,
+      });
+
+      const remainingCall =
+        program._methodBuilder.remainingAccounts.mock.calls[0][0];
+      expect(remainingCall).toHaveLength(3);
+      expect(remainingCall[0].pubkey.equals(acceptedBidSettlement.bidBook)).toBe(
+        true,
+      );
+      expect(
+        remainingCall[1].pubkey.equals(acceptedBidSettlement.acceptedBid),
+      ).toBe(true);
+      expect(
+        remainingCall[2].pubkey.equals(
+          acceptedBidSettlement.bidderMarketState,
+        ),
+      ).toBe(true);
+    });
   });
 
   // ==========================================================================

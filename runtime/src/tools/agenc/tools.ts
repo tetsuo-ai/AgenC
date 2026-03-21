@@ -791,8 +791,8 @@ export function createCreateTaskTool(
         },
         taskType: {
           type: 'number',
-          enum: [0, 1, 2],
-          description: '0=Exclusive, 1=Collaborative, 2=Competitive (default 0)',
+          enum: [0, 1, 2, 3],
+          description: '0=Exclusive, 1=Collaborative, 2=Competitive, 3=BidExclusive (default 0)',
         },
         minReputation: {
           type: 'number',
@@ -856,7 +856,7 @@ export function createCreateTaskTool(
         const requiredCapabilitiesRangeErr = validateU64(requiredCapabilities, 'requiredCapabilities');
         if (requiredCapabilitiesRangeErr) return requiredCapabilitiesRangeErr;
 
-        const [taskType, taskTypeErr] = parseBoundedNumber(args.taskType, 'taskType', 0, 2, 0);
+        const [taskType, taskTypeErr] = parseBoundedNumber(args.taskType, 'taskType', 0, 3, 0);
         if (taskTypeErr) return taskTypeErr;
         const [maxWorkers, maxWorkersErr] = parseBoundedNumber(args.maxWorkers, 'maxWorkers', 1, 100, 1);
         if (maxWorkersErr) return maxWorkersErr;

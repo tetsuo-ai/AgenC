@@ -18,6 +18,7 @@ import type {
   OnChainDisputeVote,
   InitiateDisputeParams,
   VoteDisputeParams,
+  DisputeAcceptedBidSettlement,
   ResolveDisputeParams,
   ExpireDisputeParams,
   ApplySlashParams,
@@ -479,6 +480,7 @@ export class DisputeOperations {
       const remainingAccounts = this.buildRemainingAccounts(
         params.arbiterVotes,
         params.extraWorkers,
+        params.acceptedBidSettlement,
       );
 
       const builder = this.program.methods.resolveDispute().accountsPartial({
@@ -619,6 +621,7 @@ export class DisputeOperations {
       const remainingAccounts = this.buildRemainingAccounts(
         params.arbiterVotes,
         params.extraWorkers,
+        params.acceptedBidSettlement,
       );
 
       const builder = this.program.methods.expireDispute().accountsPartial({
@@ -745,14 +748,20 @@ export class DisputeOperations {
   }
 
   /**
-   * Build remaining_accounts array from arbiter votes and worker pairs.
+   * Build remaining_accounts array from arbiter votes, worker pairs, and optional
+   * accepted-bid settlement suffix.
    *
-   * Order: arbiter (vote, agent) pairs first, then worker (claim, agent) pairs.
+   * Order:
+   * 1. arbiter (vote, agent) pairs
+   * 2. worker (claim, agent) pairs
+   * 3. optional accepted-bid settlement accounts
+   *
    * All accounts are writable, non-signer.
    */
   private buildRemainingAccounts(
     arbiterVotes?: Array<{ votePda: PublicKey; arbiterAgentPda: PublicKey }>,
     workers?: Array<{ claimPda: PublicKey; workerPda: PublicKey }>,
+    acceptedBidSettlement?: DisputeAcceptedBidSettlement,
   ): AccountMeta[] {
     const accounts: AccountMeta[] = [];
     for (const { votePda, arbiterAgentPda } of arbiterVotes ?? []) {
@@ -766,6 +775,23 @@ export class DisputeOperations {
     for (const { claimPda, workerPda } of workers ?? []) {
       accounts.push({ pubkey: claimPda, isSigner: false, isWritable: true });
       accounts.push({ pubkey: workerPda, isSigner: false, isWritable: true });
+    }
+    if (acceptedBidSettlement) {
+      accounts.push({
+        pubkey: acceptedBidSettlement.bidBook,
+        isSigner: false,
+        isWritable: true,
+      });
+      accounts.push({
+        pubkey: acceptedBidSettlement.acceptedBid,
+        isSigner: false,
+        isWritable: true,
+      });
+      accounts.push({
+        pubkey: acceptedBidSettlement.bidderMarketState,
+        isSigner: false,
+        isWritable: true,
+      });
     }
     return accounts;
   }

@@ -8,7 +8,7 @@
  * @module
  */
 
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SystemProgram, type AccountMeta } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
   HASH_SIZE,
@@ -16,7 +16,7 @@ import {
   RISC0_JOURNAL_LEN,
   RISC0_SEAL_BORSH_LEN,
   TRUSTED_RISC0_SELECTOR,
-} from "@agenc/sdk";
+} from "../../../sdk/src/constants.ts";
 import { toAnchorBytes } from "../utils/encoding.js";
 import anchor, { type Program } from "@coral-xyz/anchor";
 import type { AgencCoordination } from "../types/agenc_coordination.js";
@@ -27,6 +27,7 @@ import type {
   OnChainTaskClaim,
   ClaimResult,
   CompleteResult,
+  TaskCompletionOptions,
 } from "./types.js";
 import {
   parseOnChainTask,
@@ -43,6 +44,7 @@ import {
   TaskNotClaimableError,
   TaskSubmissionError,
   AnchorErrorCodes,
+  ValidationError,
   validateByteLength,
   validateNonZeroBytes,
 } from "../types/errors.js";
@@ -458,6 +460,7 @@ export class TaskOperations {
     task: OnChainTask,
     proofHash: Uint8Array,
     resultData: Uint8Array | null,
+    options?: TaskCompletionOptions,
   ): Promise<CompleteResult> {
     // Input validation (#963)
     validateByteLength(proofHash, 32, "proofHash");
@@ -484,11 +487,12 @@ export class TaskOperations {
       this.program.provider.publicKey!,
       treasury,
     );
+    const remainingAccounts = this.buildTaskCompletionRemainingAccounts(options);
 
     this.logger.info(`Completing task ${taskPda.toBase58()}`);
 
     try {
-      const signature = await this.program.methods
+      const builder = this.program.methods
         .completeTask(
           toAnchorBytes(proofHash),
           resultData ? toAnchorBytes(resultData) : null,
@@ -503,8 +507,13 @@ export class TaskOperations {
           authority: this.program.provider.publicKey,
           systemProgram: SystemProgram.programId,
           ...tokenAccounts,
-        })
-        .rpc();
+        });
+
+      if (remainingAccounts.length > 0) {
+        builder.remainingAccounts(remainingAccounts);
+      }
+
+      const signature = await builder.rpc();
 
       this.logger.info(`Task completed: ${signature}`);
 
@@ -545,6 +554,7 @@ export class TaskOperations {
     imageId: Uint8Array,
     bindingSeed: Uint8Array,
     nullifierSeed: Uint8Array,
+    options?: TaskCompletionOptions,
   ): Promise<CompleteResult> {
     // Input validation (#963)
     validateByteLength(sealBytes, RISC0_SEAL_BORSH_LEN, "sealBytes");
@@ -598,6 +608,7 @@ export class TaskOperations {
       this.program.provider.publicKey!,
       treasury,
     );
+    const remainingAccounts = this.buildTaskCompletionRemainingAccounts(options);
 
     this.logger.info(`Completing task privately ${taskPda.toBase58()}`);
 
@@ -620,12 +631,18 @@ export class TaskOperations {
           proofArgs: typeof proof,
         ) => {
           accountsPartial: (accounts: Record<string, unknown>) => {
+            remainingAccounts: (
+              accounts: AccountMeta[],
+            ) => {
+              remainingAccounts: (accounts: AccountMeta[]) => unknown;
+              rpc: () => Promise<string>;
+            };
             rpc: () => Promise<string>;
           };
         };
       };
 
-      const signature = await completeTaskPrivateMethod
+      const builder = completeTaskPrivateMethod
         .completeTaskPrivate(taskIdBN, proof)
         .accountsPartial({
           task: taskPda,
@@ -644,8 +661,13 @@ export class TaskOperations {
           verifierProgram: TRUSTED_RISC0_VERIFIER_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           ...tokenAccounts,
-        })
-        .rpc();
+        });
+
+      if (remainingAccounts.length > 0) {
+        builder.remainingAccounts(remainingAccounts);
+      }
+
+      const signature = await builder.rpc();
 
       this.logger.info(`Task completed privately: ${signature}`);
 
@@ -695,6 +717,65 @@ export class TaskOperations {
       this.program.programId,
     );
     return this.cachedProtocolTreasury;
+  }
+
+  /**
+   * Build remaining_accounts for dependent-task and Marketplace V2 settlement.
+   *
+   * Order:
+   * 1. optional parent task PDA (readonly)
+   * 2. optional accepted bid settlement accounts
+   *    - bid book
+   *    - accepted bid
+   *    - bidder market state
+   *    - bidder authority
+   */
+  private buildTaskCompletionRemainingAccounts(
+    options?: TaskCompletionOptions,
+  ): AccountMeta[] {
+    const accounts: AccountMeta[] = [];
+    if (!options) return accounts;
+
+    if (options.parentTaskPda) {
+      accounts.push({
+        pubkey: options.parentTaskPda,
+        isSigner: false,
+        isWritable: false,
+      });
+    }
+
+    if (options.acceptedBidSettlement) {
+      const bidderAuthority =
+        options.bidderAuthority ?? this.program.provider.publicKey;
+      if (!bidderAuthority) {
+        throw new ValidationError(
+          "bidderAuthority is required when acceptedBidSettlement is provided",
+        );
+      }
+
+      accounts.push({
+        pubkey: options.acceptedBidSettlement.bidBook,
+        isSigner: false,
+        isWritable: true,
+      });
+      accounts.push({
+        pubkey: options.acceptedBidSettlement.acceptedBid,
+        isSigner: false,
+        isWritable: true,
+      });
+      accounts.push({
+        pubkey: options.acceptedBidSettlement.bidderMarketState,
+        isSigner: false,
+        isWritable: true,
+      });
+      accounts.push({
+        pubkey: bidderAuthority,
+        isSigner: false,
+        isWritable: true,
+      });
+    }
+
+    return accounts;
   }
 }
 
