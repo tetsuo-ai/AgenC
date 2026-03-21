@@ -98,9 +98,13 @@ import { LLMTimeoutError, LLMAuthenticationError } from "../llm/errors.js";
 import { loadGatewayConfig } from "./config-watcher.js";
 import { WorkspaceValidationError } from "./workspace.js";
 import { ToolRouter } from "./tool-routing.js";
+import { HookDispatcher } from "./hooks.js";
+import { createSessionToolHandler } from "./tool-handler-factory.js";
 import type { ToolCallRecord } from "../llm/chat-executor.js";
 import { didToolCallFail } from "../llm/chat-executor-tool-utils.js";
 import { resolveToolContractExecutionBlock } from "../llm/chat-executor-contract-guidance.js";
+import { PolicyEngine } from "../policy/engine.js";
+import { createPolicyGateHook } from "../policy/policy-gate.js";
 
 // ============================================================================
 // Command availability classifier
@@ -1420,6 +1424,220 @@ describe("DaemonManager", () => {
 
     expect(marketplaceResult).toContain("Marketplace not enabled");
     expect(socialResult).toContain("Social module not enabled");
+  });
+
+  it("uses live marketplace tools after the marketplace subsystem is wired", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    await (dm as any).wireMarketplace({ marketplace: { enabled: true } });
+
+    const registry = await (dm as any).createToolRegistry({
+      desktop: { enabled: false },
+      marketplace: { enabled: true },
+    });
+
+    const toolHandler = registry.createToolHandler();
+    const createResult = await toolHandler("marketplace.createService", {
+      serviceId: "svc-live-1",
+      title: "Monitor DeFi positions",
+      description: "Watch positions and send a daily report.",
+      budget: "1000",
+      requiredCapabilities: "1",
+      deliverables: ["daily report"],
+    });
+    const created = JSON.parse(createResult) as {
+      serviceId: string;
+      status: string;
+      requesterId: string;
+    };
+
+    expect(created.serviceId).toBe("svc-live-1");
+    expect(created.status).toBe("open");
+    expect(created.requesterId).toEqual(expect.any(String));
+    expect(created.requesterId.length).toBeGreaterThan(0);
+
+    const listResult = await toolHandler("marketplace.listServices", {});
+    const listed = JSON.parse(listResult) as {
+      count: number;
+      services: Array<{ serviceId: string; status: string }>;
+    };
+
+    expect(listed.count).toBe(1);
+    expect(listed.services).toEqual([
+      expect.objectContaining({
+        serviceId: "svc-live-1",
+        status: "open",
+      }),
+    ]);
+  });
+
+  it("starts with marketplace enabled config and allows separate agents to participate through tool registries", async () => {
+    vi.mocked(loadGatewayConfig).mockResolvedValueOnce({
+      gateway: { port: 9000 },
+      agent: { name: "marketplace-smoke" },
+      connection: { rpcUrl: "http://localhost:8899" },
+      marketplace: {
+        enabled: true,
+        defaultMatchingPolicy: "weighted_score",
+      },
+    } as any);
+
+    const pidPath = join(tempDir, "marketplace-smoke.pid");
+    const dm = new DaemonManager({ configPath: "/tmp/config.json", pidPath });
+    vi.spyOn(dm, "setupSignalHandlers").mockImplementation(() => {});
+
+    await dm.start();
+
+    expect(dm.marketplace).not.toBeNull();
+
+    const loadWalletSpy = vi.spyOn(dm as any, "loadWallet");
+    loadWalletSpy.mockResolvedValueOnce(null);
+    const requesterRegistry = await (dm as any).createToolRegistry({
+      desktop: { enabled: false },
+      marketplace: { enabled: true },
+    });
+
+    loadWalletSpy.mockResolvedValueOnce({
+      agentId: Uint8Array.from([1, 2, 3, 4]),
+    });
+    const bidderRegistry = await (dm as any).createToolRegistry({
+      desktop: { enabled: false },
+      marketplace: { enabled: true },
+    });
+
+    const requesterTools = requesterRegistry.createToolHandler();
+    const bidderTools = bidderRegistry.createToolHandler();
+
+    const createResult = await requesterTools("marketplace.createService", {
+      serviceId: "svc-smoke-1",
+      title: "Smoke test service",
+      description: "Validate daemon startup marketplace participation.",
+      budget: "1000",
+      requiredCapabilities: "1",
+      deliverables: ["smoke-test report"],
+    });
+    const created = JSON.parse(createResult) as {
+      serviceId: string;
+      requesterId: string;
+      status: string;
+    };
+
+    expect(created.serviceId).toBe("svc-smoke-1");
+    expect(created.requesterId).toBe("gateway-agent");
+    expect(created.status).toBe("open");
+
+    const bidResult = await bidderTools("marketplace.bidOnService", {
+      serviceId: "svc-smoke-1",
+      price: "900",
+      deliveryTime: 1800,
+      proposal: "I can deliver this smoke validation quickly.",
+    });
+    const bid = JSON.parse(bidResult) as {
+      bidId: string;
+      bidderId: string;
+      taskId: string;
+      rewardLamports: string;
+      etaSeconds: number;
+      status: string;
+    };
+
+    expect(bid.taskId).toBe("svc-smoke-1");
+    expect(bid.bidderId).toBe("01020304");
+    expect(bid.rewardLamports).toBe("900");
+    expect(bid.etaSeconds).toBe(1800);
+    expect(bid.status).toBe("active");
+
+    const bidsResult = await bidderTools("marketplace.listBids", {
+      serviceId: "svc-smoke-1",
+    });
+    const bids = JSON.parse(bidsResult) as {
+      serviceId: string;
+      count: number;
+      bids: Array<{ bidId: string; bidderId: string; status: string }>;
+    };
+
+    expect(bids.serviceId).toBe("svc-smoke-1");
+    expect(bids.count).toBe(1);
+    expect(bids.bids).toEqual([
+      expect.objectContaining({
+        bidId: bid.bidId,
+        bidderId: "01020304",
+        status: "active",
+      }),
+    ]);
+
+    await dm.stop();
+  });
+
+  it("keeps marketplace read-only when safe mode is active", async () => {
+    const dm = new DaemonManager({ configPath: "/tmp/config.json" });
+    await (dm as any).wireMarketplace({ marketplace: { enabled: true } });
+
+    const registry = await (dm as any).createToolRegistry({
+      desktop: { enabled: false },
+      marketplace: { enabled: true },
+    });
+
+    const hooks = new HookDispatcher();
+    const policyEngine = new PolicyEngine({
+      policy: { enabled: true },
+    });
+    hooks.on(
+      createPolicyGateHook({
+        engine: policyEngine,
+        logger: (dm as any).logger,
+      }),
+    );
+
+    const send = vi.fn();
+    const toolHandler = createSessionToolHandler({
+      sessionId: "session-marketplace",
+      baseHandler: registry.createToolHandler(),
+      routerId: "router-marketplace",
+      send,
+      hooks,
+    });
+
+    const seedResult = await toolHandler("marketplace.createService", {
+      serviceId: "svc-safe-1",
+      title: "Seed service",
+      description: "Create a service before safe mode is enabled.",
+      budget: "1000",
+      requiredCapabilities: "1",
+      deliverables: ["daily report"],
+    });
+    expect(JSON.parse(seedResult)).toEqual(
+      expect.objectContaining({
+        serviceId: "svc-safe-1",
+        status: "open",
+      }),
+    );
+
+    policyEngine.setMode("safe_mode", "manual-test");
+
+    const blockedWrite = await toolHandler("marketplace.createService", {
+      serviceId: "svc-safe-2",
+      title: "Blocked service",
+      description: "This write should be blocked by safe mode.",
+      budget: "1000",
+      requiredCapabilities: "1",
+      deliverables: ["daily report"],
+    });
+    expect(JSON.parse(blockedWrite)).toEqual({
+      error:
+        'Policy blocked tool "marketplace.createService": Safe mode blocks write actions',
+    });
+
+    const allowedRead = await toolHandler("marketplace.listServices", {});
+    const listed = JSON.parse(allowedRead) as {
+      count: number;
+      services: Array<{ serviceId: string }>;
+    };
+
+    expect(listed.count).toBe(1);
+    expect(listed.services).toEqual([
+      expect.objectContaining({ serviceId: "svc-safe-1" }),
+    ]);
+    expect(send).toHaveBeenCalled();
   });
 
   it("auto-creates missing default workspace for sub-agent isolation", async () => {

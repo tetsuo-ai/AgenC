@@ -22,6 +22,7 @@ import {
 } from "./wizard.js";
 import type { GatewayConfig } from "../gateway/types.js";
 import { createContextCapture } from "./test-utils.js";
+import { validateGatewayConfig } from "../gateway/config-watcher.js";
 
 function baseOptions(): Omit<WizardOptions, "configPath" | "force"> {
   return {
@@ -59,6 +60,23 @@ describe("wizard: generateDefaultConfig", () => {
     });
     expect(config.llm?.provider).toBe("grok");
     expect(config.llm?.apiKey).toBe("test-key");
+  });
+
+  it("preserves marketplace overrides in generated config", () => {
+    const config = generateDefaultConfig({
+      marketplace: {
+        enabled: true,
+        defaultMatchingPolicy: "weighted_score",
+        authorizedSelectorIds: ["selector-1"],
+      },
+    });
+
+    expect(config.marketplace).toEqual({
+      enabled: true,
+      defaultMatchingPolicy: "weighted_score",
+      authorizedSelectorIds: ["selector-1"],
+    });
+    expect(validateGatewayConfig(config).valid).toBe(true);
   });
 });
 

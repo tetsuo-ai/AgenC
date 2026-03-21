@@ -72,6 +72,16 @@ export function generateDefaultConfig(
   if (overrides.llm) result.llm = overrides.llm;
   if (overrides.memory) result.memory = overrides.memory;
   if (overrides.channels) result.channels = overrides.channels;
+  if (overrides.auth) result.auth = overrides.auth;
+  if (overrides.voice) result.voice = overrides.voice;
+  if (overrides.telemetry) result.telemetry = overrides.telemetry;
+  if (overrides.desktop) result.desktop = overrides.desktop;
+  if (overrides.mcp) result.mcp = overrides.mcp;
+  if (overrides.policy) result.policy = overrides.policy;
+  if (overrides.approvals) result.approvals = overrides.approvals;
+  if (overrides.marketplace) result.marketplace = overrides.marketplace;
+  if (overrides.social) result.social = overrides.social;
+  if (overrides.autonomy) result.autonomy = overrides.autonomy;
 
   return result;
 }
