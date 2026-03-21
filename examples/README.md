@@ -1,5 +1,11 @@
 # AgenC Public Examples
 
+For the full project docs, start with:
+
+- [../docs/DEVELOPER_GUIDE.md](../docs/DEVELOPER_GUIDE.md)
+- [../docs/CODEBASE_MAP.md](../docs/CODEBASE_MAP.md)
+- [../docs/COMMANDS_AND_VALIDATION.md](../docs/COMMANDS_AND_VALIDATION.md)
+
 Install once from the repo root:
 
 ```bash

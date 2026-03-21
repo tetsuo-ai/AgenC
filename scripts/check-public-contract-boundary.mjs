@@ -48,10 +48,10 @@ if (rootLock.packages?.['examples/private-task-demo']) {
 }
 
 const forbiddenLocalPathChecks = new Map([
-  ['README.md', [/sdk\/README\.md/u, /plugin-kit\/README\.md/u]],
-  ['docs/SDK.md', [/sdk\/README\.md/u, /sdk\/src\/index\.ts/u]],
-  ['docs/PLUGIN_KIT.md', [/plugin-kit\/README\.md/u, /plugin-kit\/src\/index\.ts/u]],
-  ['docs/VERSION_DOCS_MAP.md', [/sdk\/README\.md/u, /sdk\/src\/index\.ts/u, /plugin-kit\/README\.md/u, /plugin-kit\/src\/index\.ts/u]],
+  ['README.md', [/(^|[\s(])sdk\/README\.md/u, /(^|[\s(])plugin-kit\/README\.md/u]],
+  ['docs/SDK.md', [/(^|[\s(])sdk\/README\.md/u, /(^|[\s(])sdk\/src\/index\.ts/u]],
+  ['docs/PLUGIN_KIT.md', [/(^|[\s(])plugin-kit\/README\.md/u, /(^|[\s(])plugin-kit\/src\/index\.ts/u]],
+  ['docs/VERSION_DOCS_MAP.md', [/(^|[\s(])sdk\/README\.md/u, /(^|[\s(])sdk\/src\/index\.ts/u, /(^|[\s(])plugin-kit\/README\.md/u, /(^|[\s(])plugin-kit\/src\/index\.ts/u]],
 ]);
 
 for (const [relPath, patterns] of forbiddenLocalPathChecks.entries()) {

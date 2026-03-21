@@ -9,7 +9,7 @@
 # Scope Check
 - [ ] No private-kernel or protocol-owned code was reintroduced into `AgenC`
 - [ ] Public examples remain public-surface-only
-- [ ] Docs/topology pointers still match canonical repos
+- [ ] Workspace developer docs still match the live repo ownership and code surfaces
 
 # Checklist
 - [ ] Docs updated if repo topology or contributor routing changed
