@@ -1,7 +1,7 @@
 # AgenC Local Dev Environment Runbook
 
 > **Status:** Active  
-> **Last updated:** 2026-03-18 (evening — agenc-core went public, ADR-003 adopted)  
+> **Last updated:** 2026-03-20  
 > **Author:** letterj  
 > **Purpose:** Reproducible setup for a contributor-ready local AgenC development environment
 
@@ -11,8 +11,9 @@
 
 AgenC completed a whole-repository refactor program on 2026-03-17 (Gates 0–12).
 On 2026-03-18 the team adopted ADR-003, making `agenc-core` and `agenc-prover`
-public and reframing AgenC as a public framework product rather than a private
-kernel with a public SDK.
+public and reframing AgenC as a public framework product.
+
+On 2026-03-20 the first working operator instance was confirmed running in Docker.
 
 ### Architecture Decision Records
 
@@ -21,11 +22,7 @@ kernel with a public SDK.
 | ADR-002 | **Superseded** | Public contracts + private kernel boundary |
 | ADR-003 | **Current** | AgenC is a public framework product |
 
-ADR-003 reasoning: *"Source privacy is not the right primary moat for a
-local-first agent framework. Product quality, ecosystem, marketplace
-participation, operational advantage, and premium network services are."*
-
-### Repository Topology (as of 2026-03-18 evening)
+### Repository Topology (as of 2026-03-20)
 
 | Repo | Visibility | Role |
 |---|---|---|
@@ -33,35 +30,21 @@ participation, operational advantage, and premium network services are."*
 | `agenc-sdk` | Public | TypeScript SDK (`@tetsuo-ai/sdk`) |
 | `agenc-protocol` | Public | Program source, IDL, generated artifacts (`@tetsuo-ai/protocol`) |
 | `agenc-plugin-kit` | Public | Plugin/channel adapter ABI (`@tetsuo-ai/plugin-kit`) |
-| `agenc-core` | Public ← **went public 2026-03-18** | Runtime engine, daemon, MCP, web, mobile, desktop |
-| `agenc-prover` | Public ← **went public 2026-03-18** | ZK prover service, admin tools |
-| Private registry | N/A | Cloudsmith `agenc/private-kernel` |
+| `agenc-core` | Public | Runtime engine, daemon, MCP, web, mobile, desktop |
+| `agenc-prover` | Public | ZK prover service, admin tools |
 
-### Published Package Versions (2026-03-18)
+### Published Package Versions (2026-03-20)
 
 | Package | Version |
 |---|---|
 | `@tetsuo-ai/sdk` | 1.3.1 |
 | `@tetsuo-ai/protocol` | 0.1.1 |
 | `@tetsuo-ai/plugin-kit` | 0.1.1 |
+| `@tetsuo-ai/agenc` | 0.1.0 |
 
 ---
 
 ## Prerequisites
-
-Verify all tools before starting:
-
-```bash
-node --version      # >= 18 required
-npm --version
-rustc --version     # stable
-solana --version    # 3.0.13
-anchor --version    # 0.32.1
-docker --version
-ollama --version    # optional, for semantic memory
-```
-
-Confirmed working versions (2026-03-18):
 
 ```
 node      v20.20.1
@@ -70,44 +53,22 @@ rustc     1.94.0
 solana    3.0.13
 anchor    0.32.1
 docker    28.5.2
-ollama    0.17.7
+ollama    0.17.7 (optional)
 ```
 
 ---
 
 ## Devnet Setup
 
-### Wallet
+**Wallet:** `BP3rDSMHG4oHkJsB4voh6xiB3pp2Y2MDcT3yHhaPGxWT`  
+**Balance:** ~18.5 SOL  
+**Program ID (devnet):** `6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab`
 
-```bash
-solana config set --url devnet
-solana address    # your devnet pubkey
-solana balance    # confirm SOL balance
-```
-
-Contributor wallet used in this setup:
-- **Address:** `BP3rDSMHG4oHkJsB4voh6xiB3pp2Y2MDcT3yHhaPGxWT`
-- **Balance:** ~18.5 SOL (sufficient for all experiments)
-
-### Program Addresses
-
-| Network | Program ID |
-|---|---|
-| **Devnet** | `6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab` |
-| Mainnet | `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7` |
-
-> ⚠️ The mainnet address (`5j9Z...`) is **not** the devnet address. Always use `6UcJ...` for devnet work.
-
-Verify the devnet program is live:
-
-```bash
-solana program show 6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab --url devnet
-```
+> ⚠️ Mainnet program ID (`5j9ZbT3...`) is different. Never use mainnet for experiments.
 
 ### Known Devnet Drift (as of 2026-03-18)
 
-The devnet-deployed program has error name drift vs the current SDK source.
-**The happy path works fine.** Edge case error names differ:
+The happy path works. Edge case error names differ from SDK expectations:
 
 | Scenario | SDK expects | Devnet returns |
 |---|---|---|
@@ -115,74 +76,45 @@ The devnet-deployed program has error name drift vs the current SDK source.
 | Past deadline task | `InvalidInput` | `UpdateTooFrequent` |
 | Self-claim own task | `SelfTaskNotAllowed` | `ProposalUnauthorizedCancel` |
 | Complete without claim | `NotClaimed` | `AccountNotInitialized` |
-| Cancel after complete | `InvalidStatusTransition` | `AccountNotInitialized` |
-
-SDK PR #2 (merged 2026-03-18) added explicit compat/strict test modes:
-
-```bash
-cd forks/agenc-sdk
-npm run test:devnet:public          # happy path only
-npm run test:devnet:deep            # compat mode, known drift logged
-npm run test:devnet:deep:strict     # fails until devnet matches local source
-```
-
-Issue #6 is open to regenerate the SDK error map from the current protocol IDL.
 
 ---
 
 ## Workspace Layout
 
-All repos live under a single parent directory:
-
 ```
 ~/workshop/agencproj/
-├── AgenC/               ← tetsuo-ai original (reference, do not edit)
-├── agenc-sdk/           ← tetsuo-ai original (reference, do not edit)
-├── agenc-protocol/      ← tetsuo-ai original (reference, do not edit)
-├── agenc-plugin-kit/    ← tetsuo-ai original (reference, do not edit)
-├── agenc-core/          ← tetsuo-ai original (reference, do not edit) — added 2026-03-18
-├── agenc-prover/        ← tetsuo-ai original (reference, do not edit) — added 2026-03-18
+├── AgenC/               ← tetsuo-ai reference (read only)
+├── agenc-sdk/           ← tetsuo-ai reference (read only)
+├── agenc-protocol/      ← tetsuo-ai reference (read only)
+├── agenc-plugin-kit/    ← tetsuo-ai reference (read only)
+├── agenc-core/          ← tetsuo-ai reference (read only)
+├── agenc-prover/        ← tetsuo-ai reference (read only)
+├── Dockerfile.agenc     ← operator Docker image
 ├── CLAUDE.md            ← workspace quick reference
 └── forks/
     ├── AgenC/           ← letterj fork (work here)
     ├── agenc-sdk/       ← letterj fork (work here)
     ├── agenc-protocol/  ← letterj fork (work here)
     ├── agenc-plugin-kit/ ← letterj fork (work here)
-    └── agenc-core/      ← letterj fork (work here) — added 2026-03-18
+    └── agenc-core/      ← letterj fork (work here)
 ```
 
 ---
 
-## Setup Steps
+## Fork Setup
 
-### Step 1 — Clone the tetsuo-ai reference repos
+### Step 1 — Clone reference repos
 
 ```bash
 mkdir -p ~/workshop/agencproj
 cd ~/workshop/agencproj
 git clone https://github.com/tetsuo-ai/AgenC.git
-```
-
-### Step 2 — Run the bootstrap script to clone all public repos
-
-```bash
-cd ~/workshop/agencproj
 ./AgenC/scripts/bootstrap-agenc-repos.sh --root ~/workshop/agencproj
-```
-
-This clones `AgenC`, `agenc-sdk`, `agenc-protocol`, and `agenc-plugin-kit` from tetsuo-ai.
-
-### Step 3 — Clone the additional public repos (went public 2026-03-18)
-
-```bash
-cd ~/workshop/agencproj
 git clone https://github.com/tetsuo-ai/agenc-core.git
 git clone https://github.com/tetsuo-ai/agenc-prover.git
 ```
 
-### Step 4 — Fork all five repos on GitHub
-
-Fork each of these under your GitHub account:
+### Step 2 — Fork all five repos on GitHub
 
 - https://github.com/tetsuo-ai/AgenC/fork
 - https://github.com/tetsuo-ai/agenc-sdk/fork
@@ -190,96 +122,49 @@ Fork each of these under your GitHub account:
 - https://github.com/tetsuo-ai/agenc-plugin-kit/fork
 - https://github.com/tetsuo-ai/agenc-core/fork
 
-### Step 5 — Clone your forks using the bootstrap script
+### Step 3 — Clone forks using SSH
 
 ```bash
-AGENC_GIT_BASE=https://github.com/YOUR_USERNAME \
+AGENC_GIT_BASE=https://github.com/letterj \
   ./AgenC/scripts/bootstrap-agenc-repos.sh --root ~/workshop/agencproj/forks
-```
 
-Then clone agenc-core fork manually (not in bootstrap script yet):
-
-```bash
 cd ~/workshop/agencproj/forks
-git clone git@github.com:YOUR_USERNAME/agenc-core.git
+git clone git@github.com:letterj/agenc-core.git
 ```
 
-### Step 6 — Set all fork remotes to SSH
-
-> ⚠️ HTTPS remotes will fail to push without a credential manager. Always use SSH.
+### Step 4 — Set SSH remotes and add upstream
 
 ```bash
 for repo in AgenC agenc-sdk agenc-protocol agenc-plugin-kit; do
   git -C ~/workshop/agencproj/forks/$repo remote set-url origin \
-    git@github.com:YOUR_USERNAME/$repo.git
-  echo "✅ $repo remote → SSH"
-done
-# agenc-core was cloned via SSH so it's already correct
-```
-
-### Step 7 — Add upstream remotes to all forks
-
-```bash
-for repo in AgenC agenc-sdk agenc-protocol agenc-plugin-kit agenc-core; do
+    git@github.com:letterj/$repo.git
   git -C ~/workshop/agencproj/forks/$repo remote add upstream \
     https://github.com/tetsuo-ai/$repo.git
-  echo "✅ $repo upstream set"
 done
+git -C ~/workshop/agencproj/forks/agenc-core remote add upstream \
+  https://github.com/tetsuo-ai/agenc-core.git
 ```
 
-### Step 8 — Fix agenc-protocol default branch (fork quirk)
+### Step 5 — Fix agenc-protocol default branch
 
-The `agenc-protocol` fork defaults to `feature/bootstrap-wave1` instead of `main`. Fix it:
+The fork defaults to `feature/bootstrap-wave1`. Fix in GitHub:
+Settings → Default branch → switch to `main`.
 
-1. Go to: `https://github.com/YOUR_USERNAME/agenc-protocol/settings`
-2. Under **Default branch**, click the switch icon
-3. Select `main` and click **Update**
-4. Confirm
-
-Then sync your local clone:
-
-```bash
-cd ~/workshop/agencproj/forks/agenc-protocol
-git fetch origin
-git checkout main
-```
-
-### Step 9 — Create working branches across all forks
+### Step 6 — Create working branches
 
 ```bash
 for repo in AgenC agenc-sdk agenc-protocol agenc-plugin-kit agenc-core; do
   cd ~/workshop/agencproj/forks/$repo
   git checkout main
   git checkout -b experiment/local-dev-setup
-  echo "✅ $repo → experiment/local-dev-setup"
 done
 ```
 
 ---
 
-## Verify Setup
+## Daily Sync
 
-```bash
-for repo in AgenC agenc-sdk agenc-protocol agenc-plugin-kit agenc-core; do
-  echo "=== $repo ==="
-  git -C ~/workshop/agencproj/forks/$repo remote -v | grep -E "origin|upstream"
-  git -C ~/workshop/agencproj/forks/$repo branch --show-current
-  echo ""
-done
-```
-
-Expected output for each repo:
-```
-origin    git@github.com:YOUR_USERNAME/REPO.git (fetch)
-upstream  https://github.com/tetsuo-ai/REPO.git (fetch)
-experiment/local-dev-setup
-```
-
----
-
-## Staying Current
-
-Run this at the start of each session to check for upstream changes:
+Run at the start of each session:
 
 ```bash
 for repo in AgenC agenc-sdk agenc-protocol agenc-plugin-kit agenc-core; do
@@ -290,97 +175,198 @@ for repo in AgenC agenc-sdk agenc-protocol agenc-plugin-kit agenc-core; do
 done
 ```
 
-To sync a fork with upstream:
+Sync forks:
 
 ```bash
-cd ~/workshop/agencproj/forks/REPO
-git fetch upstream
-git checkout main
-git merge upstream/main
-git push origin main
+for repo in AgenC agenc-sdk agenc-core; do
+  git -C ~/workshop/agencproj/forks/$repo fetch upstream
+  git -C ~/workshop/agencproj/forks/$repo checkout main
+  git -C ~/workshop/agencproj/forks/$repo merge upstream/main
+  git -C ~/workshop/agencproj/forks/$repo push origin main
+done
 ```
 
 ---
 
-## Contributor Workflow
+## agenc-sdk Validation Gates
 
-### Starting new work
-
-```bash
-cd ~/workshop/agencproj/forks/REPO
-git checkout main
-git pull upstream main        # sync with tetsuo-ai
-git push origin main          # update your fork
-git checkout -b feature/my-feature
-```
-
-### Submitting a PR
-
-1. Push your branch: `git push origin feature/my-feature`
-2. Open a PR from `YOUR_USERNAME/REPO:feature/my-feature` → `tetsuo-ai/REPO:main`
-3. Reference ADR-003 for any runtime/product surface changes
-4. Include passing gate check evidence
-
----
-
-## Example Progression
-
-The four public examples in `forks/AgenC/examples/` are designed to be worked
-through in order:
-
-| Order | Example | What It Teaches |
-|---|---|---|
-| 1 | `risc0-proof-demo` | Anatomy of a ZK proof — byte fields, account structure |
-| 2 | `simple-usage` | How to generate and submit a proof payload |
-| 3 | `tetsuo-integration` | Full agent workflow — discover, claim, execute, submit, get paid |
-| 4 | `helius-webhook` | Real-time on-chain monitoring of task completions |
+Before committing or opening a PR against `tetsuo-ai/agenc-sdk`:
 
 ```bash
-cd ~/workshop/agencproj/forks/AgenC/examples/EXAMPLE_NAME
-npm install
-# follow the example's README
-```
-
----
-
-## agenc-core Development
-
-`agenc-core` is now a public framework repo. Build and test it locally:
-
-```bash
-cd ~/workshop/agencproj/forks/agenc-core
-npm install
-npm run build
+cd ~/workshop/agencproj/forks/agenc-sdk
 npm run typecheck
-npm run test
-npm run test:cross-repo-integration  # requires protocol workspace fixture
+npm test
+npm run build
+npm run pack:smoke
+npx -y node@20 scripts/pack-smoke.mjs
 ```
 
-Key directories inside `agenc-core`:
-
-| Path | What it is |
-|---|---|
-| `runtime/src/` | Full agent runtime — 32 modules |
-| `packages/agenc/` | Public `agenc` CLI install surface |
-| `mcp/` | MCP server |
-| `web/` | Browser UI |
-| `containers/desktop/` | Docker desktop sandbox |
-| `docs/architecture/adr/` | Architecture decision records |
+The last command specifically tests packaged CJS/ESM interop in Node 20.
+Established by PR #10 (2026-03-19).
 
 ---
 
-## Key Facts and Gotchas
+## Operator Instance (Docker)
 
-- **ADR-003 is current** — `agenc-core` is public as of 2026-03-18; ADR-002 is superseded
-- **`@tetsuo-ai/runtime` is still a private kernel package** — source is visible in `agenc-core` but the npm package is distributed via Cloudsmith, not public npm
-- **All fork remotes must use SSH** — HTTPS pushes fail without a credential manager
-- **The `sdk/` and `plugin-kit/` directories in `AgenC` are deleted** — use npm packages
-- **Devnet and mainnet use different program IDs** — see Program Addresses above
-- **`agenc-protocol` fork default branch quirk** — always fix to `main` after forking (Step 8)
-- **`feature/bootstrap-wave1` in agenc-protocol** — historical artifact, 26,700 lines behind `main`
-- **The umbrella `AgenC` root has no `build` script** — it is `agenc-umbrella@1.0.0`
-- **Devnet error names drift from SDK** — happy path works, edge case error names do not match
-- **SDK issue #6 is open** — regenerating error map from current protocol IDL
+The `agenc` CLI only supports **Linux x64**. On macOS, run it in Docker.
+
+### Dockerfile
+
+Located at `~/workshop/agencproj/Dockerfile.agenc`:
+
+```dockerfile
+FROM --platform=linux/amd64 node:20-slim
+
+RUN apt-get update -qq && \
+    apt-get install -y vim curl socat python3 make g++ iproute2 -qq && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g @tetsuo-ai/agenc
+
+RUN cat > /usr/local/bin/agenc-start.sh << 'SCRIPT'
+#!/bin/bash
+set -e
+if [ ! -f /root/.agenc/config.json ]; then
+  agenc onboard || true
+fi
+SQLITE_PATH=$(find /root/.agenc/runtime -name "better_sqlite3.node" 2>/dev/null | head -1)
+if [ -n "$SQLITE_PATH" ]; then
+  SQLITE_DIR=$(dirname $(dirname $SQLITE_PATH))
+  cd $SQLITE_DIR && npm rebuild 2>/dev/null || true
+fi
+agenc start
+socat TCP-LISTEN:3101,fork,reuseaddr TCP:127.0.0.1:3100 &
+echo "✅ AgenC running — UI at http://localhost:3100/ui/"
+tail -f /root/.agenc/daemon.log
+SCRIPT
+
+RUN chmod +x /usr/local/bin/agenc-start.sh
+EXPOSE 3101
+CMD ["bash"]
+```
+
+### Build the image
+
+```bash
+docker build --platform linux/amd64 \
+  -t agenc-operator \
+  -f ~/workshop/agencproj/Dockerfile.agenc \
+  ~/workshop/agencproj/
+```
+
+### Run the container
+
+```bash
+docker run -it --platform linux/amd64 \
+  --name agenc-operator \
+  -p 3100:3101 \
+  agenc-operator
+```
+
+### First-time setup inside container
+
+```bash
+# 1. Generate default config
+agenc onboard
+
+# 2. Edit config — add LLM provider and fix host binding
+vim /root/.agenc/config.json
+```
+
+Required config additions:
+
+```json
+{
+  "gateway": {
+    "port": 3100,
+    "host": "0.0.0.0"
+  },
+  "agent": {
+    "name": "letterj-operator"
+  },
+  "llm": {
+    "provider": "grok",
+    "apiKey": "YOUR_GROK_KEY",
+    "model": "grok-3"
+  },
+  "memory": {
+    "backend": "sqlite",
+    "dbPath": "/root/.agenc/memory.db"
+  }
+}
+```
+
+```bash
+# 3. Start daemon, rebuild sqlite, start socat
+agenc-start.sh
+```
+
+### Subsequent starts (container already configured)
+
+```bash
+docker start -ai agenc-operator
+# Inside container:
+agenc-start.sh
+```
+
+### Access the UI
+
+Open in browser: **http://localhost:3100/ui/**
+
+---
+
+## Known Issues
+
+### 1. `gateway.host` config field is ignored (hardcoded to 127.0.0.1)
+
+**Repo:** `agenc-core`  
+**Symptom:** The daemon always binds to `127.0.0.1:3100` regardless of
+`gateway.host` setting in config. Makes the daemon unreachable from outside
+the container even with port mapping.  
+**Workaround:** Use `socat TCP-LISTEN:3101,fork,reuseaddr TCP:127.0.0.1:3100 &`
+inside the container, then map port 3101.  
+**Status:** Not yet filed — candidate for issue + PR against `agenc-core`.
+
+### 2. `better-sqlite3` native addon must be rebuilt in Docker
+
+**Symptom:** `Module did not self-register: better_sqlite3.node` on first start.  
+**Fix:** 
+```bash
+cd /root/.agenc/runtime/releases/0.1.0/linux-x64/node_modules/better-sqlite3
+npm rebuild
+```
+The `agenc-start.sh` script handles this automatically.
+
+### 3. `agenc onboard` is non-interactive and does not prompt for LLM config
+
+**Symptom:** Onboard generates a minimal config with no `llm` block.  
+**Fix:** Manually add the `llm` section to `/root/.agenc/config.json` after onboarding.
+
+### 4. `agenc` CLI only supports Linux x64
+
+**Symptom:** `unsupported platform darwin-arm64` on macOS Apple Silicon.  
+**Workaround:** Run in Docker with `--platform linux/amd64`.  
+**Status:** No macOS issue filed upstream yet.
+
+---
+
+## Confirmed Working (2026-03-20)
+
+- ✅ Agent registered on devnet: `GvXS49pWYMtgThmeVw32L7dPBFyCD1siYsTH4CaobpEs`
+- ✅ Daemon running in Docker: `agenc-operator` container
+- ✅ Web UI accessible: `http://localhost:3100/ui/`
+- ✅ Grok LLM connected: `grok-3`
+- ✅ Agent queried live devnet tasks via on-chain tools
+- ✅ 4 open tasks visible on devnet with real SOL rewards
+
+---
+
+## Contributions Made
+
+| Repo | PR | Description | Status |
+|---|---|---|---|
+| `agenc-sdk` | #9 | fix(build): externalize @coral-xyz/anchor, namespace import for BN interop | Merged |
+| `agenc-sdk` | Issue #8 | anchor.BN undefined in CJS and ESM contexts | Closed |
 
 ---
 
@@ -395,23 +381,4 @@ Key directories inside `agenc-core`:
 | agenc-plugin-kit | https://github.com/tetsuo-ai/agenc-plugin-kit |
 | Devnet program (Solscan) | https://solscan.io/account/6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab?cluster=devnet |
 | ADR-003 | `forks/agenc-core/docs/architecture/adr/adr-003-public-framework-product.md` |
-| Refactor program record | `REFACTOR-MASTER-PROGRAM.md` in AgenC repo |
 | Devnet compatibility report | `forks/agenc-sdk/docs/devnet-compatibility.md` |
-
----
-
-## agenc-sdk Validation Gates
-
-Before committing or opening a PR against `tetsuo-ai/agenc-sdk`, run these in order.
-Established by PR #10 (2026-03-19) as the canonical validation suite:
-```bash
-cd ~/workshop/agencproj/forks/agenc-sdk
-npm run typecheck
-npm test
-npm run build
-npm run pack:smoke
-npx -y node@20 scripts/pack-smoke.mjs
-```
-
-The `node@20 scripts/pack-smoke.mjs` step specifically tests packaged CJS/ESM
-interop in Node 20 — the regression that catches the anchor.BN issue fixed in PR #9.
