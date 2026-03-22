@@ -1,3 +1,17 @@
+## PR #pending: chore(umbrella): add techdebt command
+- **Date:** 2026-03-22
+- **Files changed:** `.claude/notes/{gotchas.md,pr-log.md}`, `docs/COMMANDS_AND_VALIDATION.md`, `package.json`, `scripts/{techdebt.mjs,umbrella-contract-manifest.mjs}`
+- **What worked:** Keeping the implementation at the umbrella root made the session-end command real without leaking private runtime code into the public surface, and shipping both `npm run techdebt` and a PATH-level `techdebt` wrapper preserved the repo contract and the operator convenience path.
+- **What didn't:** The environment does not allow writes to `/`, so the literal `/techdebt` path from the root instructions still cannot exist here. The practical fix was a committed root script plus a user-level PATH command.
+- **Rule added to CLAUDE.md:** no
+
+## PR #29: fix(marketplace): restore bid settlement tooling
+- **Date:** 2026-03-22
+- **Files changed:** `runtime/src/task/{pda.ts,pda.test.ts}`, `runtime/src/tools/agenc/{mutation-tools.ts,mutation-tools.test.ts,tools.ts,agenc-tools.test.ts}`
+- **What worked:** Keeping the fix at the public mutation-tool boundary let the existing market CLI inherit bid-exclusive settlement support without adding new raw-account flags, and the shared PDA helpers removed duplicate bid account derivation logic.
+- **What didn't:** Narrowing imports in `runtime/src/tools/agenc/tools.ts` initially broke sibling read paths, so the full `agenc-tools.test.ts` file had to be rerun and fixed before the PR was actually complete.
+- **Rule added to CLAUDE.md:** yes, import safety after narrowing shared-module imports
+
 ## PR #1482: refactor(repo): close Gate 10 split-readiness
 - **Date:** 2026-03-16
 - **Files changed:** Gate 10 authority docs, desktop tool-contract packaging, runtime watch ownership, docs-mcp cleanup, example/tool surface reclassification, pack-smoke and split-readiness verification surfaces
@@ -122,4 +136,11 @@
 - **Files changed:** `README.md`, `assets/banner.jpg`
 - **What worked:** Rewriting the README around audience routing instead of repo internals made the umbrella repo read like a real front door, and the actual repo contract stayed protected by `npm run validate:umbrella`.
 - **What didn't:** The first plan draft underweighted the real acceptance gate and relied too much on generic README advice; the rewrite only became trustworthy after grounding it in the retained example READMEs and the version-doc map.
+- **Rule added to CLAUDE.md:** no
+
+## PR #22: feat(marketplace): ship web and terminal marketplace flows
+- **Date:** 2026-03-21
+- **Files changed:** `README.md`, `docs/{CODEBASE_MAP.md,COMMANDS_AND_VALIDATION.md,DOCS_INDEX.md}`, `runtime/{README.md,package.json}`, `runtime/docs/{MARKETPLACE_OPERATOR_SURFACE.md,MODULE_MAP.md}`, `runtime/src/channels/webchat/{handlers.ts,plugin.test.ts,types.ts}`, `runtime/src/cli/{index.ts,index.test.ts,marketplace-cli.ts,marketplace-tui.ts,marketplace-tui.test.ts}`, `runtime/src/marketplace/serialization.ts`, `runtime/src/{dispute,governance,reputation,task,tools/agenc}/**`, `runtime/tests/{cli-foundation.test.ts,fixtures/benchmark-artifact-golden.v1.ts,litesvm-setup.ts,marketplace-cli.integration.test.ts}`, `tests/{litesvm-connection-proxy.ts,litesvm-program-artifact.ts}`, `web/README.md`, `web/src/{App.tsx,types.ts}`, `web/src/components/{BBSMenuBar.tsx,marketplace/**,tasks/**,tools/ToolsView.tsx}`, `web/src/hooks/{useDisputes.ts,useGovernance.ts,useMarketSkills.ts,useReputation.ts,useTasks.ts,useTasks.test.ts,useTools.ts,useTools.test.ts}`
+- **What worked:** Shipping the whole marketplace slice as one branch kept the contract coherent: dashboard transport, web shell, CLI/TUI commands, LiteSVM integration coverage, and benchmark fixture repair all landed together, and the final serializer extraction removed the last runtime drift point before merge.
+- **What didn't:** The benchmark runner lane initially looked unrelated but was still blocking a trustworthy green signal because the `benchmarks/v1/manifest.json` fixture had disappeared. The read-model duplication between CLI and dashboard also survived the first pass and needed a small follow-up refactor before the branch was truly done.
 - **Rule added to CLAUDE.md:** no
