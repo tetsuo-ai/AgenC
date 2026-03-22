@@ -18,6 +18,7 @@ const umbrellaRequiredFiles = [
   'scripts/check-public-contract-boundary.mjs',
   'scripts/check-umbrella-boundary.mjs',
   'scripts/smoke-test-examples.sh',
+  'scripts/techdebt.mjs',
   'scripts/umbrella-contract-manifest.mjs',
 ];
 
