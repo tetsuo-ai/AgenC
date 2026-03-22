@@ -10,6 +10,7 @@ Install and validate:
 ```bash
 npm install --no-fund
 npm run validate:umbrella
+npm run techdebt
 ```
 
 Examples:
