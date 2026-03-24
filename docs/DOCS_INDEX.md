@@ -14,6 +14,7 @@ This file points to the active documentation across the full AgenC project.
 - [PLUGIN_KIT.md](./PLUGIN_KIT.md) - plugin-kit quick reference
 - [VERSION_DOCS_MAP.md](./VERSION_DOCS_MAP.md) - package/doc ownership map
 - [examples/README.md](../examples/README.md) - public example index
+- [PROJECT_MANAGER_AGENT.md](./PROJECT_MANAGER_AGENT.md) - PM intake agent: public overview and deployment notes (no proprietary prompts)
 
 ## `agenc-core` Docs
 
