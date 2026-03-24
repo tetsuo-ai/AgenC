@@ -39,6 +39,7 @@ If you are working on AgenC as a developer, use this doc set first:
 - [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) - where the active docs live across the project
 - [docs/REPOSITORY_TOPOLOGY.md](docs/REPOSITORY_TOPOLOGY.md) - ownership and boundary reference
 - [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) - first-run setup for the workspace
+- [docs/PROJECT_MANAGER_AGENT.md](docs/PROJECT_MANAGER_AGENT.md) - PM intake agent (public overview; deploy-specific prompts stay private)
 
 ## Workspace At A Glance
 
