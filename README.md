@@ -116,6 +116,7 @@ The root repo keeps only public-surface-safe examples:
 - [examples/tetsuo-integration](examples/tetsuo-integration/)
 - [examples/helius-webhook](examples/helius-webhook/)
 - [examples/risc0-proof-demo](examples/risc0-proof-demo/)
+- [examples/reviewed-task-flow](examples/reviewed-task-flow/) (documentation-only creator-review walkthrough)
 
 Run them from the root with:
 
@@ -129,6 +130,10 @@ npm run example:helius-webhook:subscribe
 
 The Helius example requires `HELIUS_API_KEY`, and the server entrypoint also
 requires `HELIUS_WEBHOOK_SECRET`.
+
+The reviewed-task walkthrough stays documentation-only until a published
+`@tetsuo-ai/sdk` release exposes the reviewed helper surface used by Task
+Validation V2.
 
 ## License
 
