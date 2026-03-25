@@ -44,6 +44,7 @@ Architecture and product docs:
 Operations, security, and audit:
 
 - [`agenc-core/docs/RUNTIME_API.md`](../agenc-core/docs/RUNTIME_API.md)
+- [`agenc-core/docs/architecture/flows/task-lifecycle.md`](../agenc-core/docs/architecture/flows/task-lifecycle.md)
 - [`agenc-core/docs/RUNTIME_PIPELINE_DEBUG_BUNDLE.md`](../agenc-core/docs/RUNTIME_PIPELINE_DEBUG_BUNDLE.md)
 - [`agenc-core/docs/PRIVATE_KERNEL_DISTRIBUTION.md`](../agenc-core/docs/PRIVATE_KERNEL_DISTRIBUTION.md)
 - [`agenc-core/docs/PRIVATE_KERNEL_SUPPORT_POLICY.md`](../agenc-core/docs/PRIVATE_KERNEL_SUPPORT_POLICY.md)
@@ -65,6 +66,7 @@ Design docs:
 - [`agenc-protocol/docs/CODEBASE_MAP.md`](../agenc-protocol/docs/CODEBASE_MAP.md)
 - [`agenc-protocol/docs/PROGRAM_SURFACE.md`](../agenc-protocol/docs/PROGRAM_SURFACE.md)
 - [`agenc-protocol/docs/ARTIFACT_PIPELINE.md`](../agenc-protocol/docs/ARTIFACT_PIPELINE.md)
+- [`agenc-protocol/docs/TASK_VALIDATION_V2.md`](../agenc-protocol/docs/TASK_VALIDATION_V2.md)
 - [`agenc-protocol/docs/VALIDATION.md`](../agenc-protocol/docs/VALIDATION.md)
 - [`agenc-protocol/docs/ZK_PRIVATE_FLOW.md`](../agenc-protocol/docs/ZK_PRIVATE_FLOW.md)
 - [`agenc-protocol/README.md`](../agenc-protocol/README.md)

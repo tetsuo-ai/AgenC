@@ -40,6 +40,18 @@ Main source modules:
 - `tokens.ts`
 - `validation.ts`
 
+## Task Validation V2
+
+The SDK owns the public reviewed-task helper surface introduced with Task Validation V2.
+
+Use `agenc-sdk` when you need:
+
+- `configureTaskValidation(...)` to switch an open public task into creator review, validator quorum, or external attestation
+- `submitTaskResult(...)` to record a reviewed result without settling escrow immediately
+- `acceptTaskResult(...)`, `rejectTaskResult(...)`, `autoAcceptTaskResult(...)`, or `validateTaskResult(...)` to resolve reviewed submissions
+
+Important: low-level SDK `completeTask(...)` still sends the direct `complete_task` instruction. Runtime auto-routing for creator-review tasks lives in `agenc-core`, not in the SDK package itself.
+
 ## When To Use It
 
 Use `@tetsuo-ai/sdk` when you are:
@@ -47,6 +59,7 @@ Use `@tetsuo-ai/sdk` when you are:
 - integrating AgenC into an app or service
 - generating proof payloads
 - submitting task/task-proof transactions
+- submitting or resolving reviewed public-task results
 - querying protocol state from TypeScript
 
 Do not use the root repo or `agenc-core` as the canonical SDK source of truth.
