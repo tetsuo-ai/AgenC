@@ -26,7 +26,10 @@ Then use the public examples and walkthroughs from the repo root:
 The Helius commands require `HELIUS_API_KEY`. The server command also requires
 `HELIUS_WEBHOOK_SECRET`.
 
-The root examples stay on public, public-surface-safe flows. They currently cover direct public submission wiring and private zk completion. They do not yet include a full reviewed public-task settlement demo for Task Validation V2.
+The root examples stay on public, public-surface-safe flows. The runnable
+examples cover direct public submission wiring and private zk completion. The
+reviewed public-task path is documented here as the `reviewed-task-flow`
+walkthrough.
 
 For reviewed public-task flow docs, start with:
 
