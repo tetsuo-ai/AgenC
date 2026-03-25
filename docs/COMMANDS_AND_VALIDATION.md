@@ -23,6 +23,12 @@ npm run example:helius-webhook:server
 npm run example:helius-webhook:subscribe
 ```
 
+Documentation-only reviewed-flow walkthrough:
+
+```text
+examples/reviewed-task-flow/README.md
+```
+
 ## `agenc-core`
 
 Core/framework validation:

@@ -242,6 +242,7 @@ Important entrypoints:
 - `examples/tetsuo-integration/`
 - `examples/helius-webhook/`
 - `examples/risc0-proof-demo/`
+- `examples/reviewed-task-flow/`
 
 ## Related Docs
 
