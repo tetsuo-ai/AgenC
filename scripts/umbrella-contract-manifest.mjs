@@ -25,6 +25,7 @@ const umbrellaRequiredFiles = [
 const umbrellaRequiredDirectories = [
   'examples/helius-webhook',
   'examples/risc0-proof-demo',
+  'examples/reviewed-task-flow',
   'examples/simple-usage',
   'examples/tetsuo-integration',
 ];
