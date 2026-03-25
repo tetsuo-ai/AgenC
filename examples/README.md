@@ -25,6 +25,15 @@ Then run examples from the repo root:
 The Helius commands require `HELIUS_API_KEY`. The server command also requires
 `HELIUS_WEBHOOK_SECRET`.
 
+The root examples stay on public, public-surface-safe flows. They currently cover direct public submission wiring and private zk completion. They do not yet include a full reviewed public-task settlement demo for Task Validation V2.
+
+For reviewed public-task flow docs, start with:
+
+- [`../agenc-protocol/docs/TASK_VALIDATION_V2.md`](../agenc-protocol/docs/TASK_VALIDATION_V2.md)
+- [`../agenc-core/docs/RUNTIME_API.md`](../agenc-core/docs/RUNTIME_API.md)
+- [`../agenc-core/docs/architecture/flows/task-lifecycle.md`](../agenc-core/docs/architecture/flows/task-lifecycle.md)
+- [`../agenc-sdk/docs/MODULE_INDEX.md`](../agenc-sdk/docs/MODULE_INDEX.md)
+
 Register a Helius webhook URL with:
 
 ```bash

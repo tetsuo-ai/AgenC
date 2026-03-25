@@ -121,6 +121,7 @@ Repo-local navigation:
 - `agenc-protocol/docs/CODEBASE_MAP.md`
 - `agenc-protocol/docs/PROGRAM_SURFACE.md`
 - `agenc-protocol/docs/ARTIFACT_PIPELINE.md`
+- `agenc-protocol/docs/TASK_VALIDATION_V2.md`
 - `agenc-protocol/docs/ZK_PRIVATE_FLOW.md`
 
 Top-level source areas:
@@ -140,6 +141,8 @@ Top-level source areas:
 - `events.rs`
 - `lib.rs`
 - `state.rs`
+
+The reviewed public-task flow is documented in `agenc-protocol/docs/TASK_VALIDATION_V2.md`.
 
 ## `agenc-sdk`
 
@@ -184,6 +187,8 @@ Support directories:
 - `src/utils/`
 - `docs/api-baseline/`
 - `examples/private-task-demo/`
+
+`tasks.ts` owns both the immediate public/private completion helpers and the reviewed public-task helpers added for Task Validation V2.
 
 ## `agenc-plugin-kit`
 
