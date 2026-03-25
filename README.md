@@ -89,6 +89,7 @@ package and implementation ownership lives in the nested repos listed above.
 | Find the repo or folder that owns a surface | [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md) |
 | Run setup or validation | [docs/COMMANDS_AND_VALIDATION.md](docs/COMMANDS_AND_VALIDATION.md) |
 | Find the canonical docs for a subsystem | [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) |
+| Understand reviewed public-task settlement | [`agenc-protocol/docs/TASK_VALIDATION_V2.md`](agenc-protocol/docs/TASK_VALIDATION_V2.md) and [`agenc-core/docs/RUNTIME_API.md`](agenc-core/docs/RUNTIME_API.md) |
 | Work on protocol contracts or Anchor artifacts | [`agenc-protocol/docs/DOCS_INDEX.md`](agenc-protocol/docs/DOCS_INDEX.md) |
 | Work on the framework/runtime/operator stack | [`agenc-core/docs/DOCS_INDEX.md`](agenc-core/docs/DOCS_INDEX.md) |
 | Work on the public SDK | [`agenc-sdk/docs/DOCS_INDEX.md`](agenc-sdk/docs/DOCS_INDEX.md) |

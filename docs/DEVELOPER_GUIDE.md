@@ -97,6 +97,9 @@ At a high level:
 - Canonical package/release docs belong to the repo that owns the package.
 - Historical planning notes are not part of the active developer doc set; use
   the current docs and git history instead.
+- Reviewed public-task settlement is split across protocol, runtime, and SDK
+  docs. Start with `agenc-protocol/docs/TASK_VALIDATION_V2.md`, then
+  `agenc-core/docs/RUNTIME_API.md`, then `agenc-sdk/docs/MODULE_INDEX.md`.
 
 ## First Reads By Task
 
