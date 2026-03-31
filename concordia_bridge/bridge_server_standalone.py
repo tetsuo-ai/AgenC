@@ -60,8 +60,9 @@ class DaemonClient:
         self.daemon_url = daemon_url
         self._connections: dict[str, websockets.sync.client.ClientConnection] = {}
         self._sessions: dict[str, str] = {}  # agent_id -> session_id
+        self._agent_locks: dict[str, threading.Lock] = {}  # per-agent lock for thread safety
         self.available = False
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # global lock for connection/session maps
 
     def start(self):
         """Test daemon connectivity."""
@@ -130,9 +131,20 @@ class DaemonClient:
 
             return ws
 
+    def _get_agent_lock(self, agent_id: str) -> threading.Lock:
+        with self._lock:
+            if agent_id not in self._agent_locks:
+                self._agent_locks[agent_id] = threading.Lock()
+            return self._agent_locks[agent_id]
+
     def send_message(self, agent_id: str, content: str, timeout: float = 120.0) -> str:
-        """Send a message and block until the daemon responds."""
+        """Send a message and block until the daemon responds. Thread-safe per agent."""
         if not self.available:
+            return ""
+
+        agent_lock = self._get_agent_lock(agent_id)
+        if not agent_lock.acquire(timeout=timeout):
+            logger.warning("Agent %s lock timeout — another request is in progress", agent_id)
             return ""
 
         try:
@@ -168,6 +180,8 @@ class DaemonClient:
                 self._connections.pop(agent_id, None)
                 self._sessions.pop(agent_id, None)
             return ""
+        finally:
+            agent_lock.release()
 
 
 # ============================================================================
@@ -253,6 +267,10 @@ class DaemonGM:
         prompt = f"[Simulation GM]\nPremise: {self._premise}\n\nRecent events:\n{context}\n\n{action_spec.call_to_action}\n\nRespond concisely (1-3 sentences)."
 
         response = self._daemon.send_message("gamemaster", prompt, timeout=60)
+
+        # Rate limit protection — small delay between GM LLM calls
+        time.sleep(1)
+
         if not response:
             # Fallback to simple response
             if action_spec.output_type == OutputType.MAKE_OBSERVATION:
@@ -473,6 +491,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 prompt = f"{call_to_action}\n\nRespond concisely with your action (1-2 sentences). Do not include your name."
 
             action = daemon_client.send_message(aid, prompt, timeout=60)
+            time.sleep(0.5)  # Rate limit protection between agent LLM calls
 
         # Fallback to canned response
         if not action:
