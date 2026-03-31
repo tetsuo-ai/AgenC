@@ -45,6 +45,16 @@ export interface MemoryWiringContext {
   readonly dailyLogManager?: DailyLogManagerLike;
   /** Optional — encryption key for at-rest encryption (Task 10.10). */
   readonly encryptionKey?: string;
+  /**
+   * Optional — persistent vector backend path (Task 10.8).
+   *
+   * When set, the bridge uses SqliteVectorBackend at this path for
+   * persistent vector storage that survives daemon restarts.
+   * Resolved via resolveWorldDbPath(worldId) in the runtime.
+   *
+   * Example: "~/.agenc/worlds/medieval-town-001/vectors.db"
+   */
+  readonly vectorDbPath?: string;
 }
 
 // ============================================================================
@@ -374,6 +384,45 @@ export async function getAgentState(
     turnCount,
     lastAction,
   };
+}
+
+// ============================================================================
+// Task 10.8: Persistent vector store helper
+// ============================================================================
+
+/**
+ * Create a memory wiring context description including the persistent vector
+ * backend path. This resolves the per-world SQLite vector DB using the
+ * runtime's resolveWorldVectorDbPath().
+ *
+ * Usage when integrating with @tetsuo-ai/runtime:
+ * ```typescript
+ * import { resolveWorldVectorDbPath } from "@tetsuo-ai/runtime/memory/world-db-resolver";
+ * import { SqliteVectorBackend } from "@tetsuo-ai/runtime/memory/sqlite/vector-backend";
+ *
+ * const vectorDbPath = resolveWorldVectorDbPath(worldId);
+ * const vectorStore = new SqliteVectorBackend({ dbPath: vectorDbPath, dimension: 768 });
+ * ```
+ *
+ * The vectorDbPath on MemoryWiringContext is stored for reference by
+ * consumers that need to create or reconnect to the persistent store.
+ */
+export function resolveVectorDbPath(worldId: string, agencHome?: string): string {
+  // Mirrors runtime/src/memory/world-db-resolver.ts logic
+  const home = agencHome ?? (
+    typeof process !== "undefined"
+      ? (process.env.HOME ?? process.env.USERPROFILE ?? "/tmp")
+      : "/tmp"
+  );
+  const sanitized = worldId
+    .replace(/[^a-zA-Z0-9_\-.]/g, "_")
+    .replace(/\.{2,}/g, "_")
+    .slice(0, 128);
+
+  if (!worldId || worldId === "default") {
+    return `${home}/.agenc/vectors.db`;
+  }
+  return `${home}/.agenc/worlds/${sanitized}/vectors.db`;
 }
 
 // ============================================================================

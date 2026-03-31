@@ -152,6 +152,7 @@ def run_simulation(
             max_steps=config.max_steps,
             step_controller=controller,
             step_callback=step_callback,
+            scenes=config.scenes,
         )
 
         sim_state.update(running=False)
@@ -204,23 +205,51 @@ def _build_game_master(
     memory_bank: AssociativeMemoryBank,
     players: list[Entity],
 ) -> Entity:
-    """Build the Game Master entity using Concordia prefabs."""
-    try:
-        from concordia.prefabs.game_master import generic as gm_generic
+    """Build the Game Master entity using Concordia prefabs (Phase 7.5).
 
-        gm_prefab = gm_generic.GenericGameMaster(
-            model=model,
-            memory=memory_bank,
-            players=players,
-            update_thought_chain=[],
-            player_observes_event=False,
-        )
-        return gm_prefab
+    Supports prefab selection via config.gm_prefab:
+    - "generic" (default): full event resolution with chain of thought
+    - "dialogic": pure conversation, no physical actions
+    - "situated": location tracking
+    - Other values: fall back to generic, then to _FallbackGameMaster
+    """
+    prefab_name = config.gm_prefab or "generic"
+    gm_kwargs = dict(
+        model=model,
+        memory=memory_bank,
+        players=players,
+        update_thought_chain=[],
+        player_observes_event=False,
+    )
+
+    try:
+        if prefab_name == "generic":
+            from concordia.prefabs.game_master import generic as gm_mod
+            return gm_mod.GenericGameMaster(**gm_kwargs)
+        elif prefab_name == "dialogic":
+            try:
+                from concordia.prefabs.game_master import dialogic as gm_mod
+                return gm_mod.DialogicGameMaster(**gm_kwargs)
+            except (ImportError, AttributeError):
+                logger.warning("Dialogic GM prefab not available — falling back to generic")
+                from concordia.prefabs.game_master import generic as gm_mod
+                return gm_mod.GenericGameMaster(**gm_kwargs)
+        elif prefab_name == "situated":
+            try:
+                from concordia.prefabs.game_master import situated as gm_mod
+                return gm_mod.SituatedGameMaster(**gm_kwargs)
+            except (ImportError, AttributeError):
+                logger.warning("Situated GM prefab not available — falling back to generic")
+                from concordia.prefabs.game_master import generic as gm_mod
+                return gm_mod.GenericGameMaster(**gm_kwargs)
+        else:
+            logger.warning("Unknown GM prefab '%s' — falling back to generic", prefab_name)
+            from concordia.prefabs.game_master import generic as gm_mod
+            return gm_mod.GenericGameMaster(**gm_kwargs)
     except (ImportError, TypeError) as exc:
         logger.warning(
             "Failed to build GM via prefab (%s) — using fallback", exc,
         )
-        # Fallback: create a minimal entity-like GM
         return _FallbackGameMaster(model, memory_bank, config.gm_instructions)
 
 
