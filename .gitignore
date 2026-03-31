@@ -116,3 +116,6 @@ CLAUDE.md
 claude.md
 AGENTS.md
 agents.md
+concordia_bridge/.venv/
+agenc-plugin-concordia/node_modules/
+__pycache__/
