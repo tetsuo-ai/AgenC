@@ -169,8 +169,9 @@ class InstrumentedSequentialEngine(Engine):
         checkpoint_callback: Optional[Callable[[int], None]] = None,
         step_controller: object = None,
         step_callback: Optional[Callable] = None,
+        scenes: Optional[list] = None,
     ) -> None:
-        """Run the full simulation loop."""
+        """Run the full simulation loop with optional scene support."""
         gm = game_masters[0]
 
         # Inject premise
@@ -184,6 +185,21 @@ class InstrumentedSequentialEngine(Engine):
                 metadata={"phase": "premise"},
             ))
 
+        # Scene tracking (Phase 7.2)
+        scene_index = 0
+        scene_round = 0
+        current_scene = scenes[0] if scenes else None
+        if current_scene:
+            self._event_callback(SimulationEvent(
+                type="scene_change",
+                step=0,
+                timestamp=time.time(),
+                scene=getattr(current_scene, "scene_type", {}).get("name", "scene_0")
+                    if isinstance(getattr(current_scene, "scene_type", None), dict)
+                    else str(scene_index),
+                content=f"Scene started: {scene_index}",
+            ))
+
         for step in range(1, max_steps + 1):
             self._current_step = step
 
@@ -191,9 +207,33 @@ class InstrumentedSequentialEngine(Engine):
             if step_controller and hasattr(step_controller, "wait_for_step_permission"):
                 step_controller.wait_for_step_permission()
 
+            # Pre-step validation (Phase 8.5)
+            if not self._validate_pre_step(gm, entities):
+                logger.warning("Pre-step validation failed at step %d — skipping", step)
+                continue
+
             # Check termination
             if self.terminate(gm):
                 break
+
+            # Scene transition check (Phase 7.2)
+            if scenes and current_scene:
+                scene_round += 1
+                num_rounds = getattr(current_scene, "num_rounds", None) or 999
+                if scene_round > num_rounds:
+                    scene_index += 1
+                    scene_round = 1
+                    if scene_index < len(scenes):
+                        current_scene = scenes[scene_index]
+                        self._event_callback(SimulationEvent(
+                            type="scene_change",
+                            step=step,
+                            timestamp=time.time(),
+                            scene=str(scene_index),
+                            content=f"Scene transition to scene {scene_index}",
+                        ))
+                    else:
+                        current_scene = None  # No more scenes
 
             # Multi-GM selection
             if len(game_masters) > 1:
@@ -233,6 +273,23 @@ class InstrumentedSequentialEngine(Engine):
                     logger.warning("step_callback error: %s", exc)
 
             logger.info("Step %d/%d complete: %s", step, max_steps, event_text[:100])
+
+    def _validate_pre_step(self, gm: Entity, entities: Sequence[Entity]) -> bool:
+        """Pre-step validation: check GM and entity health (Phase 8.5)."""
+        try:
+            # Verify GM is responsive
+            if not hasattr(gm, "act"):
+                logger.error("GM missing act() method")
+                return False
+            # Verify entities have required interface
+            for entity in entities:
+                if not hasattr(entity, "act") or not hasattr(entity, "observe"):
+                    logger.error("Entity %s missing required methods", getattr(entity, "name", "?"))
+                    return False
+            return True
+        except Exception as exc:
+            logger.warning("Pre-step validation error: %s", exc)
+            return False
 
     def _notify_bridge_event(self, putative: str, resolved: str) -> None:
         """Notify the AgenC bridge about a resolved event for social memory."""
