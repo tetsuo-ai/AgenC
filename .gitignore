@@ -119,3 +119,11 @@ agents.md
 concordia_bridge/.venv/
 agenc-plugin-concordia/node_modules/
 __pycache__/
+**/__pycache__/
+*.pyc
+*.egg-info/
+**/*.egg-info/
+.agenc/
+**/.agenc/
+.pytest_cache/
+**/.pytest_cache/
