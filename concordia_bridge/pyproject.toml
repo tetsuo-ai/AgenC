@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agenc-concordia"
+version = "0.1.0"
+description = "AgenC x Concordia generative agent simulation bridge"
+requires-python = ">=3.11"
+dependencies = [
+    "gdm-concordia>=0.2.0",
+    "requests>=2.28",
+    "websockets>=12.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "responses>=0.23",
+]
+embeddings = [
+    "sentence-transformers>=2.2",
+]
+
+[project.scripts]
+agenc-concordia = "concordia_bridge.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
