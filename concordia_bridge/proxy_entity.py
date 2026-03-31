@@ -44,6 +44,8 @@ class ProxyEntity(Entity):
         world_id: str = "default",
         workspace_id: str = "concordia-sim",
         timeout_seconds: float = 120.0,
+        max_retries: int = 2,
+        retry_delay_seconds: float = 2.0,
     ) -> None:
         self._name = agent_name
         self._bridge_url = bridge_url.rstrip("/")
@@ -51,6 +53,8 @@ class ProxyEntity(Entity):
         self._world_id = world_id
         self._workspace_id = workspace_id
         self._timeout = timeout_seconds
+        self._max_retries = max_retries
+        self._retry_delay = retry_delay_seconds
         self._turn_count = 0
 
     @functools.cached_property
@@ -70,51 +74,75 @@ class ProxyEntity(Entity):
         return self._turn_count
 
     def act(self, action_spec: ActionSpec = DEFAULT_ACTION_SPEC) -> str:
-        """Send action_spec to AgenC bridge, return the agent's action string."""
+        """Send action_spec to AgenC bridge, return the agent's action string.
+
+        Retries on ConnectionError with exponential backoff (Phase 8.3).
+        Falls back to a safe default action after all retries are exhausted.
+        """
         self._turn_count += 1
-        try:
-            response = requests.post(
-                f"{self._bridge_url}/act",
-                json={
-                    "agent_id": self._agent_id,
-                    "agent_name": self._name,
-                    "world_id": self._world_id,
-                    "workspace_id": self._workspace_id,
-                    "action_spec": action_spec.to_dict(),
-                    "turn_count": self._turn_count,
-                },
-                timeout=self._timeout,
-            )
-            response.raise_for_status()
-            result = response.json()
-            action = result.get("action", "")
-            logger.debug(
-                "ProxyEntity %s act() turn=%d: %s",
-                self._name,
-                self._turn_count,
-                action[:100],
-            )
-            return action
-        except requests.Timeout:
-            logger.warning(
-                "ProxyEntity %s act() timed out after %.1fs — returning fallback",
-                self._name,
-                self._timeout,
-            )
-            return f"{self._name} hesitates and does nothing."
-        except requests.ConnectionError:
-            logger.error(
-                "ProxyEntity %s act() connection failed — bridge may be down",
-                self._name,
-            )
-            return f"{self._name} hesitates and does nothing."
-        except requests.HTTPError as exc:
-            logger.error(
-                "ProxyEntity %s act() HTTP error: %s",
-                self._name,
-                exc,
-            )
-            return f"{self._name} hesitates and does nothing."
+        last_exc: Exception | None = None
+
+        for attempt in range(self._max_retries + 1):
+            try:
+                response = requests.post(
+                    f"{self._bridge_url}/act",
+                    json={
+                        "agent_id": self._agent_id,
+                        "agent_name": self._name,
+                        "world_id": self._world_id,
+                        "workspace_id": self._workspace_id,
+                        "action_spec": action_spec.to_dict(),
+                        "turn_count": self._turn_count,
+                    },
+                    timeout=self._timeout,
+                )
+                response.raise_for_status()
+                result = response.json()
+                action = result.get("action", "")
+                logger.debug(
+                    "ProxyEntity %s act() turn=%d: %s",
+                    self._name,
+                    self._turn_count,
+                    action[:100],
+                )
+                return action
+            except requests.Timeout:
+                logger.warning(
+                    "ProxyEntity %s act() timed out after %.1fs — returning fallback",
+                    self._name,
+                    self._timeout,
+                )
+                return f"{self._name} hesitates and does nothing."
+            except requests.ConnectionError as exc:
+                last_exc = exc
+                if attempt < self._max_retries:
+                    delay = self._retry_delay * (2 ** attempt)
+                    logger.warning(
+                        "ProxyEntity %s act() connection failed (attempt %d/%d) — "
+                        "retrying in %.1fs",
+                        self._name,
+                        attempt + 1,
+                        self._max_retries + 1,
+                        delay,
+                    )
+                    import time
+                    time.sleep(delay)
+                    continue
+            except requests.HTTPError as exc:
+                logger.error(
+                    "ProxyEntity %s act() HTTP error: %s",
+                    self._name,
+                    exc,
+                )
+                return f"{self._name} hesitates and does nothing."
+
+        logger.error(
+            "ProxyEntity %s act() all %d retries exhausted — bridge unreachable: %s",
+            self._name,
+            self._max_retries + 1,
+            last_exc,
+        )
+        return f"{self._name} hesitates and does nothing."
 
     def observe(self, observation: str) -> None:
         """Send observation to AgenC bridge for memory ingestion.
