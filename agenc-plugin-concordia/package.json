@@ -1,0 +1,32 @@
+{
+  "name": "@tetsuo-ai/plugin-concordia",
+  "version": "0.1.0",
+  "description": "AgenC Concordia simulation bridge — ChannelAdapter plugin",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tetsuo-ai/plugin-kit": "file:../agenc-plugin-kit"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.0",
+    "vitest": "^1.6.0"
+  },
+  "files": ["dist"],
+  "license": "UNLICENSED"
+}
