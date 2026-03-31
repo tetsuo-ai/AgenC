@@ -34,7 +34,7 @@ class EventServer:
     event loop running in a background thread.
     """
 
-    def __init__(self, port: int = 3201, host: str = "127.0.0.1", max_buffer: int = 1000) -> None:
+    def __init__(self, port: int = 3201, host: str = "0.0.0.0", max_buffer: int = 1000) -> None:
         self.port = port
         self.host = host
         self.max_buffer = max_buffer
