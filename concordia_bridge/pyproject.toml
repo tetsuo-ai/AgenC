@@ -27,6 +27,10 @@ embeddings = [
 [project.scripts]
 agenc-concordia = "concordia_bridge.cli:main"
 
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["concordia_bridge", "concordia_bridge.*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
