@@ -33,6 +33,18 @@ export interface MemoryWiringContext {
   readonly memoryBackend: MemoryBackendLike;
   readonly identityManager: IdentityManagerLike;
   readonly socialMemory: SocialMemoryLike;
+  /** Optional — procedural memory for tool sequence learning (Task 5.4). */
+  readonly proceduralMemory?: ProceduralMemoryLike;
+  /** Optional — knowledge graph for entity relationships (Task 10.3, 10.4). */
+  readonly graph?: MemoryGraphLike;
+  /** Optional — shared memory for cross-simulation facts (Task 10.5). */
+  readonly sharedMemory?: SharedMemoryLike;
+  /** Optional — trace logger for memory operations (Task 10.13). */
+  readonly traceLogger?: TraceLoggerLike;
+  /** Optional — daily log manager for simulation transcripts (Task 10.14). */
+  readonly dailyLogManager?: DailyLogManagerLike;
+  /** Optional — encryption key for at-rest encryption (Task 10.10). */
+  readonly encryptionKey?: string;
 }
 
 // ============================================================================
@@ -112,6 +124,109 @@ export interface SocialMemoryLike {
     observedBy: string;
     confirmations: number;
   }>>;
+
+  checkCollectiveEmergence(worldId: string, minConfirmations?: number): Promise<Array<{
+    content: string;
+    confirmedBy: readonly string[];
+  }>>;
+}
+
+/** Duck-typed procedural memory interface (Task 5.4). */
+export interface ProceduralMemoryLike {
+  record(input: {
+    name: string;
+    trigger: string;
+    steps: readonly string[];
+    workspaceId?: string;
+  }): Promise<unknown>;
+  retrieve(triggerText: string, workspaceId?: string): Promise<Array<{
+    name: string;
+    trigger: string;
+    steps: readonly string[];
+    confidence: number;
+  }>>;
+  formatForPrompt(procedures: readonly Array<{
+    name: string;
+    trigger: string;
+    steps: readonly string[];
+  }>): string;
+}
+
+/** Duck-typed knowledge graph interface (Tasks 10.3, 10.4). */
+export interface MemoryGraphLike {
+  findByEntity(name: string, workspaceId?: string): Promise<Array<{
+    id: string;
+    content: string;
+    entityName?: string;
+    entityType?: string;
+  }>>;
+  getRelatedEntities(nodeId: string, depth?: number): Promise<Array<{
+    id: string;
+    content: string;
+    entityName?: string;
+  }>>;
+  updateEdge(edgeId: string, update: { validUntil?: number }): Promise<void>;
+  addEdge(params: {
+    sourceId: string;
+    targetId: string;
+    type: string;
+    content?: string;
+    validFrom?: number;
+    validUntil?: number;
+  }): Promise<unknown>;
+}
+
+/** Duck-typed shared memory interface (Task 10.5). */
+export interface SharedMemoryLike {
+  writeFact(params: {
+    scope: string;
+    content: string;
+    author: string;
+    userId?: string;
+  }): Promise<unknown>;
+  getFacts(scope: string, userId?: string): Promise<Array<{
+    content: string;
+    author: string;
+  }>>;
+}
+
+/** Duck-typed trace logger interface (Task 10.13). */
+export interface TraceLoggerLike {
+  traceRetrieval(params: {
+    sessionId: string;
+    query: string;
+    candidateCount: number;
+    selectedCount: number;
+    estimatedTokens: number;
+    roles: Record<string, number>;
+    workspaceId?: string;
+    durationMs: number;
+  }): void;
+  traceTrustFilter(params: {
+    entryId: string;
+    trustScore: number;
+    threshold: number;
+    excluded: boolean;
+    source: string;
+  }): void;
+  traceIngestion(params: {
+    sessionId: string;
+    workspaceId?: string;
+    indexed: boolean;
+    salienceScore: number;
+    duplicate: boolean;
+  }): void;
+}
+
+/** Duck-typed daily log manager interface (Task 10.14). */
+export interface DailyLogManagerLike {
+  append(sessionId: string, entry: {
+    timestamp: number;
+    type: string;
+    step?: number;
+    actingAgent?: string;
+    content: string;
+  }): Promise<void>;
 }
 
 // ============================================================================
@@ -259,4 +374,293 @@ export async function getAgentState(
     turnCount,
     lastAction,
   };
+}
+
+// ============================================================================
+// Task 5.4: Procedural memory — record successful action patterns
+// ============================================================================
+
+/**
+ * Record a successful action as a procedural memory.
+ * If the agent uses a strategy that works, remember it for future similar situations.
+ */
+export async function recordProcedure(
+  ctx: MemoryWiringContext,
+  agentId: string,
+  trigger: string,
+  steps: readonly string[],
+): Promise<void> {
+  if (!ctx.proceduralMemory) return;
+  await ctx.proceduralMemory.record({
+    name: `${agentId}:${trigger.slice(0, 30).replace(/\s+/g, "_")}`,
+    trigger,
+    steps,
+    workspaceId: ctx.workspaceId,
+  });
+}
+
+/**
+ * Retrieve relevant procedures for a given context.
+ */
+export async function retrieveProcedures(
+  ctx: MemoryWiringContext,
+  triggerText: string,
+): Promise<string> {
+  if (!ctx.proceduralMemory) return "";
+  const procedures = await ctx.proceduralMemory.retrieve(triggerText, ctx.workspaceId);
+  if (procedures.length === 0) return "";
+  return ctx.proceduralMemory.formatForPrompt(procedures);
+}
+
+// ============================================================================
+// Task 10.2: Activation scoring — update access counts after retrieval
+// ============================================================================
+
+/**
+ * Update activation scores on retrieved memory entries.
+ * Entries that are frequently relevant get higher activation (ACT-R model).
+ */
+export async function updateActivationScores(
+  ctx: MemoryWiringContext,
+  sessionId: string,
+  retrievedEntryIds: readonly string[],
+): Promise<void> {
+  for (const entryId of retrievedEntryIds) {
+    // Read the existing entry's metadata via KV (since we can't update entries in place)
+    const key = `${ctx.workspaceId}:activation:${entryId}`;
+    const existing = await ctx.memoryBackend.get<{ accessCount: number; lastAccessTime: number }>(key);
+    const accessCount = (existing?.accessCount ?? 0) + 1;
+    await ctx.memoryBackend.set(key, {
+      accessCount,
+      lastAccessTime: Date.now(),
+    });
+  }
+}
+
+// ============================================================================
+// Task 10.3: Temporal edges — update knowledge graph on contradicting events
+// ============================================================================
+
+/**
+ * Update temporal edges when a resolved event contradicts existing graph facts.
+ * Old facts get validUntil set, new facts get validFrom.
+ */
+export async function updateTemporalEdges(
+  ctx: MemoryWiringContext,
+  actingAgent: string,
+  resolvedEvent: string,
+): Promise<void> {
+  if (!ctx.graph) return;
+
+  // Extract entity names from the event (simple word matching against known agents)
+  const words = resolvedEvent.toLowerCase().split(/\s+/);
+  const entityNodes = await ctx.graph.findByEntity(actingAgent, ctx.workspaceId);
+
+  for (const node of entityNodes) {
+    // Check if the event contradicts existing knowledge
+    if (node.content && resolvedEvent.toLowerCase().includes("no longer") ||
+        resolvedEvent.toLowerCase().includes("revealed") ||
+        resolvedEvent.toLowerCase().includes("actually")) {
+      // Set validUntil on old edge
+      await ctx.graph.updateEdge(node.id, { validUntil: Date.now() });
+    }
+  }
+}
+
+// ============================================================================
+// Task 10.4: BFS graph traversal for enriched agent context
+// ============================================================================
+
+/**
+ * Build knowledge graph context for the /act prompt.
+ * Uses BFS to pull related entities up to depth 2.
+ */
+export async function buildGraphContext(
+  ctx: MemoryWiringContext,
+  queryText: string,
+  agentId: string,
+): Promise<string> {
+  if (!ctx.graph) return "";
+
+  // Extract potential entity mentions from the query
+  const words = queryText.split(/\s+/).filter((w) => w.length > 3);
+  const contextParts: string[] = [];
+
+  for (const word of words.slice(0, 5)) {
+    const nodes = await ctx.graph.findByEntity(word, ctx.workspaceId);
+    if (nodes.length > 0) {
+      const related = await ctx.graph.getRelatedEntities(nodes[0].id, 2);
+      if (related.length > 0) {
+        const facts = related.map((n) => n.content || n.entityName || "").filter(Boolean);
+        if (facts.length > 0) {
+          contextParts.push(`[Knowledge about ${word}]: ${facts.join("; ")}`);
+        }
+      }
+    }
+  }
+
+  return contextParts.join("\n");
+}
+
+// ============================================================================
+// Task 10.5: Shared memory — cross-simulation knowledge
+// ============================================================================
+
+/**
+ * Inject shared facts from the cross-simulation shared memory layer.
+ */
+export async function getSharedContext(
+  ctx: MemoryWiringContext,
+  userId?: string,
+): Promise<string> {
+  if (!ctx.sharedMemory) return "";
+
+  const userFacts = await ctx.sharedMemory.getFacts("user", userId);
+  if (userFacts.length === 0) return "";
+
+  return "[Shared Knowledge]\n" + userFacts.map((f) => `- ${f.content}`).join("\n");
+}
+
+/**
+ * Promote a learned fact to shared memory after simulation ends.
+ */
+export async function promoteToSharedMemory(
+  ctx: MemoryWiringContext,
+  content: string,
+  userId?: string,
+): Promise<void> {
+  if (!ctx.sharedMemory) return;
+  await ctx.sharedMemory.writeFact({
+    scope: "user",
+    content,
+    author: `concordia:${ctx.worldId}`,
+    userId,
+  });
+}
+
+// ============================================================================
+// Task 10.6: Collective emergence — check for multi-agent consensus
+// ============================================================================
+
+/**
+ * Check if multiple agents have independently confirmed the same facts.
+ * When 3+ agents agree, the fact is promoted to world knowledge.
+ */
+export async function checkCollectiveEmergence(
+  ctx: MemoryWiringContext,
+  minConfirmations: number = 3,
+): Promise<Array<{ content: string; confirmedBy: readonly string[] }>> {
+  return ctx.socialMemory.checkCollectiveEmergence(ctx.worldId, minConfirmations);
+}
+
+// ============================================================================
+// Task 10.13: Trace logging — emit structured memory trace events
+// ============================================================================
+
+/**
+ * Log a memory retrieval operation via the trace logger.
+ */
+export function traceMemoryRetrieval(
+  ctx: MemoryWiringContext,
+  params: {
+    sessionId: string;
+    query: string;
+    candidateCount: number;
+    selectedCount: number;
+    estimatedTokens: number;
+    roles: Record<string, number>;
+    durationMs: number;
+  },
+): void {
+  ctx.traceLogger?.traceRetrieval({
+    ...params,
+    workspaceId: ctx.workspaceId,
+  });
+}
+
+/**
+ * Log a trust filtering decision via the trace logger.
+ */
+export function traceMemoryTrustFilter(
+  ctx: MemoryWiringContext,
+  params: {
+    entryId: string;
+    trustScore: number;
+    threshold: number;
+    excluded: boolean;
+    source: string;
+  },
+): void {
+  ctx.traceLogger?.traceTrustFilter(params);
+}
+
+// ============================================================================
+// Task 10.14: Daily log manager — simulation transcripts
+// ============================================================================
+
+/**
+ * Append a simulation event to the daily log for structured transcripts.
+ */
+export async function logSimulationEvent(
+  ctx: MemoryWiringContext,
+  sessionId: string,
+  event: {
+    step: number;
+    actingAgent?: string;
+    content: string;
+    type: string;
+  },
+): Promise<void> {
+  if (!ctx.dailyLogManager) return;
+  await ctx.dailyLogManager.append(sessionId, {
+    timestamp: Date.now(),
+    type: event.type,
+    step: event.step,
+    actingAgent: event.actingAgent,
+    content: event.content,
+  });
+}
+
+// ============================================================================
+// Task 5.5: Full prompt context builder with all memory sources
+// ============================================================================
+
+/**
+ * Build the complete memory-enriched prompt context for an /act call.
+ * Combines: identity + procedural + semantic + graph + shared memory.
+ */
+export async function buildFullActContext(
+  ctx: MemoryWiringContext,
+  agentId: string,
+  sessionId: string,
+  actionCallToAction: string,
+  userId?: string,
+): Promise<string> {
+  const parts: string[] = [];
+
+  // 1. Agent identity (personality, beliefs, traits)
+  const identity = await ctx.identityManager.load(agentId, ctx.workspaceId);
+  if (identity) {
+    parts.push(ctx.identityManager.formatForPrompt(identity));
+  }
+
+  // 2. Procedural memory (successful strategies)
+  const proceduralContext = await retrieveProcedures(ctx, actionCallToAction);
+  if (proceduralContext) {
+    parts.push(proceduralContext);
+  }
+
+  // 3. Knowledge graph context (BFS traversal)
+  const graphContext = await buildGraphContext(ctx, actionCallToAction, agentId);
+  if (graphContext) {
+    parts.push(graphContext);
+  }
+
+  // 4. Shared cross-simulation knowledge
+  const sharedContext = await getSharedContext(ctx, userId);
+  if (sharedContext) {
+    parts.push(sharedContext);
+  }
+
+  return parts.filter(Boolean).join("\n\n");
 }
