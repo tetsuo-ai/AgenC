@@ -121,15 +121,22 @@ def cmd_run_json(args: argparse.Namespace) -> None:
         print(f"Error: Invalid JSON config: {exc}")
         sys.exit(1)
 
-    agents = [
-        AgentConfig(
-            id=agent["agent_id"],
-            name=agent["agent_name"],
-            personality=agent.get("personality", ""),
-            goal=agent.get("goal", ""),
+    agents = []
+    for agent in raw.get("agents", []):
+        agent_id = agent.get("agent_id") or agent.get("id")
+        agent_name = agent.get("agent_name") or agent.get("name")
+        if not agent_id or not agent_name:
+            print(f"Error: Invalid agent config entry: {agent!r}")
+            sys.exit(1)
+
+        agents.append(
+            AgentConfig(
+                id=agent_id,
+                name=agent_name,
+                personality=agent.get("personality", ""),
+                goal=agent.get("goal", ""),
+            )
         )
-        for agent in raw.get("agents", [])
-    ]
 
     config = SimulationConfig(
         world_id=raw.get("world_id", "default"),
@@ -142,7 +149,7 @@ def cmd_run_json(args: argparse.Namespace) -> None:
         gm_provider=raw.get("gm_provider", "ollama"),
         gm_api_key=raw.get("gm_api_key", ""),
         gm_base_url=raw.get("gm_base_url", ""),
-        engine_type=raw.get("engine_type", "sequential"),
+        engine_type=raw.get("engine_type", "simultaneous"),
         gm_prefab=raw.get("gm_prefab", "generic"),
         bridge_url=raw.get("bridge_url", "http://localhost:3200"),
         event_port=raw.get("event_port", 3201),

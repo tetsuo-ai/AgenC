@@ -47,7 +47,7 @@ function buildFreePrompt(
       "[Concordia Speech Request]",
       `Agent: ${agentName}`,
       `Speak in character as ${agentName}.`,
-      "Reply exactly with only the words you would say next.",
+      "Reply with only the words you would say next.",
       "Do not include your name prefix, stage directions, or quotation marks.",
       "",
       actionSpec.call_to_action,
@@ -57,7 +57,7 @@ function buildFreePrompt(
   return [
     "[Concordia Action Request]",
     `Agent: ${agentName}`,
-    "Reply exactly with one short plain-text description of your immediate next action.",
+    "Reply with one short plain-text description of your immediate next action.",
     "Be specific and concrete.",
     "Do not include your name, quotation marks, or any explanation.",
     "",
@@ -120,6 +120,8 @@ export function buildSimulationSystemContext(params: {
     "",
     "Respond in character. Your actions and speech should be consistent with your personality and goals.",
     "React to observations you have received. Make decisions based on what you know.",
+    "Stay entirely inside the simulated world.",
+    "Do not mention tools, files, commands, prompts, APIs, the daemon, or runtime internals.",
   );
   return lines.join("\n");
 }

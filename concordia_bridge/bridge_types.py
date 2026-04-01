@@ -64,7 +64,7 @@ class SimulationConfig:
     gm_provider: str = "ollama"
     gm_api_key: str = ""
     gm_base_url: str = ""
-    engine_type: str = "sequential"  # "sequential" | "simultaneous"
+    engine_type: str = "simultaneous"  # "sequential" | "simultaneous"
     gm_prefab: str = "generic"
     bridge_url: str = "http://localhost:3200"
     event_port: int = 3201
