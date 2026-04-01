@@ -153,12 +153,7 @@ export class ConcordiaChannelAdapter
     await stopSimulationRunner(this.simulationRunner);
     this.simulationRunner = null;
 
-    // Clear all pending requests
-    for (const [, pending] of this.pendingResponses) {
-      clearTimeout(pending.timeout);
-      pending.resolve(""); // Resolve with empty to unblock
-    }
-    this.pendingResponses.clear();
+    this.clearPendingResponses("");
 
     // Close HTTP server
     if (this.bridgeServer) {
@@ -209,6 +204,9 @@ export class ConcordiaChannelAdapter
     request: SetupRequest,
   ): Promise<Record<string, string>> {
     const sessions: Record<string, string> = {};
+
+    this.sessionManager.resetSimulation();
+    this.clearPendingResponses("");
 
     // Resolve memory wiring context for this simulation
     this.memoryCtx = resolveConcordiaMemoryContext(
@@ -382,6 +380,7 @@ export class ConcordiaChannelAdapter
         type: "concordia_observation",
         provenance: "concordia:gm_observation",
         concordia_tag: "observation",
+        ingest_only: true,
         world_id: this.sessionManager.get(agentId)?.worldId,
         agent_id: agentId,
         is_observation: true,
@@ -502,7 +501,7 @@ export class ConcordiaChannelAdapter
       "",
       `Premise: ${request.premise}`,
       "",
-      'Respond with ONLY a JSON array (no markdown, no prose). Each item must contain "id", "name", "personality", and "goal".',
+      'Respond exactly with ONLY a JSON array (no markdown, no prose). Each item must contain "id", "name", "personality", and "goal".',
       'Use lowercase hyphenated "id" values.',
       "Make the characters meaningfully different so the simulation has conflict, alliances, and competing incentives.",
     ].join("\n");
@@ -589,6 +588,14 @@ export class ConcordiaChannelAdapter
 
       this.pendingResponses.set(sessionId, { resolve, timeout });
     });
+  }
+
+  private clearPendingResponses(fallback: string): void {
+    for (const [, pending] of this.pendingResponses) {
+      clearTimeout(pending.timeout);
+      pending.resolve(fallback);
+    }
+    this.pendingResponses.clear();
   }
 
   private parseGeneratedAgents(rawResponse: string): GeneratedAgent[] {

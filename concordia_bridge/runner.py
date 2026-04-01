@@ -197,20 +197,22 @@ def create_embedder(config: SimulationConfig):
         model = SentenceTransformer(config.embedding_model)
         return lambda text: model.encode(text)
     except ImportError:
-        logger.warning(
+        logger.info(
             "sentence-transformers not installed — GM memory will use "
-            "hash-based embeddings (low quality). Install with: "
-            "pip install sentence-transformers"
+            "lightweight deterministic fallback embeddings"
         )
         import hashlib
         import numpy as np
 
         def _hash_embed(text: str) -> np.ndarray:
-            """Deterministic hash-based embedding fallback."""
-            raw = hashlib.sha512(text.encode("utf-8")).digest()
-            while len(raw) < 384 * 4:
-                raw += hashlib.sha512(raw).digest()
-            arr = np.frombuffer(raw[: 384 * 4], dtype=np.float32).copy()
+            """Deterministic finite embedding fallback."""
+            raw = bytearray()
+            seed = text.encode("utf-8")
+            while len(raw) < 384:
+                seed = hashlib.sha512(seed).digest()
+                raw.extend(seed)
+            arr = np.frombuffer(raw[:384], dtype=np.uint8).astype(np.float32)
+            arr = (arr - 127.5) / 127.5
             norm = np.linalg.norm(arr)
             if norm > 0:
                 arr /= norm

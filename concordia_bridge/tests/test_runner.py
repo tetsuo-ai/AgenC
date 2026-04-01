@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import builtins
+
+import numpy as np
 import pytest
 
 from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
-from concordia_bridge.runner import _resolve_gm_api_key
+from concordia_bridge.runner import _resolve_gm_api_key, create_embedder
 
 
 class TestSimulationConfig:
@@ -83,6 +86,34 @@ class TestRunnerApiKeyResolution:
             gm_provider="grok",
         )
         assert _resolve_gm_api_key(config) == "env-openai"
+
+
+class TestEmbeddingFallback:
+    def test_hash_fallback_embeddings_are_finite_and_normalized(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        original_import = builtins.__import__
+
+        def _import(name, *args, **kwargs):
+            if name == "sentence_transformers":
+                raise ImportError("not installed")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _import)
+
+        config = SimulationConfig(
+            world_id="w",
+            workspace_id="ws",
+            premise="p",
+            agents=[],
+        )
+        embedder = create_embedder(config)
+        vector = embedder("alice observes the crowded market square")
+
+        assert isinstance(vector, np.ndarray)
+        assert vector.shape == (384,)
+        assert np.isfinite(vector).all()
+        assert pytest.approx(float(np.linalg.norm(vector)), rel=1e-6) == 1.0
 
     def test_openai_uses_openai_env_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "env-openai")

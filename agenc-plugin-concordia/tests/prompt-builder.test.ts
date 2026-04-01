@@ -14,7 +14,7 @@ describe("buildActPrompt", () => {
     );
     expect(prompt).toContain("[Simulation Context]");
     expect(prompt).toContain("What would Alice do next?");
-    expect(prompt).toContain("ONLY your action");
+    expect(prompt).toContain("Respond exactly with ONLY your action text");
     expect(prompt).not.toContain("dialogue");
   });
 
@@ -30,6 +30,7 @@ describe("buildActPrompt", () => {
     );
     expect(prompt).toContain("in character as Alice");
     expect(prompt).toContain("natural dialogue");
+    expect(prompt).toContain("Respond exactly with ONLY what you would say");
   });
 
   it("builds choice prompt with numbered options", () => {
@@ -58,7 +59,7 @@ describe("buildActPrompt", () => {
       },
       "Sam",
     );
-    expect(prompt).toContain("single number");
+    expect(prompt).toContain("Respond exactly with ONLY a single number");
   });
 
   it("falls through to raw call_to_action for unknown type", () => {

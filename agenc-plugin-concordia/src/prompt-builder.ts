@@ -45,7 +45,7 @@ function buildFreePrompt(
       "",
       `Respond in character as ${agentName}. Use natural dialogue.`,
       "Do not include your name prefix or quotation marks.",
-      "Respond with ONLY what you would say. Nothing else.",
+      "Respond exactly with ONLY what you would say. Nothing else.",
     ].join("\n");
   }
 
@@ -53,7 +53,7 @@ function buildFreePrompt(
     "[Simulation Context]",
     actionSpec.call_to_action,
     "",
-    "Respond with ONLY your action. Do not include your name prefix.",
+    "Respond exactly with ONLY your action text. Do not include your name prefix.",
     "Do not include quotation marks around your response.",
     "Be specific and concrete about what you do.",
   ].join("\n");
@@ -83,7 +83,7 @@ function buildFloatPrompt(actionSpec: ConcordiaActionSpec): string {
     "[Simulation Context]",
     actionSpec.call_to_action,
     "",
-    "Respond with ONLY a single number (decimal allowed). Nothing else.",
+    "Respond exactly with ONLY a single number (decimal allowed). Nothing else.",
   ].join("\n");
 }
 
