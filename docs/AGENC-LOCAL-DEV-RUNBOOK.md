@@ -370,6 +370,47 @@ The `agenc-start.sh` script handles this automatically.
 
 ---
 
+## Operator Console (agenc console)
+
+The `agenc` binary (distinct from `agenc-runtime`) owns two subcommands: `console` (default) and `ui`. Running `agenc` with no arguments starts the daemon if needed and opens the operator console.
+
+**Launch command:**
+```bash
+node ~/workshop/agencproj/forks/agenc-core/runtime/dist/bin/agenc.js console \
+  --config ~/.agenc/config.json
+```
+
+**Layout:** Split-screen terminal dashboard. Left pane is the interactive prompt. Right pane shows live status panels: TOOLS (latest/plan/agents/runtime), GUARD (mode/session/auth/active/err/wake), and RECENT ALERTS.
+
+**Status fields observed (2026-03-31):**
+- RUN/ROUTE/PROVIDER/MODEL/FAILOVER/QUEUE/GUARD/RUNTIME/DURABLE/SYNC/MEM/INDEX/MAINT/MODE shown in header bar
+- SESSION ID displayed top-right with uptime
+- `MODE:: follow` — live follow mode, awaiting operator prompt
+- Gateway status and timestamp shown in footer
+
+**Key bindings:** `/commands`, `ctrl+o detail`, `ctrl+y copy`, `/export save`, `pgup/pgdn scroll`, `ctrl+l clear`
+
+**Note:** The dist may be stale — rebuild with `cd runtime && npm run build` if source has changed since last build. The `console` subcommand is wired in `agenc.js` only, not in `agenc-runtime.js` or `cli/index.ts`.
+
+**Two-binary split:**
+| Binary | Owns | Passthrough |
+|--------|------|-------------|
+| `agenc.js` | `console` (default), `ui` | Everything else → agenc-runtime |
+| `agenc-runtime.js` | All runtime commands incl. `market tui` | — |
+
+**Shell aliases (in ~/.zshrc):**
+```bash
+# AgenC operator console
+alias agenc-console='node ~/workshop/agencproj/forks/agenc-core/runtime/dist/bin/agenc.js console --config ~/.agenc/config.json'
+
+# AgenC market TUI
+alias agenc-tui='node ~/workshop/agencproj/forks/agenc-core/runtime/dist/bin/agenc-runtime.js market tui --config ~/.agenc/config.json'
+```
+
+After editing `~/.zshrc`, run `source ~/.zshrc` to activate. Note: if the agenc-core runtime is rebuilt, the dist path stays the same — no alias update needed.
+
+---
+
 ## Reference Links
 
 | Resource | URL |
