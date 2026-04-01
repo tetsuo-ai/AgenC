@@ -169,7 +169,11 @@ class MockGameMaster:
         self._observations: list[str] = []
         self._step = 0
         self._turn_order_idx = 0
-        self.name = "GameMaster"
+        self._name = "GameMaster"
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     def act(self, action_spec) -> str:
         from concordia.typing.entity import OutputType

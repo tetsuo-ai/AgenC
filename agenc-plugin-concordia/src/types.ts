@@ -101,6 +101,7 @@ export interface ConcordiaChannelConfig {
   readonly encryption_key?: string;
   readonly reflection_interval?: number;
   readonly consolidation_interval?: number;
+  [key: string]: unknown;
 }
 
 // ============================================================================

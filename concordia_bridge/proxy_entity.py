@@ -17,6 +17,8 @@ from typing import Any
 
 import requests
 
+from concordia_bridge.resilience import CircuitBreaker
+
 from concordia.typing.entity import (
     ActionSpec,
     DEFAULT_ACTION_SPEC,
@@ -56,6 +58,7 @@ class ProxyEntity(Entity):
         self._max_retries = max_retries
         self._retry_delay = retry_delay_seconds
         self._turn_count = 0
+        self._circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout_s=30.0)
 
     @functools.cached_property
     def name(self) -> str:
@@ -80,6 +83,14 @@ class ProxyEntity(Entity):
         Falls back to a safe default action after all retries are exhausted.
         """
         self._turn_count += 1
+
+        if self._circuit_breaker.is_open:
+            logger.warning(
+                "ProxyEntity %s act() circuit breaker open — returning fallback",
+                self._name,
+            )
+            return f"{self._name} hesitates and does nothing."
+
         last_exc: Exception | None = None
 
         for attempt in range(self._max_retries + 1):
@@ -99,6 +110,7 @@ class ProxyEntity(Entity):
                 response.raise_for_status()
                 result = response.json()
                 action = result.get("action", "")
+                self._circuit_breaker.record_success()
                 logger.debug(
                     "ProxyEntity %s act() turn=%d: %s",
                     self._name,
@@ -115,6 +127,7 @@ class ProxyEntity(Entity):
                 return f"{self._name} hesitates and does nothing."
             except requests.ConnectionError as exc:
                 last_exc = exc
+                self._circuit_breaker.record_failure()
                 if attempt < self._max_retries:
                     delay = self._retry_delay * (2 ** attempt)
                     logger.warning(
@@ -125,10 +138,10 @@ class ProxyEntity(Entity):
                         self._max_retries + 1,
                         delay,
                     )
-                    import time
                     time.sleep(delay)
                     continue
             except requests.HTTPError as exc:
+                self._circuit_breaker.record_failure()
                 logger.error(
                     "ProxyEntity %s act() HTTP error: %s",
                     self._name,

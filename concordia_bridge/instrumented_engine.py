@@ -222,7 +222,7 @@ class InstrumentedSequentialEngine(Engine):
                 num_rounds = getattr(current_scene, "num_rounds", None) or 999
                 if scene_round > num_rounds:
                     scene_index += 1
-                    scene_round = 1
+                    scene_round = 0
                     if scene_index < len(scenes):
                         current_scene = scenes[scene_index]
                         self._event_callback(SimulationEvent(
@@ -303,7 +303,7 @@ class InstrumentedSequentialEngine(Engine):
                     "content": resolved or putative,
                     "world_id": self._world_id,
                 },
-                timeout=5,
+                timeout=15,
             )
         except Exception as exc:
-            logger.debug("Bridge event notification failed: %s", exc)
+            logger.warning("Bridge event notification failed (step=%d): %s", self._current_step, exc)

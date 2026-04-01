@@ -61,8 +61,15 @@ class DaemonClient:
         self._connections: dict[str, websockets.sync.client.ClientConnection] = {}
         self._sessions: dict[str, str] = {}  # agent_id -> session_id
         self._agent_locks: dict[str, threading.Lock] = {}  # per-agent lock for thread safety
+        self._agent_metadata: dict[str, dict] = {}  # agent_id -> {name, personality, goal}
         self.available = False
         self._lock = threading.Lock()  # global lock for connection/session maps
+
+    def set_agent_metadata(self, agent_id: str, name: str, personality: str, goal: str):
+        """Store agent identity for use during session creation."""
+        self._agent_metadata[agent_id] = {
+            "name": name, "personality": personality, "goal": goal,
+        }
 
     def start(self):
         """Test daemon connectivity."""
@@ -105,10 +112,17 @@ class DaemonClient:
             ws = websockets.sync.client.connect(self.daemon_url, open_timeout=10)
             self._connections[agent_id] = ws
 
-            # Create a new session
+            # Create a new session with agent identity metadata
+            meta = self._agent_metadata.get(agent_id, {})
             ws.send(json.dumps({
                 "type": "chat.new",
-                "payload": {"workspaceRoot": "/tmp/concordia"},
+                "payload": {
+                    "workspaceRoot": "/tmp/concordia",
+                    "agentId": agent_id,
+                    "agentName": meta.get("name", agent_id),
+                    "personality": meta.get("personality", ""),
+                    "goal": meta.get("goal", ""),
+                },
                 "id": f"new-{agent_id}",
             }))
 
@@ -196,7 +210,11 @@ class MockGM:
         self._history: list[str] = []
         self._step = 0
         self._turn_idx = 0
-        self.name = "GameMaster"
+        self._name = "GameMaster"
+
+    @property
+    def name(self) -> str:
+        return self._name
         self._templates = [
             "The scene is active. Characters go about their tasks.",
             "Tension builds as interactions between participants continue.",
@@ -245,7 +263,11 @@ class DaemonGM:
         self._premise = premise
         self._history: list[str] = []
         self._turn_idx = 0
-        self.name = "GameMaster"
+        self._name = "GameMaster"
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     def act(self, action_spec) -> str:
         from concordia.typing.entity import OutputType
@@ -295,6 +317,7 @@ TURNS: dict[str, int] = {}
 LAST_ACTIONS: dict[str, str] = {}
 RELATIONSHIPS: dict[str, dict[str, dict]] = {}  # agent_id -> {other_id -> {count, sentiment}}
 WORLD_FACTS: list[dict] = []
+_state_lock = threading.Lock()
 
 event_server: Optional[EventServer] = None
 controller: Optional[StepController] = None
@@ -403,8 +426,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
         elif self.path == "/generate-agents":
             self._handle_generate_agents(body)
         elif self.path == "/reset":
-            AGENTS.clear(); OBSERVATIONS.clear(); TURNS.clear()
-            LAST_ACTIONS.clear(); RELATIONSHIPS.clear(); WORLD_FACTS.clear()
+            with _state_lock:
+                AGENTS.clear(); OBSERVATIONS.clear(); TURNS.clear()
+                LAST_ACTIONS.clear(); RELATIONSHIPS.clear(); WORLD_FACTS.clear()
             self._respond(200, {"status": "ok"})
         else:
             self._respond(404, {"error": "not found"})
@@ -412,16 +436,27 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def _handle_setup(self, body: dict):
         global sim_thread, controller, sim_state
 
-        AGENTS.clear(); OBSERVATIONS.clear(); TURNS.clear()
-        LAST_ACTIONS.clear(); RELATIONSHIPS.clear(); WORLD_FACTS.clear()
+        with _state_lock:
+            AGENTS.clear(); OBSERVATIONS.clear(); TURNS.clear()
+            LAST_ACTIONS.clear(); RELATIONSHIPS.clear(); WORLD_FACTS.clear()
 
-        for agent in body.get("agents", []):
-            aid = agent["agent_id"]
-            AGENTS[aid] = agent
-            OBSERVATIONS[aid] = []
-            TURNS[aid] = 0
+            for agent in body.get("agents", []):
+                aid = agent["agent_id"]
+                AGENTS[aid] = agent
+                OBSERVATIONS[aid] = []
+                TURNS[aid] = 0
 
-        sessions = {a["agent_id"]: f"session:{a['agent_id']}" for a in body.get("agents", [])}
+            sessions = {a["agent_id"]: f"session:{a['agent_id']}" for a in body.get("agents", [])}
+
+        # Register agent identity metadata with the daemon client
+        if daemon_client:
+            for agent in body.get("agents", []):
+                daemon_client.set_agent_metadata(
+                    agent["agent_id"],
+                    agent.get("agent_name", agent["agent_id"]),
+                    agent.get("personality", ""),
+                    agent.get("goal", ""),
+                )
 
         # Read ALL config from request
         max_steps = body.get("max_steps", body.get("maxSteps", 20))
@@ -474,8 +509,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
         aid = body.get("agent_id", "")
         name = body.get("agent_name", "")
         spec = body.get("action_spec", {})
-        TURNS[aid] = TURNS.get(aid, 0) + 1
-        turn = TURNS[aid]
+
+        with _state_lock:
+            TURNS[aid] = TURNS.get(aid, 0) + 1
+            turn = TURNS[aid]
+            agent_info = AGENTS.get(aid, {})
+            personality = agent_info.get("personality", "")
+            goal = agent_info.get("goal", "")
+            recent_obs = list(OBSERVATIONS.get(aid, [])[-5:])
 
         action = ""
 
@@ -485,10 +526,20 @@ class BridgeHandler(BaseHTTPRequestHandler):
             output_type = spec.get("output_type", "free")
             options = spec.get("options", [])
 
+            # Build context-rich prompt with agent identity
+            context_parts = []
+            if personality:
+                context_parts.append(f"[Your character] {personality}")
+            if goal:
+                context_parts.append(f"[Your goal] {goal}")
+            if recent_obs:
+                context_parts.append("[Recent observations]\n" + "\n".join(f"- {o}" for o in recent_obs))
+            context_prefix = "\n\n".join(context_parts)
+
             if output_type == "choice" and options:
-                prompt = f"{call_to_action}\n\nChoose EXACTLY one:\n" + "\n".join(f"- {o}" for o in options) + "\n\nRespond with only the chosen option."
+                prompt = f"{context_prefix}\n\n{call_to_action}\n\nChoose EXACTLY one:\n" + "\n".join(f"- {o}" for o in options) + "\n\nRespond with only the chosen option."
             else:
-                prompt = f"{call_to_action}\n\nRespond concisely with your action (1-2 sentences). Do not include your name."
+                prompt = f"{context_prefix}\n\n{call_to_action}\n\nRespond concisely with your action (1-2 sentences). Do not include your name."
 
             action = daemon_client.send_message(aid, prompt, timeout=60)
             time.sleep(0.5)  # Rate limit protection between agent LLM calls
@@ -527,13 +578,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
             else:
                 action = options[0]
 
-        LAST_ACTIONS[aid] = action
+        with _state_lock:
+            LAST_ACTIONS[aid] = action
         self._respond(200, {"action": action})
 
     def _handle_observe(self, body: dict):
         aid = body.get("agent_id", "")
         obs = body.get("observation", "")
-        OBSERVATIONS.setdefault(aid, []).append(obs)
+        with _state_lock:
+            OBSERVATIONS.setdefault(aid, []).append(obs)
         self._respond(200, {"status": "ok"})
 
     def _handle_event(self, body: dict):
@@ -542,29 +595,30 @@ class BridgeHandler(BaseHTTPRequestHandler):
         acting = body.get("acting_agent", "")
         step = body.get("step", 0)
 
-        if acting and content:
-            # Check if other agents are mentioned
-            for aid in AGENTS:
-                if aid != acting and (aid.lower() in content.lower() or
-                    AGENTS[aid].get("agent_name", "").lower() in content.lower()):
-                    # Record relationship
-                    if acting not in RELATIONSHIPS:
-                        RELATIONSHIPS[acting] = {}
-                    if aid not in RELATIONSHIPS[acting]:
-                        RELATIONSHIPS[acting][aid] = {"count": 0, "sentiment": 0.0}
-                    RELATIONSHIPS[acting][aid]["count"] += 1
+        with _state_lock:
+            if acting and content:
+                # Check if other agents are mentioned
+                for aid in AGENTS:
+                    if aid != acting and (aid.lower() in content.lower() or
+                        AGENTS[aid].get("agent_name", "").lower() in content.lower()):
+                        # Record relationship
+                        if acting not in RELATIONSHIPS:
+                            RELATIONSHIPS[acting] = {}
+                        if aid not in RELATIONSHIPS[acting]:
+                            RELATIONSHIPS[acting][aid] = {"count": 0, "sentiment": 0.0}
+                        RELATIONSHIPS[acting][aid]["count"] += 1
 
-            # Store as world fact if it's a resolution
-            if body.get("type") == "resolution":
-                WORLD_FACTS.append({
-                    "content": content[:200],
-                    "observedBy": acting or "GM",
-                    "confirmations": 0,
-                    "timestamp": time.time(),
-                })
-                # Keep only last 20 world facts
-                if len(WORLD_FACTS) > 20:
-                    WORLD_FACTS[:] = WORLD_FACTS[-20:]
+                # Store as world fact if it's a resolution
+                if body.get("type") == "resolution":
+                    WORLD_FACTS.append({
+                        "content": content[:200],
+                        "observedBy": acting or "GM",
+                        "confirmations": 0,
+                        "timestamp": time.time(),
+                    })
+                    # Keep only last 20 world facts
+                    if len(WORLD_FACTS) > 20:
+                        WORLD_FACTS[:] = WORLD_FACTS[-20:]
 
         if event_server:
             event_server.broadcast(SimulationEvent(
@@ -651,35 +705,41 @@ Make the characters diverse in personality, background, and motivation. Create p
             })
         elif self.path.startswith("/agent/") and self.path.endswith("/state"):
             aid = self.path.split("/")[2]
-            agent = AGENTS.get(aid)
-            if agent:
-                # Build relationships for this agent
-                rels = []
-                for other_id, data in RELATIONSHIPS.get(aid, {}).items():
-                    rels.append({
-                        "otherAgentId": other_id,
-                        "relationship": "acquaintance",
-                        "sentiment": data.get("sentiment", 0.0),
-                        "interactionCount": data.get("count", 0),
-                    })
+            with _state_lock:
+                agent = AGENTS.get(aid)
+                if agent:
+                    rels = []
+                    for other_id, data in RELATIONSHIPS.get(aid, {}).items():
+                        rels.append({
+                            "otherAgentId": other_id,
+                            "relationship": "acquaintance",
+                            "sentiment": data.get("sentiment", 0.0),
+                            "interactionCount": data.get("count", 0),
+                        })
 
-                self._respond(200, {
-                    "identity": {
-                        "name": agent.get("agent_name", aid),
-                        "personality": agent.get("personality", ""),
-                        "learnedTraits": [],
-                        "beliefs": {},
-                    },
-                    "memoryCount": len(OBSERVATIONS.get(aid, [])),
-                    "recentMemories": [
-                        {"content": obs[:200], "role": "system", "timestamp": int(time.time() * 1000)}
-                        for obs in (OBSERVATIONS.get(aid, [])[-5:])
-                    ],
-                    "relationships": rels,
-                    "worldFacts": WORLD_FACTS[-5:],
-                    "turnCount": TURNS.get(aid, 0),
-                    "lastAction": LAST_ACTIONS.get(aid),
-                })
+                    state = {
+                        "identity": {
+                            "name": agent.get("agent_name", aid),
+                            "personality": agent.get("personality", ""),
+                            "goal": agent.get("goal", ""),
+                            "learnedTraits": [],
+                            "beliefs": {},
+                        },
+                        "memoryCount": len(OBSERVATIONS.get(aid, [])),
+                        "recentMemories": [
+                            {"content": obs[:200], "role": "system", "timestamp": int(time.time() * 1000)}
+                            for obs in (OBSERVATIONS.get(aid, [])[-5:])
+                        ],
+                        "relationships": rels,
+                        "worldFacts": list(WORLD_FACTS[-5:]),
+                        "turnCount": TURNS.get(aid, 0),
+                        "lastAction": LAST_ACTIONS.get(aid),
+                        "source": "daemon" if daemon_client and daemon_client.available else "local",
+                    }
+                else:
+                    state = None
+            if state:
+                self._respond(200, state)
             else:
                 self._respond(404, {"error": f"Agent {aid} not found"})
         else:
