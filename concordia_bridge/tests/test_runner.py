@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
+from concordia_bridge.runner import _resolve_gm_api_key
 
 
 class TestSimulationConfig:
@@ -44,6 +45,55 @@ class TestSimulationConfig:
     def test_agent_config_defaults(self) -> None:
         agent = AgentConfig(id="test", name="Test", personality="Nice")
         assert agent.goal == ""
+
+
+class TestRunnerApiKeyResolution:
+    def test_prefers_explicit_config_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("XAI_API_KEY", "env-xai")
+        config = SimulationConfig(
+            world_id="w",
+            workspace_id="ws",
+            premise="p",
+            agents=[],
+            gm_provider="grok",
+            gm_api_key="config-key",
+        )
+        assert _resolve_gm_api_key(config) == "config-key"
+
+    def test_grok_uses_xai_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("XAI_API_KEY", "env-xai")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        config = SimulationConfig(
+            world_id="w",
+            workspace_id="ws",
+            premise="p",
+            agents=[],
+            gm_provider="grok",
+        )
+        assert _resolve_gm_api_key(config) == "env-xai"
+
+    def test_grok_falls_back_to_openai_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("XAI_API_KEY", raising=False)
+        monkeypatch.setenv("OPENAI_API_KEY", "env-openai")
+        config = SimulationConfig(
+            world_id="w",
+            workspace_id="ws",
+            premise="p",
+            agents=[],
+            gm_provider="grok",
+        )
+        assert _resolve_gm_api_key(config) == "env-openai"
+
+    def test_openai_uses_openai_env_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "env-openai")
+        config = SimulationConfig(
+            world_id="w",
+            workspace_id="ws",
+            premise="p",
+            agents=[],
+            gm_provider="openai",
+        )
+        assert _resolve_gm_api_key(config) == "env-openai"
 
 
 class TestExampleConfigs:
