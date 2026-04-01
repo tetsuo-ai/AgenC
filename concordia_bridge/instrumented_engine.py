@@ -13,6 +13,7 @@ Phase 2 of the CONCORDIA_TODO.MD implementation plan.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Callable, Optional, Sequence
 
@@ -24,6 +25,45 @@ from concordia.environment.engine import Engine
 from concordia_bridge.bridge_types import SimulationEvent
 
 logger = logging.getLogger(__name__)
+
+
+_PROMPT_ECHO_RE = re.compile(
+    r"(?:with one short plain-text description of your immediate next action|"
+    r"do not include your name|"
+    r"what would [^.?!]+ do next\??|"
+    r"give one specific, concrete action)",
+    re.IGNORECASE,
+)
+_TURN_CONTROL_RE = re.compile(
+    r"\*?\*?[A-Za-z0-9 _'-]+(?:'s)? turn is complete\.\*?\*?"
+    r"|It is now \*?\*?[A-Za-z0-9 _'-]+(?:'s)? turn to act\*?\*?\.?"
+    r"|What does [A-Za-z0-9 _'-]+ do\?"
+    r"|\[/?(?:observation|putative_event|event)\]"
+    r"|\*\[[^\]]+\]\*",
+    re.IGNORECASE,
+)
+_MARKDOWN_EMPHASIS_RE = re.compile(r"\*\*([^*]+)\*\*")
+
+
+def is_invalid_agent_action(action: str) -> bool:
+    normalized = action.strip()
+    if not normalized:
+        return True
+    lowered = normalized.lower()
+    return (
+        bool(_PROMPT_ECHO_RE.search(normalized))
+        or lowered.endswith("hesitates.")
+        or "hesitates and does nothing" in lowered
+    )
+
+
+def sanitize_story_text(text: str) -> str:
+    cleaned = _TURN_CONTROL_RE.sub("", text)
+    cleaned = _MARKDOWN_EMPHASIS_RE.sub(r"\1", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([.,!?;:])", r"\1", cleaned)
+    return cleaned.strip()
 
 
 class InstrumentedSequentialEngine(Engine):
@@ -42,10 +82,15 @@ class InstrumentedSequentialEngine(Engine):
         call_to_make_observation: str = (
             "What is the current situation faced by {name}? "
             "What do they now observe? Only include information of which "
-            "they are aware."
+            "they are aware. Do not mention turn order, whose turn is next, "
+            "prompt instructions, or control-plane narration."
         ),
         call_to_next_acting: str = "Who is next to act?",
-        call_to_resolve: str = "Because of all that came before, what happens next?",
+        call_to_resolve: str = (
+            "Describe only the concrete world outcome caused by the putative event. "
+            "Do not mention turn order, whose turn is next, prompts, instructions, "
+            "or simulation control text."
+        ),
         call_to_check_termination: str = "Is the game/simulation finished?",
     ) -> None:
         self._event_callback = event_callback
@@ -75,7 +120,7 @@ class InstrumentedSequentialEngine(Engine):
             call_to_action=self._call_to_make_observation.format(name=entity.name),
             output_type=OutputType.MAKE_OBSERVATION,
         )
-        observation = game_master.act(observation_spec)
+        observation = sanitize_story_text(game_master.act(observation_spec))
         if observation:
             entity.observe(observation)
             self._event_callback(SimulationEvent(
@@ -118,7 +163,9 @@ class InstrumentedSequentialEngine(Engine):
             call_to_action=self._call_to_resolve,
             output_type=OutputType.RESOLVE,
         )
-        resolved = game_master.act(resolve_spec)
+        resolved = sanitize_story_text(game_master.act(resolve_spec))
+        if not resolved:
+            resolved = sanitize_story_text(event)
 
         # GM observes the resolved event
         game_master.observe(f"[event] {resolved}")
@@ -260,7 +307,36 @@ class InstrumentedSequentialEngine(Engine):
             acting_entity, action_spec = self.next_acting(gm, entities)
 
             # Entity acts
-            raw_action = acting_entity.act(action_spec)
+            try:
+                raw_action = acting_entity.act(action_spec)
+            except Exception as exc:
+                logger.warning("Agent %s act() failed: %s", acting_entity.name, exc)
+                self._event_callback(SimulationEvent(
+                    type="error",
+                    step=step,
+                    timestamp=time.time(),
+                    agent_name=acting_entity.name,
+                    content=f"Agent action failed: {exc}",
+                ))
+                continue
+
+            if is_invalid_agent_action(raw_action):
+                logger.warning(
+                    "Dropping invalid action text for %s at step %d: %s",
+                    acting_entity.name,
+                    step,
+                    raw_action[:200],
+                )
+                self._event_callback(SimulationEvent(
+                    type="error",
+                    step=step,
+                    timestamp=time.time(),
+                    agent_name=acting_entity.name,
+                    content="Dropped invalid action text before GM resolution.",
+                    metadata={"raw_action": raw_action},
+                ))
+                continue
+
             event_text = f"{acting_entity.name}: {raw_action}"
 
             self._event_callback(SimulationEvent(

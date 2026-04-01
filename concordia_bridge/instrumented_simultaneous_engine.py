@@ -20,7 +20,10 @@ import requests
 from concordia.typing.entity import Entity, ActionSpec, OutputType
 
 from concordia_bridge.bridge_types import SimulationEvent
-from concordia_bridge.instrumented_engine import InstrumentedSequentialEngine
+from concordia_bridge.instrumented_engine import (
+    InstrumentedSequentialEngine,
+    is_invalid_agent_action,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,12 +99,34 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                     entity = futures[future]
                     try:
                         action = future.result(timeout=120)
+                        if is_invalid_agent_action(action):
+                            logger.warning(
+                                "Dropping invalid action text for %s at step %d: %s",
+                                entity.name,
+                                step,
+                                action[:200],
+                            )
+                            self._event_callback(SimulationEvent(
+                                type="error",
+                                step=step,
+                                timestamp=time.time(),
+                                agent_name=entity.name,
+                                content="Dropped invalid action text before GM resolution.",
+                                metadata={"raw_action": action},
+                            ))
+                            continue
                         actions[entity.name] = action
                     except Exception as exc:
                         logger.warning(
                             "Agent %s act() failed: %s", entity.name, exc,
                         )
-                        actions[entity.name] = f"{entity.name} hesitates."
+                        self._event_callback(SimulationEvent(
+                            type="error",
+                            step=step,
+                            timestamp=time.time(),
+                            agent_name=entity.name,
+                            content=f"Agent action failed: {exc}",
+                        ))
 
             # Emit action events
             for name, action in actions.items():
@@ -114,9 +139,11 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                 ))
 
             # Combine all actions into one event for GM resolution
-            combined = "\n".join(
-                f"{name}: {action}" for name, action in actions.items()
-            )
+            if not actions:
+                logger.warning("No valid agent actions at step %d; skipping GM resolution", step)
+                continue
+
+            combined = "\n".join(f"{name}: {action}" for name, action in actions.items())
             self._last_acting_entity_name = None  # Multiple actors
             self.resolve(gm, combined)
 

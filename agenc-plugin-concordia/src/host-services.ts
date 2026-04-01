@@ -30,6 +30,12 @@ interface ConcordiaRuntimeHostServices {
     readonly model?: string;
     readonly baseUrl?: string;
   };
+  readonly defaults?: {
+    readonly provider?: string;
+    readonly apiKey?: string;
+    readonly model?: string;
+    readonly baseUrl?: string;
+  };
 }
 
 function isConcordiaMemoryHostServices(
@@ -56,13 +62,16 @@ function isConcordiaRuntimeHostServices(
     return false;
   }
   const candidate = value as Record<string, unknown>;
-  if (!("llm" in candidate)) {
+  if (!("llm" in candidate) && !("defaults" in candidate)) {
     return false;
   }
-  if (candidate.llm === undefined) {
-    return true;
+  for (const key of ["llm", "defaults"] as const) {
+    const section = candidate[key];
+    if (section !== undefined && (typeof section !== "object" || section === null)) {
+      return false;
+    }
   }
-  return typeof candidate.llm === "object" && candidate.llm !== null;
+  return true;
 }
 
 export function resolveConcordiaMemoryContext(
@@ -102,14 +111,18 @@ export function resolveConcordiaLaunchDefaults(
   readonly gm_base_url?: string;
 } {
   const services = context.host_services?.concordia_runtime;
-  if (!isConcordiaRuntimeHostServices(services) || !services.llm) {
+  if (!isConcordiaRuntimeHostServices(services)) {
+    return {};
+  }
+  const launchDefaults = services.defaults ?? services.llm;
+  if (!launchDefaults) {
     return {};
   }
 
   return {
-    gm_provider: services.llm.provider,
-    gm_model: services.llm.model,
-    gm_api_key: services.llm.apiKey,
-    gm_base_url: services.llm.baseUrl,
+    gm_provider: launchDefaults.provider,
+    gm_model: launchDefaults.model,
+    gm_api_key: launchDefaults.apiKey,
+    gm_base_url: launchDefaults.baseUrl,
   };
 }

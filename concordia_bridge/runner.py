@@ -26,6 +26,9 @@ from concordia_bridge.bridge_types import AgentConfig, SimulationConfig, Simulat
 from concordia_bridge.proxy_entity import ProxyEntityWithLogging
 from concordia_bridge.event_server import EventServer
 from concordia_bridge.instrumented_engine import InstrumentedSequentialEngine
+from concordia_bridge.instrumented_simultaneous_engine import (
+    InstrumentedSimultaneousEngine,
+)
 from concordia_bridge.observation_component import FreshObservationComponent
 from concordia_bridge.control_server import (
     StepController,
@@ -282,11 +285,18 @@ def run_simulation(
         game_master = _build_game_master(config, model, gm_memory, proxy_entities)
 
         # 7. Create instrumented engine
-        engine = InstrumentedSequentialEngine(
-            event_callback=event_server.broadcast,
-            bridge_url=config.bridge_url,
-            world_id=config.world_id,
-        )
+        if config.engine_type == "simultaneous":
+            engine = InstrumentedSimultaneousEngine(
+                event_callback=event_server.broadcast,
+                bridge_url=config.bridge_url,
+                world_id=config.world_id,
+            )
+        else:
+            engine = InstrumentedSequentialEngine(
+                event_callback=event_server.broadcast,
+                bridge_url=config.bridge_url,
+                world_id=config.world_id,
+            )
 
         # 8. Run the simulation
         def step_callback(step: int) -> None:

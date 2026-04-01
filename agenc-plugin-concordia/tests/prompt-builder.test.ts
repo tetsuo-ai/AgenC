@@ -14,7 +14,7 @@ describe("buildActPrompt", () => {
     );
     expect(prompt).toContain("[Concordia Action Request]");
     expect(prompt).toContain("What would Alice do next?");
-    expect(prompt).toContain("Reply exactly with one short plain-text description");
+    expect(prompt).toContain("Reply with one short plain-text description");
     expect(prompt).not.toContain("dialogue");
   });
 
@@ -30,7 +30,7 @@ describe("buildActPrompt", () => {
     );
     expect(prompt).toContain("[Concordia Speech Request]");
     expect(prompt).toContain("Speak in character as Alice");
-    expect(prompt).toContain("Reply exactly with only the words you would say next");
+    expect(prompt).toContain("Reply with only the words you would say next");
   });
 
   it("builds choice prompt with numbered options", () => {

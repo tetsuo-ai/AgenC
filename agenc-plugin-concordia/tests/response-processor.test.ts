@@ -118,7 +118,7 @@ describe("processResponse", () => {
     expect(result).toBe("I will go to the market");
   });
 
-  it("falls back when the model echoes the action-formatting instruction", () => {
+  it("preserves the raw text when the model echoes the action-formatting instruction", () => {
     const result = processResponse(
       "Respond exactly with ONLY your action text. Do not include your name prefix.",
       "Alice",
@@ -129,10 +129,12 @@ describe("processResponse", () => {
         tag: "action",
       },
     );
-    expect(result).toBe("pauses to assess the situation.");
+    expect(result).toBe(
+      "Respond exactly with ONLY your action text. Do not include your name prefix.",
+    );
   });
 
-  it("falls back when the model echoes partial action instructions", () => {
+  it("preserves the raw text when the model echoes partial action instructions", () => {
     const result = processResponse(
       "with one short plain-text description of your immediate next action. Be specific and concrete. Do not include your name, quotation marks, or any explanation.",
       "Alice",
@@ -143,7 +145,9 @@ describe("processResponse", () => {
         tag: "action",
       },
     );
-    expect(result).toBe("pauses to assess the situation.");
+    expect(result).toBe(
+      "with one short plain-text description of your immediate next action. Be specific and concrete. Do not include your name, quotation marks, or any explanation.",
+    );
   });
 
   it("processes choice response", () => {

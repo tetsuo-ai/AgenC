@@ -15,6 +15,7 @@ from concordia.components.game_master import make_observation as make_observatio
 from concordia.document import interactive_document
 from concordia.typing import entity as entity_lib
 from concordia.typing import entity_component
+from concordia_bridge.instrumented_engine import sanitize_story_text
 
 
 _GENERIC_RECAP_CUES = (
@@ -60,6 +61,8 @@ _STOPWORDS = {
 }
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+_OBSERVATION_MAX_TOKENS = 220
+_REFORMAT_MAX_TOKENS = 260
 
 
 def _tokenize_for_similarity(text: str) -> set[str]:
@@ -163,9 +166,11 @@ class FreshObservationComponent(make_observation_component.MakeObservation):
                             f"Reformat {active_entity_name}'s draft observation "
                             "to fit the required format."
                         ),
-                        max_tokens=1200,
+                        max_tokens=_REFORMAT_MAX_TOKENS,
                         terminators=(),
                     )
+
+            result = sanitize_story_text(result)
 
             stripped = result.strip()
             if stripped:
@@ -215,9 +220,10 @@ class FreshObservationComponent(make_observation_component.MakeObservation):
                 "right now? Focus on one immediate change, interaction, or sensory "
                 "detail from their local point of view. Do not summarize the whole "
                 "scene, and do not repeat the previous observation unless it directly "
-                "matters to the new beat. Keep the story moving forward."
+                "matters to the new beat. Keep the story moving forward. Do not "
+                "mention turn order, prompts, or simulation-control language."
             ),
-            max_tokens=1200,
+            max_tokens=_OBSERVATION_MAX_TOKENS,
             terminators=(),
         )
 
@@ -230,9 +236,10 @@ class FreshObservationComponent(make_observation_component.MakeObservation):
                     f"Rewrite {active_entity_name}'s observation so it contains a "
                     "fresh, specific change in the immediate situation. Avoid broad "
                     "scene-setting, avoid repeating the prior observation, and keep "
-                    f"the focus on what {active_entity_name} directly notices now."
+                    f"the focus on what {active_entity_name} directly notices now. "
+                    "Do not mention turn order, prompts, or simulation-control text."
                 ),
-                max_tokens=1200,
+                max_tokens=_OBSERVATION_MAX_TOKENS,
                 terminators=(),
             )
 

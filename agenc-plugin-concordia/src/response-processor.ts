@@ -176,16 +176,9 @@ function levenshteinDistance(a: string, b: string): number {
 
 function sanitizeFreeformSimulationResponse(
   response: string,
-  actionSpec: ConcordiaActionSpec,
+  _actionSpec: ConcordiaActionSpec,
 ): string {
-  const trimmed = response.trim();
-  if (!looksLikeInstructionEcho(trimmed)) {
-    return trimmed;
-  }
-  if (actionSpec.tag === "speech") {
-    return "I need a moment to think.";
-  }
-  return "pauses to assess the situation.";
+  return response.trim();
 }
 
 function looksLikeInstructionEcho(response: string): boolean {
