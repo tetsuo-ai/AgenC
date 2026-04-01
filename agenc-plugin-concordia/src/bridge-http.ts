@@ -57,7 +57,9 @@ export function createBridgeServer(config: BridgeServerConfig): Server {
 
   const server = createServer(async (req, res) => {
     try {
-      if (req.method === "GET") {
+      if (req.method === "OPTIONS") {
+        sendEmpty(res, 204);
+      } else if (req.method === "GET") {
         await handleGet(req, res, config, metrics);
       } else if (req.method === "POST") {
         await handlePost(req, res, config, metrics);
@@ -319,8 +321,21 @@ async function handleGenerateAgents(
 // Helpers
 // ============================================================================
 
+function setCorsHeaders(res: ServerResponse): void {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function sendEmpty(res: ServerResponse, status: number): void {
+  setCorsHeaders(res);
+  res.writeHead(status);
+  res.end();
+}
+
 function sendJson(res: ServerResponse, status: number, data: unknown): void {
   const body = JSON.stringify(data);
+  setCorsHeaders(res);
   res.writeHead(status, {
     "Content-Type": "application/json",
     "Content-Length": Buffer.byteLength(body),

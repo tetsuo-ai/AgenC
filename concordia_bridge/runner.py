@@ -10,12 +10,16 @@ Phase 3 of the CONCORDIA_TODO.MD implementation plan.
 from __future__ import annotations
 
 import logging
+import os
 import time
+from collections.abc import Collection, Sequence
 from typing import Optional
 
 import requests
+from openai import OpenAI
 
 from concordia.associative_memory.basic_associative_memory import AssociativeMemoryBank
+from concordia.language_model import language_model
 from concordia.typing.entity import Entity
 
 from concordia_bridge.bridge_types import AgentConfig, SimulationConfig, SimulationEvent
@@ -29,6 +33,120 @@ from concordia_bridge.control_server import (
 )
 
 logger = logging.getLogger(__name__)
+_MAX_MULTIPLE_CHOICE_ATTEMPTS = 20
+
+
+def _resolve_gm_api_key(config: SimulationConfig) -> str:
+    """Resolve the GM API key from config or provider-specific environment."""
+    if config.gm_api_key:
+        return config.gm_api_key
+
+    provider = config.gm_provider.lower()
+    if provider in ("grok", "xai"):
+        return os.getenv("XAI_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
+    if provider == "openai":
+        return os.getenv("OPENAI_API_KEY", "")
+    return ""
+
+
+class _XAiLanguageModel(language_model.LanguageModel):
+    """Minimal xAI/OpenAI-compatible chat model without GPT-5-only params."""
+
+    def __init__(
+        self,
+        model_name: str,
+        *,
+        api_key: str,
+        api_base: str,
+    ) -> None:
+        self._model_name = model_name
+        self._client = OpenAI(api_key=api_key, base_url=api_base)
+
+    def _sample_text(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = language_model.DEFAULT_MAX_TOKENS,
+        temperature: float = 1.0,
+        timeout: float = language_model.DEFAULT_TIMEOUT_SECONDS,
+        seed: int | None = None,
+    ) -> str:
+        response = self._client.chat.completions.create(
+            model=self._model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Continue the user's simulation prompt directly and do not repeat it.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=temperature,
+            max_completion_tokens=max_tokens,
+            timeout=timeout,
+            seed=seed,
+        )
+        content = response.choices[0].message.content
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                text = getattr(item, "text", None)
+                if isinstance(text, str):
+                    parts.append(text)
+            return "".join(parts)
+        return ""
+
+    def sample_text(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = language_model.DEFAULT_MAX_TOKENS,
+        terminators: Collection[str] = language_model.DEFAULT_TERMINATORS,
+        temperature: float = 1.0,
+        top_p: float = language_model.DEFAULT_TOP_P,
+        top_k: int = language_model.DEFAULT_TOP_K,
+        timeout: float = language_model.DEFAULT_TIMEOUT_SECONDS,
+        seed: int | None = None,
+    ) -> str:
+        del terminators, top_p, top_k
+        return self._sample_text(
+            prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout=timeout,
+            seed=seed,
+        )
+
+    def sample_choice(
+        self,
+        prompt: str,
+        responses: Sequence[str],
+        *,
+        seed: int | None = None,
+    ) -> tuple[int, str, dict[str, float]]:
+        choice_prompt = (
+            prompt
+            + "\nRespond EXACTLY with one of the following strings:\n"
+            + "\n".join(responses)
+            + "."
+        )
+        answer = ""
+        for _ in range(_MAX_MULTIPLE_CHOICE_ATTEMPTS):
+            answer = self._sample_text(
+                choice_prompt,
+                temperature=0.0,
+                seed=seed,
+            ).strip()
+            try:
+                idx = responses.index(answer)
+            except ValueError:
+                continue
+            return idx, responses[idx], {}
+
+        raise language_model.InvalidResponseError(
+            "Too many multiple choice attempts. Last attempt: " + answer
+        )
 
 
 def create_gm_model(config: SimulationConfig):
@@ -36,18 +154,37 @@ def create_gm_model(config: SimulationConfig):
     provider = config.gm_provider.lower()
 
     if provider == "ollama":
-        from concordia.language_model import ollama_model
-        return ollama_model.OllamaLanguageModel(model_name=config.gm_model)
+        from concordia.contrib.language_models.langchain import (
+            langchain_ollama_model,
+        )
 
-    if provider in ("openai", "grok", "xai"):
-        from concordia.language_model import gpt_model
+        return langchain_ollama_model.LangchainOllamaLanguageModel(
+            model_name=config.gm_model,
+        )
+
+    if provider in ("grok", "xai"):
+        api_key = _resolve_gm_api_key(config)
+        api_base = config.gm_base_url or "https://api.x.ai/v1"
+        if not api_key:
+            raise ValueError(
+                "XAI_API_KEY not found. Please provide it via the api_key "
+                "parameter or set the XAI_API_KEY environment variable."
+            )
+        return _XAiLanguageModel(
+            model_name=config.gm_model,
+            api_key=api_key,
+            api_base=api_base,
+        )
+
+    if provider == "openai":
+        from concordia.contrib.language_models.openai import gpt_model
+
         kwargs = {"model_name": config.gm_model}
-        if config.gm_api_key:
-            kwargs["api_key"] = config.gm_api_key
+        api_key = _resolve_gm_api_key(config)
+        if api_key:
+            kwargs["api_key"] = api_key
         if config.gm_base_url:
-            kwargs["base_url"] = config.gm_base_url
-        elif provider in ("grok", "xai"):
-            kwargs["base_url"] = "https://api.x.ai/v1"
+            kwargs["api_base"] = config.gm_base_url
         return gpt_model.GptLanguageModel(**kwargs)
 
     raise ValueError(f"Unsupported GM provider: {provider}")
@@ -227,39 +364,51 @@ def _build_game_master(
     - Other values: fall back to generic, then to _FallbackGameMaster
     """
     prefab_name = config.gm_prefab or "generic"
-    gm_kwargs = dict(
-        model=model,
-        memory=memory_bank,
-        players=players,
-        update_thought_chain=[],
-        player_observes_event=False,
-    )
+
+    def _build_prefab(prefab_module, description: str) -> Entity:
+        prefab_cls = getattr(prefab_module, "GameMaster", None)
+        if prefab_cls is None:
+            raise AttributeError(f"{prefab_module.__name__} has no GameMaster prefab")
+
+        prefab = prefab_cls(
+            description=description,
+            entities=players,
+        )
+        if not hasattr(prefab, "build"):
+            raise TypeError(f"{prefab_module.__name__}.GameMaster is not buildable")
+        return prefab.build(model=model, memory_bank=memory_bank)
 
     try:
         if prefab_name == "generic":
             from concordia.prefabs.game_master import generic as gm_mod
-            return gm_mod.GenericGameMaster(**gm_kwargs)
+            return _build_prefab(gm_mod, "A general purpose game master.")
         elif prefab_name == "dialogic":
             try:
                 from concordia.prefabs.game_master import dialogic as gm_mod
-                return gm_mod.DialogicGameMaster(**gm_kwargs)
+                return _build_prefab(
+                    gm_mod,
+                    "A game master specialized for handling conversation.",
+                )
             except (ImportError, AttributeError):
                 logger.warning("Dialogic GM prefab not available — falling back to generic")
                 from concordia.prefabs.game_master import generic as gm_mod
-                return gm_mod.GenericGameMaster(**gm_kwargs)
+                return _build_prefab(gm_mod, "A general purpose game master.")
         elif prefab_name == "situated":
             try:
                 from concordia.prefabs.game_master import situated as gm_mod
-                return gm_mod.SituatedGameMaster(**gm_kwargs)
+                return _build_prefab(
+                    gm_mod,
+                    "A general game master for games set in a specific location.",
+                )
             except (ImportError, AttributeError):
                 logger.warning("Situated GM prefab not available — falling back to generic")
                 from concordia.prefabs.game_master import generic as gm_mod
-                return gm_mod.GenericGameMaster(**gm_kwargs)
+                return _build_prefab(gm_mod, "A general purpose game master.")
         else:
             logger.warning("Unknown GM prefab '%s' — falling back to generic", prefab_name)
             from concordia.prefabs.game_master import generic as gm_mod
-            return gm_mod.GenericGameMaster(**gm_kwargs)
-    except (ImportError, TypeError) as exc:
+            return _build_prefab(gm_mod, "A general purpose game master.")
+    except (ImportError, TypeError, AttributeError) as exc:
         logger.warning(
             "Failed to build GM via prefab (%s) — using fallback", exc,
         )
