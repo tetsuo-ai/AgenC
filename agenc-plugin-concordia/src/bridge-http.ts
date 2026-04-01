@@ -16,6 +16,8 @@ import type {
   ActResponse,
   ObserveRequest,
   SetupRequest,
+  LaunchRequest,
+  GenerateAgentsRequest,
   EventNotification,
   AgentStateResponse,
   BridgeMetrics,
@@ -37,6 +39,10 @@ export interface BridgeServerConfig {
   readonly onAct: (agentId: string, sessionId: string, message: string) => Promise<string>;
   readonly onObserve: (agentId: string, sessionId: string, observation: string) => Promise<void>;
   readonly onSetup: (request: SetupRequest) => Promise<Record<string, string>>;
+  readonly onLaunch?: (request: LaunchRequest) => Promise<Record<string, unknown>>;
+  readonly onGenerateAgents?: (
+    request: GenerateAgentsRequest,
+  ) => Promise<{ agents: readonly { id: string; name: string; personality: string; goal: string }[] }>;
   readonly onEvent: (event: EventNotification) => Promise<void>;
   readonly getAgentState?: (agentId: string) => Promise<AgentStateResponse | null>;
 }
@@ -149,6 +155,12 @@ async function handlePost(
       break;
     case "/setup":
       await handleSetup(body as SetupRequest, res, config, metrics);
+      break;
+    case "/launch":
+      await handleLaunch(body as LaunchRequest, res, config);
+      break;
+    case "/generate-agents":
+      await handleGenerateAgents(body as GenerateAgentsRequest, res, config);
       break;
     case "/event":
       await handleEvent(body as EventNotification, res, config, metrics);
@@ -273,6 +285,34 @@ async function handleEvent(
   );
 
   sendJson(res, 200, { status: "ok" });
+}
+
+async function handleLaunch(
+  request: LaunchRequest,
+  res: ServerResponse,
+  config: BridgeServerConfig,
+): Promise<void> {
+  if (!config.onLaunch) {
+    sendJson(res, 404, { error: "Launch not supported" });
+    return;
+  }
+
+  const result = await config.onLaunch(request);
+  sendJson(res, 200, { status: "ok", ...result });
+}
+
+async function handleGenerateAgents(
+  request: GenerateAgentsRequest,
+  res: ServerResponse,
+  config: BridgeServerConfig,
+): Promise<void> {
+  if (!config.onGenerateAgents) {
+    sendJson(res, 404, { error: "Agent generation not supported" });
+    return;
+  }
+
+  const result = await config.onGenerateAgents(request);
+  sendJson(res, 200, result);
 }
 
 // ============================================================================
