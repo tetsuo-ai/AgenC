@@ -13,6 +13,7 @@ Phase 6 of the CONCORDIA_TODO.MD implementation plan.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import importlib
 import logging
 import sys
@@ -85,13 +86,13 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     # Apply overrides
     if args.steps:
-        config = type(config)(**{**config.__dict__, "max_steps": args.steps})
+        config = dataclasses.replace(config, max_steps=args.steps)
     if args.bridge_url:
-        config = type(config)(**{**config.__dict__, "bridge_url": args.bridge_url})
+        config = dataclasses.replace(config, bridge_url=args.bridge_url)
     if args.event_port:
-        config = type(config)(**{**config.__dict__, "event_port": args.event_port})
+        config = dataclasses.replace(config, event_port=args.event_port)
     if args.control_port:
-        config = type(config)(**{**config.__dict__, "control_port": args.control_port})
+        config = dataclasses.replace(config, control_port=args.control_port)
 
     print(f"Running simulation: {config.world_id}")
     print(f"  Agents: {', '.join(a.name for a in config.agents)}")

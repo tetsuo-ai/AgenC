@@ -13,6 +13,13 @@
  * 4. The daemon calls adapter.send() with the agent's response
  * 5. send() resolves the pending /act Promise, returning the action to Python
  *
+ * Memory wiring (Phases 5 + 10):
+ * - handleSetup() calls setupAgentIdentity() + storePremise()
+ * - handleObserve() calls ingestObservation()
+ * - handleAct() calls buildFullActContext() + runPeriodicTasks()
+ * - handleEvent() calls recordSocialEvent() + updateTemporalEdges() + logSimulationEvent()
+ * - stop() calls postSimulationCleanup()
+ *
  * @module
  */
 
@@ -27,6 +34,18 @@ import type { ConcordiaChannelConfig, SetupRequest, EventNotification } from "./
 import { SessionManager } from "./session-manager.js";
 import { createBridgeServer } from "./bridge-http.js";
 import type { Server } from "node:http";
+import type { MemoryWiringContext } from "./memory-wiring.js";
+import {
+  setupAgentIdentity,
+  ingestObservation,
+  buildFullActContext,
+  updateActivationScores,
+  recordSocialEvent,
+  updateTemporalEdges,
+  logSimulationEvent,
+  storePremise,
+} from "./memory-wiring.js";
+import { runPeriodicTasks, postSimulationCleanup } from "./memory-lifecycle.js";
 
 // ============================================================================
 // Pending request tracking
@@ -51,6 +70,10 @@ export class ConcordiaChannelAdapter
   private sessionManager = new SessionManager();
   private pendingActs = new Map<string, PendingActRequest>();
   private healthy = false;
+
+  // Memory wiring state
+  private memoryCtx: MemoryWiringContext | null = null;
+  private simulationStep = 0;
 
   async initialize(
     context: ChannelAdapterContext<ConcordiaChannelConfig>,
@@ -90,6 +113,22 @@ export class ConcordiaChannelAdapter
   async stop(): Promise<void> {
     this.healthy = false;
 
+    // Wire: post-simulation cleanup
+    if (this.memoryCtx) {
+      try {
+        const agentIds = this.sessionManager.listAgentIds();
+        await postSimulationCleanup(
+          this.memoryCtx,
+          agentIds,
+          this.context.logger,
+        );
+      } catch (err) {
+        this.context.logger.warn?.(
+          "[concordia] postSimulationCleanup failed:", err,
+        );
+      }
+    }
+
     // Clear all pending requests
     for (const [, pending] of this.pendingActs) {
       clearTimeout(pending.timeout);
@@ -105,6 +144,8 @@ export class ConcordiaChannelAdapter
       this.bridgeServer = null;
     }
 
+    this.memoryCtx = null;
+    this.simulationStep = 0;
     this.context.logger.info?.("[concordia] Bridge server stopped");
   }
 
@@ -137,8 +178,111 @@ export class ConcordiaChannelAdapter
   }
 
   // ==========================================================================
+  // Memory context resolution
+  // ==========================================================================
+
+  /**
+   * Attempt to resolve a MemoryWiringContext from the runtime peer dependency.
+   * Memory wiring is optional — if the runtime modules are not available,
+   * the adapter operates in passthrough mode.
+   */
+  private resolveMemoryContext(
+    worldId: string,
+    workspaceId: string,
+  ): MemoryWiringContext | null {
+    try {
+      // The runtime provides these via the adapter context when available
+      const ctx = this.context as unknown as Record<string, unknown>;
+      const memoryBackend = ctx.memoryBackend as MemoryWiringContext["memoryBackend"] | undefined;
+      const identityManager = ctx.identityManager as MemoryWiringContext["identityManager"] | undefined;
+      const socialMemory = ctx.socialMemory as MemoryWiringContext["socialMemory"] | undefined;
+
+      if (!memoryBackend || !identityManager || !socialMemory) {
+        this.context.logger.debug?.(
+          "[concordia] Memory backends not available on context — memory wiring disabled",
+        );
+        return null;
+      }
+
+      return {
+        worldId,
+        workspaceId,
+        memoryBackend,
+        identityManager,
+        socialMemory,
+        proceduralMemory: ctx.proceduralMemory as MemoryWiringContext["proceduralMemory"],
+        graph: ctx.graph as MemoryWiringContext["graph"],
+        sharedMemory: ctx.sharedMemory as MemoryWiringContext["sharedMemory"],
+        traceLogger: ctx.traceLogger as MemoryWiringContext["traceLogger"],
+        dailyLogManager: ctx.dailyLogManager as MemoryWiringContext["dailyLogManager"],
+        encryptionKey: this.context.config.encryption_key,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // ==========================================================================
   // Internal handlers
   // ==========================================================================
+
+  private async handleSetup(
+    request: SetupRequest,
+  ): Promise<Record<string, string>> {
+    const sessions: Record<string, string> = {};
+
+    // Resolve memory wiring context for this simulation
+    this.memoryCtx = this.resolveMemoryContext(
+      request.world_id,
+      request.workspace_id,
+    );
+    this.simulationStep = 0;
+
+    for (const agent of request.agents) {
+      const session = this.sessionManager.getOrCreate({
+        agentId: agent.agent_id,
+        agentName: agent.agent_name,
+        worldId: request.world_id,
+        workspaceId: request.workspace_id,
+      });
+      sessions[agent.agent_id] = session.sessionId;
+
+      // Wire: setup agent identity in memory
+      if (this.memoryCtx) {
+        try {
+          await setupAgentIdentity(
+            this.memoryCtx,
+            agent.agent_id,
+            agent.agent_name,
+            agent.personality,
+            agent.goal ?? "",
+          );
+        } catch (err) {
+          this.context.logger.warn?.(
+            `[concordia] Failed to setup identity for ${agent.agent_name}:`,
+            err,
+          );
+        }
+      }
+
+      this.context.logger.info?.(
+        `[concordia] Agent setup: ${agent.agent_name} (${agent.agent_id}) -> ${session.sessionId}`,
+      );
+    }
+
+    // Wire: store premise as world fact
+    if (this.memoryCtx && request.premise) {
+      try {
+        await storePremise(this.memoryCtx, request.premise);
+      } catch (err) {
+        this.context.logger.warn?.(
+          "[concordia] Failed to store premise:", err,
+        );
+      }
+    }
+
+    return sessions;
+  }
 
   private async handleAct(
     agentId: string,
@@ -150,6 +294,26 @@ export class ConcordiaChannelAdapter
       return "Agent not found — cannot act.";
     }
 
+    // Wire: build enriched context from memory (identity + procedural + KG + shared)
+    let enrichedMessage = message;
+    if (this.memoryCtx) {
+      try {
+        const memoryContext = await buildFullActContext(
+          this.memoryCtx,
+          agentId,
+          sessionId,
+          message,
+        );
+        if (memoryContext) {
+          enrichedMessage = `${memoryContext}\n\n${message}`;
+        }
+      } catch (err) {
+        this.context.logger.warn?.(
+          `[concordia] buildFullActContext failed for ${agentId}:`, err,
+        );
+      }
+    }
+
     // Create a ChannelInboundMessage and send through the daemon pipeline
     const inbound: ChannelInboundMessage = {
       id: randomUUID(),
@@ -158,7 +322,7 @@ export class ConcordiaChannelAdapter
       sender_name: session.agentName,
       session_id: sessionId,
       scope: "dm",
-      content: message,
+      content: enrichedMessage,
       timestamp: Date.now(),
       metadata: {
         world_id: session.worldId,
@@ -185,7 +349,32 @@ export class ConcordiaChannelAdapter
     await this.context.on_message(inbound);
 
     // Wait for the daemon to call send() with the response
-    return actionPromise;
+    const action = await actionPromise;
+
+    // Wire: run periodic memory tasks (reflection, consolidation, retention)
+    this.simulationStep++;
+    if (this.memoryCtx) {
+      try {
+        const agentIds = this.sessionManager.listAgentIds();
+        await runPeriodicTasks(
+          this.memoryCtx,
+          this.simulationStep,
+          agentIds,
+          {
+            reflectionInterval: this.context.config.reflection_interval,
+            consolidationInterval: this.context.config.consolidation_interval,
+          },
+          this.context.logger,
+        );
+      } catch (err) {
+        this.context.logger.warn?.(
+          `[concordia] runPeriodicTasks failed at step ${this.simulationStep}:`,
+          err,
+        );
+      }
+    }
+
+    return action;
   }
 
   private async handleObserve(
@@ -193,6 +382,17 @@ export class ConcordiaChannelAdapter
     sessionId: string,
     observation: string,
   ): Promise<void> {
+    // Wire: ingest observation into persistent memory
+    if (this.memoryCtx) {
+      try {
+        await ingestObservation(this.memoryCtx, agentId, sessionId, observation);
+      } catch (err) {
+        this.context.logger.warn?.(
+          `[concordia] ingestObservation failed for ${agentId}:`, err,
+        );
+      }
+    }
+
     // Send the observation as a system message so it appears in the agent's
     // context window on the next /act call.
     const inbound: ChannelInboundMessage = {
@@ -225,34 +425,53 @@ export class ConcordiaChannelAdapter
     }
   }
 
-  private async handleSetup(
-    request: SetupRequest,
-  ): Promise<Record<string, string>> {
-    const sessions: Record<string, string> = {};
-
-    for (const agent of request.agents) {
-      const session = this.sessionManager.getOrCreate({
-        agentId: agent.agent_id,
-        agentName: agent.agent_name,
-        worldId: request.world_id,
-        workspaceId: request.workspace_id,
-      });
-      sessions[agent.agent_id] = session.sessionId;
-
-      this.context.logger.info?.(
-        `[concordia] Agent setup: ${agent.agent_name} (${agent.agent_id}) -> ${session.sessionId}`,
-      );
-    }
-
-    return sessions;
-  }
-
   private async handleEvent(event: EventNotification): Promise<void> {
-    // Event notifications from the Python engine (resolved events, scene changes)
-    // are logged for observability. Social memory recording would go here if
-    // the plugin has direct access to the memory modules.
     this.context.logger.debug?.(
       `[concordia] Event: step=${event.step} type=${event.type} agent=${event.acting_agent ?? "gm"}`,
     );
+
+    if (!this.memoryCtx) return;
+
+    // Wire: record social interactions between agents
+    try {
+      const knownAgentIds = this.sessionManager.listAgentIds();
+      await recordSocialEvent(this.memoryCtx, event, knownAgentIds);
+    } catch (err) {
+      this.context.logger.warn?.("[concordia] recordSocialEvent failed:", err);
+    }
+
+    // Wire: update temporal edges in knowledge graph on contradicting events
+    if (event.acting_agent) {
+      try {
+        await updateTemporalEdges(
+          this.memoryCtx,
+          event.acting_agent,
+          event.content,
+        );
+      } catch (err) {
+        this.context.logger.warn?.(
+          "[concordia] updateTemporalEdges failed:", err,
+        );
+      }
+    }
+
+    // Wire: log simulation event to daily log transcript
+    try {
+      const agentSession = event.acting_agent
+        ? this.sessionManager.get(event.acting_agent)
+        : this.sessionManager.getAll()[0];
+      if (agentSession) {
+        await logSimulationEvent(this.memoryCtx, agentSession.sessionId, {
+          step: event.step,
+          actingAgent: event.acting_agent,
+          content: event.content,
+          type: event.type,
+        });
+      }
+    } catch (err) {
+      this.context.logger.warn?.(
+        "[concordia] logSimulationEvent failed:", err,
+      );
+    }
   }
 }
