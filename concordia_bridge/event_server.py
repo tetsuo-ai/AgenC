@@ -15,6 +15,7 @@ import json
 import logging
 import queue
 import threading
+import time
 from dataclasses import asdict
 from typing import Optional
 
@@ -55,7 +56,7 @@ class EventServer:
         self._thread.start()
         # Wait for the server to be ready
         while self._loop is None and self._running:
-            threading.Event().wait(0.01)
+            time.sleep(0.01)
         logger.info("Event server started on %s:%d", self.host, self.port)
 
     def stop(self) -> None:
@@ -124,7 +125,7 @@ class EventServer:
             try:
                 data = self._queue.get_nowait()
                 dead_clients: list[websockets.server.ServerConnection] = []
-                for client in self._clients:
+                for client in list(self._clients):
                     try:
                         await client.send(data)
                     except websockets.exceptions.ConnectionClosed:

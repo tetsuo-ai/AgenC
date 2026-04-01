@@ -70,8 +70,8 @@ class SimulationConfig:
     event_port: int = 3201
     control_port: int = 3202
     embedding_model: str = "all-MiniLM-L6-v2"
-    reflection_interval: int = 5  # Run reflection every N steps
-    consolidation_interval: int = 20  # Run consolidation every N steps
-    retention_interval: int = 20  # Run retention every N steps
-    encryption_key: str = ""
+    reflection_interval: int = 5  # Run reflection every N steps (used by TS adapter memory-lifecycle)
+    consolidation_interval: int = 20  # Run consolidation every N steps (used by TS adapter memory-lifecycle)
+    retention_interval: int = 20  # Run retention every N steps (used by TS adapter memory-lifecycle)
+    encryption_key: str = ""  # At-rest encryption key (used by TS adapter memory-wiring)
     scenes: Optional[list] = None  # Optional SceneSpec list

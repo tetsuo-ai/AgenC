@@ -79,4 +79,38 @@ export function createChannelAdapter(): ChannelAdapter<ConcordiaChannelConfig> {
 export type { ConcordiaChannelConfig } from "./types.js";
 export type { ConcordiaChannelAdapter } from "./adapter.js";
 
+// Re-export memory wiring for consumers (Phases 5 + 10)
+export type { MemoryWiringContext } from "./memory-wiring.js";
+export {
+  ingestObservation,
+  setupAgentIdentity,
+  recordSocialEvent,
+  storePremise,
+  getAgentState,
+  buildFullActContext,
+  updateActivationScores,
+  updateTemporalEdges,
+  buildGraphContext,
+  getSharedContext,
+  promoteToSharedMemory,
+  checkCollectiveEmergence,
+  recordProcedure,
+  retrieveProcedures,
+  resolveVectorDbPath,
+  traceMemoryRetrieval,
+  traceMemoryTrustFilter,
+  logSimulationEvent,
+} from "./memory-wiring.js";
+
+// Re-export memory lifecycle for consumers (Phase 10)
+export {
+  runPeriodicTasks,
+  postSimulationCleanup,
+  buildTrustMetadata,
+  TRUST_SOURCE_GM,
+  TRUST_SOURCE_AGENT,
+  TRUST_SOURCE_USER,
+  TRUST_SOURCE_EXTERNAL,
+} from "./memory-lifecycle.js";
+
 export default { manifest, validateConfig, createChannelAdapter };

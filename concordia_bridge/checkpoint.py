@@ -91,8 +91,8 @@ def save_checkpoint(
             },
             timeout=5,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to notify bridge about checkpoint at step %d: %s", step, exc)
 
     return filepath
 

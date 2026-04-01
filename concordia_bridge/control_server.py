@@ -88,12 +88,16 @@ class StepController:
 
     def wait_for_step_permission(self) -> None:
         """Block until the controller permits the next step."""
-        self._event.wait()
-        with self._lock:
-            if self._mode == "step":
-                # After one step, go back to paused
-                self._mode = "pause"
-                self._event.clear()
+        while True:
+            self._event.wait()
+            with self._lock:
+                if self._mode in ("play", "stop"):
+                    return
+                if self._mode == "step":
+                    self._mode = "pause"
+                    self._event.clear()
+                    return
+                # mode changed to "pause" between wait() and lock — loop again
 
 
 def _make_handler_class(

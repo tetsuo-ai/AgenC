@@ -62,11 +62,24 @@ def create_embedder(config: SimulationConfig):
     except ImportError:
         logger.warning(
             "sentence-transformers not installed — GM memory will use "
-            "no embeddings (retrieval disabled). Install with: "
+            "hash-based embeddings (low quality). Install with: "
             "pip install sentence-transformers"
         )
+        import hashlib
         import numpy as np
-        return lambda text: np.zeros(384)
+
+        def _hash_embed(text: str) -> np.ndarray:
+            """Deterministic hash-based embedding fallback."""
+            raw = hashlib.sha512(text.encode("utf-8")).digest()
+            while len(raw) < 384 * 4:
+                raw += hashlib.sha512(raw).digest()
+            arr = np.frombuffer(raw[: 384 * 4], dtype=np.float32).copy()
+            norm = np.linalg.norm(arr)
+            if norm > 0:
+                arr /= norm
+            return arr
+
+        return _hash_embed
 
 
 def run_simulation(
@@ -269,6 +282,10 @@ class _FallbackGameMaster:
 
     def act(self, action_spec) -> str:
         from concordia.typing.entity import OutputType
+
+        if action_spec.output_type == OutputType.SKIP_THIS_STEP:
+            return ""
+
         prompt_parts = [self._instructions] + self._observations[-10:]
         prompt = "\n".join(prompt_parts) + "\n" + action_spec.call_to_action
 
@@ -278,8 +295,12 @@ class _FallbackGameMaster:
             OutputType.TERMINATE,
             OutputType.NEXT_GAME_MASTER,
         ):
-            idx, text, _ = self._model.sample_choice(prompt, list(action_spec.options))
-            return text
+            try:
+                idx, text, _ = self._model.sample_choice(prompt, list(action_spec.options))
+                return text
+            except Exception as exc:
+                logger.warning("sample_choice failed: %s — returning first option", exc)
+                return list(action_spec.options)[0] if action_spec.options else ""
         else:
             return self._model.sample_text(prompt, max_tokens=500)
 

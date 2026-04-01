@@ -155,7 +155,7 @@ export interface ProceduralMemoryLike {
     steps: readonly string[];
     confidence: number;
   }>>;
-  formatForPrompt(procedures: readonly Array<{
+  formatForPrompt(procedures: ReadonlyArray<{
     name: string;
     trigger: string;
     steps: readonly string[];
