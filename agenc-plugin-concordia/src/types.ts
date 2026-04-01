@@ -43,6 +43,35 @@ export interface SetupRequest {
   readonly premise: string;
 }
 
+export interface LaunchRequest {
+  readonly world_id: string;
+  readonly workspace_id: string;
+  readonly agents: readonly AgentSetupConfig[];
+  readonly premise: string;
+  readonly max_steps?: number;
+  readonly gm_model?: string;
+  readonly gm_provider?: string;
+  readonly gm_api_key?: string;
+  readonly gm_base_url?: string;
+  readonly event_port?: number;
+  readonly control_port?: number;
+  readonly engine_type?: "sequential" | "simultaneous";
+  readonly gm_prefab?: string;
+}
+
+export interface GenerateAgentsRequest {
+  readonly count: number;
+  readonly premise: string;
+  readonly worldId?: string;
+}
+
+export interface GeneratedAgent {
+  readonly id: string;
+  readonly name: string;
+  readonly personality: string;
+  readonly goal: string;
+}
+
 export interface AgentSetupConfig {
   readonly agent_id: string;
   readonly agent_name: string;
@@ -101,6 +130,7 @@ export interface ConcordiaChannelConfig {
   readonly encryption_key?: string;
   readonly reflection_interval?: number;
   readonly consolidation_interval?: number;
+  readonly python_command?: string;
   [key: string]: unknown;
 }
 
