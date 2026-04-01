@@ -23,6 +23,15 @@ interface ConcordiaMemoryHostServices {
   readonly dailyLogManager?: DailyLogManagerLike;
 }
 
+interface ConcordiaRuntimeHostServices {
+  readonly llm?: {
+    readonly provider?: string;
+    readonly apiKey?: string;
+    readonly model?: string;
+    readonly baseUrl?: string;
+  };
+}
+
 function isConcordiaMemoryHostServices(
   value: unknown,
 ): value is ConcordiaMemoryHostServices {
@@ -38,6 +47,22 @@ function isConcordiaMemoryHostServices(
     typeof candidate.socialMemory === "object" &&
     candidate.socialMemory !== null
   );
+}
+
+function isConcordiaRuntimeHostServices(
+  value: unknown,
+): value is ConcordiaRuntimeHostServices {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (!("llm" in candidate)) {
+    return false;
+  }
+  if (candidate.llm === undefined) {
+    return true;
+  }
+  return typeof candidate.llm === "object" && candidate.llm !== null;
 }
 
 export function resolveConcordiaMemoryContext(
@@ -65,5 +90,26 @@ export function resolveConcordiaMemoryContext(
     traceLogger: services.traceLogger,
     dailyLogManager: services.dailyLogManager,
     encryptionKey: context.config.encryption_key,
+  };
+}
+
+export function resolveConcordiaLaunchDefaults(
+  context: ChannelAdapterContext<ConcordiaChannelConfig>,
+): {
+  readonly gm_provider?: string;
+  readonly gm_model?: string;
+  readonly gm_api_key?: string;
+  readonly gm_base_url?: string;
+} {
+  const services = context.host_services?.concordia_runtime;
+  if (!isConcordiaRuntimeHostServices(services) || !services.llm) {
+    return {};
+  }
+
+  return {
+    gm_provider: services.llm.provider,
+    gm_model: services.llm.model,
+    gm_api_key: services.llm.apiKey,
+    gm_base_url: services.llm.baseUrl,
   };
 }

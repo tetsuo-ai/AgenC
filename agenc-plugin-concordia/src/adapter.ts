@@ -54,7 +54,10 @@ import {
   getAgentState as loadAgentState,
 } from "./memory-wiring.js";
 import { runPeriodicTasks, postSimulationCleanup } from "./memory-lifecycle.js";
-import { resolveConcordiaMemoryContext } from "./host-services.js";
+import {
+  resolveConcordiaLaunchDefaults,
+  resolveConcordiaMemoryContext,
+} from "./host-services.js";
 import {
   launchSimulationRunner,
   stopSimulationRunner,
@@ -535,11 +538,20 @@ export class ConcordiaChannelAdapter
   private async handleLaunch(
     request: LaunchRequest,
   ): Promise<Record<string, unknown>> {
+    const defaults = resolveConcordiaLaunchDefaults(this.context);
+    const launchRequest: LaunchRequest = {
+      ...request,
+      gm_provider: request.gm_provider ?? defaults.gm_provider,
+      gm_model: request.gm_model ?? defaults.gm_model,
+      gm_api_key: request.gm_api_key ?? defaults.gm_api_key,
+      gm_base_url: request.gm_base_url ?? defaults.gm_base_url,
+    };
+
     await stopSimulationRunner(this.simulationRunner);
     this.simulationRunner = null;
 
     this.simulationRunner = await launchSimulationRunner({
-      request,
+      request: launchRequest,
       config: this.context.config,
       logger: this.context.logger,
     });
@@ -555,10 +567,10 @@ export class ConcordiaChannelAdapter
     });
 
     return {
-      world_id: request.world_id,
+      world_id: launchRequest.world_id,
       pid: this.simulationRunner.child.pid ?? null,
-      control_port: request.control_port ?? 3202,
-      event_port: request.event_port ?? 3201,
+      control_port: launchRequest.control_port ?? 3202,
+      event_port: launchRequest.event_port ?? 3201,
     };
   }
 

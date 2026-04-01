@@ -39,7 +39,11 @@ class InstrumentedSequentialEngine(Engine):
         event_callback: Callable[[SimulationEvent], None],
         bridge_url: str = "http://localhost:3200",
         world_id: str = "default",
-        call_to_make_observation: str = "What does {name} observe?",
+        call_to_make_observation: str = (
+            "What is the current situation faced by {name}? "
+            "What do they now observe? Only include information of which "
+            "they are aware."
+        ),
         call_to_next_acting: str = "Who is next to act?",
         call_to_resolve: str = "Because of all that came before, what happens next?",
         call_to_check_termination: str = "Is the game/simulation finished?",
