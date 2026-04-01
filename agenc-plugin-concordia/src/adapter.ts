@@ -64,6 +64,8 @@ import {
   type SpawnedSimulationRunner,
 } from "./simulation-runner.js";
 
+const MAX_GENERATED_AGENTS = 25;
+
 // ============================================================================
 // Pending request tracking
 // ============================================================================
@@ -494,7 +496,10 @@ export class ConcordiaChannelAdapter
   private async handleGenerateAgents(
     request: GenerateAgentsRequest,
   ): Promise<{ agents: readonly GeneratedAgent[] }> {
-    const count = Math.max(2, Math.min(10, request.count || 3));
+    const count = Math.max(
+      2,
+      Math.min(MAX_GENERATED_AGENTS, request.count || 3),
+    );
     const sessionId = `concordia:generator:${randomUUID()}`;
     const prompt = [
       `Generate exactly ${count} diverse characters for this simulation scenario.`,

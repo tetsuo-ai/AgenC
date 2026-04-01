@@ -17,7 +17,7 @@ from typing import Callable, Optional, Sequence
 
 import requests
 
-from concordia.typing.entity import Entity, ActionSpec, OutputType, DEFAULT_ACTION_SPEC
+from concordia.typing.entity import Entity, ActionSpec, OutputType
 
 from concordia_bridge.bridge_types import SimulationEvent
 from concordia_bridge.instrumented_engine import InstrumentedSequentialEngine
@@ -89,7 +89,7 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
             actions: dict[str, str] = {}
             with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
                 futures = {
-                    pool.submit(entity.act, DEFAULT_ACTION_SPEC): entity
+                    pool.submit(entity.act, self.build_entity_action_spec(entity)): entity
                     for entity in entities
                 }
                 for future in as_completed(futures):

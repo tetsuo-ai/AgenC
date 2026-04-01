@@ -20,15 +20,19 @@ export function buildActPrompt(
   actionSpec: ConcordiaActionSpec,
   agentName: string,
 ): string {
+  const resolvedActionSpec: ConcordiaActionSpec = {
+    ...actionSpec,
+    call_to_action: substituteAgentName(actionSpec.call_to_action, agentName),
+  };
   switch (actionSpec.output_type) {
     case "free":
-      return buildFreePrompt(actionSpec, agentName);
+      return buildFreePrompt(resolvedActionSpec, agentName);
     case "choice":
-      return buildChoicePrompt(actionSpec, agentName);
+      return buildChoicePrompt(resolvedActionSpec, agentName);
     case "float":
-      return buildFloatPrompt(actionSpec);
+      return buildFloatPrompt(resolvedActionSpec);
     default:
-      return actionSpec.call_to_action;
+      return resolvedActionSpec.call_to_action;
   }
 }
 
@@ -40,22 +44,24 @@ function buildFreePrompt(
 
   if (isSpeech) {
     return [
-      "[Simulation Context]",
-      actionSpec.call_to_action,
+      "[Concordia Speech Request]",
+      `Agent: ${agentName}`,
+      `Speak in character as ${agentName}.`,
+      "Reply exactly with only the words you would say next.",
+      "Do not include your name prefix, stage directions, or quotation marks.",
       "",
-      `Respond in character as ${agentName}. Use natural dialogue.`,
-      "Do not include your name prefix or quotation marks.",
-      "Respond exactly with ONLY what you would say. Nothing else.",
+      actionSpec.call_to_action,
     ].join("\n");
   }
 
   return [
-    "[Simulation Context]",
-    actionSpec.call_to_action,
+    "[Concordia Action Request]",
+    `Agent: ${agentName}`,
+    "Reply exactly with one short plain-text description of your immediate next action.",
+    "Be specific and concrete.",
+    "Do not include your name, quotation marks, or any explanation.",
     "",
-    "Respond exactly with ONLY your action text. Do not include your name prefix.",
-    "Do not include quotation marks around your response.",
-    "Be specific and concrete about what you do.",
+    actionSpec.call_to_action,
   ].join("\n");
 }
 
@@ -68,7 +74,8 @@ function buildChoicePrompt(
     .join("\n");
 
   return [
-    "[Simulation Context]",
+    "[Concordia Choice Request]",
+    `Agent: ${_agentName}`,
     actionSpec.call_to_action,
     "",
     "You MUST respond with EXACTLY one of these options (copy it verbatim):",
@@ -80,11 +87,15 @@ function buildChoicePrompt(
 
 function buildFloatPrompt(actionSpec: ConcordiaActionSpec): string {
   return [
-    "[Simulation Context]",
+    "[Concordia Numeric Request]",
     actionSpec.call_to_action,
     "",
     "Respond exactly with ONLY a single number (decimal allowed). Nothing else.",
   ].join("\n");
+}
+
+function substituteAgentName(callToAction: string, agentName: string): string {
+  return callToAction.replaceAll("{name}", agentName);
 }
 
 /**

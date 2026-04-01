@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import builtins
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
-from concordia_bridge.runner import _resolve_gm_api_key, create_embedder
+from concordia_bridge.observation_component import FreshObservationComponent
+from concordia_bridge.runner import (
+    _configure_observation_override,
+    _resolve_gm_api_key,
+    create_embedder,
+)
 
 
 class TestSimulationConfig:
@@ -168,3 +174,33 @@ class TestExampleConfigs:
         for config in [mc, tc, rc]:
             ids = [a.id for a in config.agents]
             assert len(ids) == len(set(ids)), f"Duplicate IDs in {config.world_id}"
+
+
+class TestObservationOverride:
+    def test_injects_custom_make_observation_component(self) -> None:
+        prefab = SimpleNamespace(params={"extra_components": {}})
+        players = [
+            SimpleNamespace(name="Elena"),
+            SimpleNamespace(name="Marcus"),
+        ]
+
+        _configure_observation_override(
+            prefab=prefab,
+            model=object(),
+            players=players,
+        )
+
+        component = prefab.params["extra_components"]["__make_observation__"]
+        assert isinstance(component, FreshObservationComponent)
+
+    def test_noop_when_prefab_has_no_extra_components_slot(self) -> None:
+        prefab = SimpleNamespace(params={"name": "conversation rules"})
+        players = [SimpleNamespace(name="Elena")]
+
+        _configure_observation_override(
+            prefab=prefab,
+            model=object(),
+            players=players,
+        )
+
+        assert prefab.params == {"name": "conversation rules"}

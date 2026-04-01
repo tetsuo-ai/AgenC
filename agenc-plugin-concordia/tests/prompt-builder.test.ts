@@ -5,32 +5,32 @@ describe("buildActPrompt", () => {
   it("builds free prompt with action tag", () => {
     const prompt = buildActPrompt(
       {
-        call_to_action: "What would Alice do next?",
+        call_to_action: "What would {name} do next?",
         output_type: "free",
         options: [],
         tag: "action",
       },
       "Alice",
     );
-    expect(prompt).toContain("[Simulation Context]");
+    expect(prompt).toContain("[Concordia Action Request]");
     expect(prompt).toContain("What would Alice do next?");
-    expect(prompt).toContain("Respond exactly with ONLY your action text");
+    expect(prompt).toContain("Reply exactly with one short plain-text description");
     expect(prompt).not.toContain("dialogue");
   });
 
   it("builds free prompt with speech tag", () => {
     const prompt = buildActPrompt(
       {
-        call_to_action: "What would Alice say?",
+        call_to_action: "What would {name} say?",
         output_type: "free",
         options: [],
         tag: "speech",
       },
       "Alice",
     );
-    expect(prompt).toContain("in character as Alice");
-    expect(prompt).toContain("natural dialogue");
-    expect(prompt).toContain("Respond exactly with ONLY what you would say");
+    expect(prompt).toContain("[Concordia Speech Request]");
+    expect(prompt).toContain("Speak in character as Alice");
+    expect(prompt).toContain("Reply exactly with only the words you would say next");
   });
 
   it("builds choice prompt with numbered options", () => {

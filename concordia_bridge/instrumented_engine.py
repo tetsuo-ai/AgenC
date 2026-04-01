@@ -58,6 +58,17 @@ class InstrumentedSequentialEngine(Engine):
         self._current_step = 0
         self._last_acting_entity_name: Optional[str] = None
 
+    def build_entity_action_spec(self, entity: Entity) -> ActionSpec:
+        """Build an explicit, per-entity action prompt for the next move."""
+        return ActionSpec(
+            call_to_action=(
+                f"What would {entity.name} do next? "
+                f"Give one specific, concrete action that {entity.name} personally takes right now."
+            ),
+            output_type=OutputType.FREE,
+            tag="action",
+        )
+
     def make_observation(self, game_master: Entity, entity: Entity) -> str:
         """Generate observation for an entity and emit event."""
         observation_spec = ActionSpec(
@@ -96,9 +107,7 @@ class InstrumentedSequentialEngine(Engine):
 
         self._last_acting_entity_name = next_entity.name
 
-        # Use default FREE action spec
-        from concordia.typing.entity import DEFAULT_ACTION_SPEC
-        return next_entity, DEFAULT_ACTION_SPEC
+        return next_entity, self.build_entity_action_spec(next_entity)
 
     def resolve(self, game_master: Entity, event: str) -> None:
         """Resolve an event via the GM and emit resolution event."""
