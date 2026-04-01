@@ -51,15 +51,66 @@ export async function launchSimulationRunner(params: {
     },
   );
 
-  child.stdout.on("data", (chunk) => {
-    params.logger.info?.(`[concordia-runner] ${String(chunk).trimEnd()}`);
-  });
-  child.stderr.on("data", (chunk) => {
-    params.logger.warn?.(`[concordia-runner] ${String(chunk).trimEnd()}`);
-  });
+  attachRunnerStreamLogger(child.stdout, params.logger, "stdout");
+  attachRunnerStreamLogger(child.stderr, params.logger, "stderr");
 
   await waitForControlServer(child, params.request.control_port ?? 3202, 30_000);
   return { child, tempDir };
+}
+
+function attachRunnerStreamLogger(
+  stream: NodeJS.ReadableStream | null,
+  logger: ChannelAdapterLogger,
+  fallbackSource: "stdout" | "stderr",
+): void {
+  if (!stream) {
+    return;
+  }
+
+  let buffered = "";
+  stream.on("data", (chunk) => {
+    buffered += String(chunk);
+    const lines = buffered.split(/\r?\n/);
+    buffered = lines.pop() ?? "";
+    for (const rawLine of lines) {
+      logRunnerLine(rawLine, logger, fallbackSource);
+    }
+  });
+  stream.on("end", () => {
+    if (buffered.trim().length > 0) {
+      logRunnerLine(buffered, logger, fallbackSource);
+    }
+  });
+}
+
+function logRunnerLine(
+  rawLine: string,
+  logger: ChannelAdapterLogger,
+  fallbackSource: "stdout" | "stderr",
+): void {
+  const line = rawLine.trim();
+  if (line.length === 0) {
+    return;
+  }
+
+  const prefixed = `[concordia-runner] ${line}`;
+  if (/\bERROR\b/.test(line)) {
+    logger.error?.(prefixed);
+    return;
+  }
+  if (/\bWARN(?:ING)?\b/.test(line)) {
+    logger.warn?.(prefixed);
+    return;
+  }
+  if (/\bINFO\b/.test(line)) {
+    logger.info?.(prefixed);
+    return;
+  }
+  if (fallbackSource === "stderr") {
+    logger.warn?.(prefixed);
+    return;
+  }
+  logger.info?.(prefixed);
 }
 
 export async function stopSimulationRunner(

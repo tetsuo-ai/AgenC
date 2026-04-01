@@ -133,6 +133,7 @@ export function processResponse(
     case "float":
       return parseFloatResponse(result);
     case "free":
+      return sanitizeFreeformSimulationResponse(result, actionSpec);
     default:
       return result;
   }
@@ -171,4 +172,45 @@ function levenshteinDistance(a: string, b: string): number {
   }
 
   return dp[m][n];
+}
+
+function sanitizeFreeformSimulationResponse(
+  response: string,
+  actionSpec: ConcordiaActionSpec,
+): string {
+  const trimmed = response.trim();
+  if (!looksLikeInstructionEcho(trimmed)) {
+    return trimmed;
+  }
+  if (actionSpec.tag === "speech") {
+    return "I need a moment to think.";
+  }
+  return "pauses to assess the situation.";
+}
+
+function looksLikeInstructionEcho(response: string): boolean {
+  const normalized = response.trim().toLowerCase();
+  const strongEchoPhrases = [
+    "reply exactly",
+    "respond exactly",
+    "plain-text description of your immediate next action",
+    "be specific and concrete",
+    "do not include your name",
+    "do not include quotation marks",
+    "only the words you would say next",
+    "stage directions",
+    "single number",
+  ];
+  const matchCount = strongEchoPhrases.reduce(
+    (count, phrase) => count + (normalized.includes(phrase) ? 1 : 0),
+    0,
+  );
+
+  return (
+    matchCount >= 2 ||
+    (/\b(?:respond|reply)\s+exactly\b/i.test(response) &&
+      /\b(?:only|name prefix|quotation marks|what you would say|single number|action)\b/i.test(
+        response,
+      ))
+  );
 }

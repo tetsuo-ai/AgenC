@@ -62,8 +62,12 @@ class EventServer:
     def stop(self) -> None:
         """Stop the event server."""
         self._running = False
-        if self._loop:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._loop and self._server:
+            future = asyncio.run_coroutine_threadsafe(self._shutdown(), self._loop)
+            try:
+                future.result(timeout=5)
+            except Exception:  # pragma: no cover - shutdown best effort
+                logger.exception("Event server shutdown failed")
         if self._thread:
             self._thread.join(timeout=5)
         logger.info("Event server stopped")
@@ -88,7 +92,19 @@ class EventServer:
         """Background thread event loop."""
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-        self._loop.run_until_complete(self._serve())
+        try:
+            self._loop.run_until_complete(self._serve())
+            pending = asyncio.all_tasks(self._loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                self._loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
+        finally:
+            self._loop.close()
+            self._loop = None
+            self._server = None
 
     async def _serve(self) -> None:
         """Start the WebSocket server and drain queue."""
@@ -101,6 +117,19 @@ class EventServer:
             while self._running:
                 await self._drain_queue()
                 await asyncio.sleep(0.02)
+
+    async def _shutdown(self) -> None:
+        """Close clients and the websocket server without aborting the loop."""
+        clients = list(self._clients)
+        self._clients.clear()
+        for client in clients:
+            try:
+                await client.close()
+            except Exception:  # pragma: no cover - best effort cleanup
+                logger.debug("Error closing viewer websocket", exc_info=True)
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
 
     async def _handler(self, websocket: websockets.server.ServerConnection) -> None:
         """Handle a new viewer connection."""

@@ -40,12 +40,12 @@ class TestSimulationEvent:
 
 class TestEventServer:
     def test_start_stop(self) -> None:
-        server = EventServer(port=0)  # Port 0 = random available port
-        # Use a specific port for testing
         server = EventServer(port=13201)
         server.start()
         assert server.client_count == 0
         server.stop()
+        assert server._thread is not None
+        assert not server._thread.is_alive()
 
     def test_broadcast_buffers_events(self) -> None:
         server = EventServer(port=13202)
@@ -107,3 +107,9 @@ class TestEventServer:
             assert server.event_count == 5
         finally:
             server.stop()
+
+    def test_stop_without_clients_or_pending_events_is_clean(self) -> None:
+        server = EventServer(port=13205)
+        server.start()
+        server.stop()
+        assert server._loop is None
