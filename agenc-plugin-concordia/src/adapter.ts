@@ -30,7 +30,15 @@ import type {
   ChannelInboundMessage,
   ChannelOutboundMessage,
 } from "@tetsuo-ai/plugin-kit";
-import type { ConcordiaChannelConfig, SetupRequest, EventNotification } from "./types.js";
+import type {
+  ConcordiaChannelConfig,
+  SetupRequest,
+  EventNotification,
+  LaunchRequest,
+  GenerateAgentsRequest,
+  GeneratedAgent,
+  AgentStateResponse,
+} from "./types.js";
 import { SessionManager } from "./session-manager.js";
 import { createBridgeServer } from "./bridge-http.js";
 import type { Server } from "node:http";
@@ -39,20 +47,26 @@ import {
   setupAgentIdentity,
   ingestObservation,
   buildFullActContext,
-  updateActivationScores,
   recordSocialEvent,
   updateTemporalEdges,
   logSimulationEvent,
   storePremise,
+  getAgentState as loadAgentState,
 } from "./memory-wiring.js";
 import { runPeriodicTasks, postSimulationCleanup } from "./memory-lifecycle.js";
+import { resolveConcordiaMemoryContext } from "./host-services.js";
+import {
+  launchSimulationRunner,
+  stopSimulationRunner,
+  type SpawnedSimulationRunner,
+} from "./simulation-runner.js";
 
 // ============================================================================
 // Pending request tracking
 // ============================================================================
 
-interface PendingActRequest {
-  resolve: (action: string) => void;
+interface PendingResponseRequest {
+  resolve: (content: string) => void;
   timeout: ReturnType<typeof setTimeout>;
 }
 
@@ -68,8 +82,9 @@ export class ConcordiaChannelAdapter
   private context!: ChannelAdapterContext<ConcordiaChannelConfig>;
   private bridgeServer: Server | null = null;
   private sessionManager = new SessionManager();
-  private pendingActs = new Map<string, PendingActRequest>();
+  private pendingResponses = new Map<string, PendingResponseRequest>();
   private healthy = false;
+  private simulationRunner: SpawnedSimulationRunner | null = null;
 
   // Memory wiring state
   private memoryCtx: MemoryWiringContext | null = null;
@@ -95,7 +110,10 @@ export class ConcordiaChannelAdapter
       onObserve: (agentId, sessionId, observation) =>
         this.handleObserve(agentId, sessionId, observation),
       onSetup: (request) => this.handleSetup(request),
+      onLaunch: (request) => this.handleLaunch(request),
+      onGenerateAgents: (request) => this.handleGenerateAgents(request),
       onEvent: (event) => this.handleEvent(event),
+      getAgentState: (agentId) => this.handleGetAgentState(agentId),
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -129,12 +147,15 @@ export class ConcordiaChannelAdapter
       }
     }
 
+    await stopSimulationRunner(this.simulationRunner);
+    this.simulationRunner = null;
+
     // Clear all pending requests
-    for (const [, pending] of this.pendingActs) {
+    for (const [, pending] of this.pendingResponses) {
       clearTimeout(pending.timeout);
       pending.resolve(""); // Resolve with empty to unblock
     }
-    this.pendingActs.clear();
+    this.pendingResponses.clear();
 
     // Close HTTP server
     if (this.bridgeServer) {
@@ -165,61 +186,16 @@ export class ConcordiaChannelAdapter
       return;
     }
 
-    const pending = this.pendingActs.get(session.agentId);
+    const pending = this.pendingResponses.get(message.session_id);
     if (pending) {
       clearTimeout(pending.timeout);
       pending.resolve(message.content);
-      this.pendingActs.delete(session.agentId);
+      this.pendingResponses.delete(message.session_id);
     }
   }
 
   isHealthy(): boolean {
     return this.healthy;
-  }
-
-  // ==========================================================================
-  // Memory context resolution
-  // ==========================================================================
-
-  /**
-   * Attempt to resolve a MemoryWiringContext from the runtime peer dependency.
-   * Memory wiring is optional — if the runtime modules are not available,
-   * the adapter operates in passthrough mode.
-   */
-  private resolveMemoryContext(
-    worldId: string,
-    workspaceId: string,
-  ): MemoryWiringContext | null {
-    try {
-      // The runtime provides these via the adapter context when available
-      const ctx = this.context as unknown as Record<string, unknown>;
-      const memoryBackend = ctx.memoryBackend as MemoryWiringContext["memoryBackend"] | undefined;
-      const identityManager = ctx.identityManager as MemoryWiringContext["identityManager"] | undefined;
-      const socialMemory = ctx.socialMemory as MemoryWiringContext["socialMemory"] | undefined;
-
-      if (!memoryBackend || !identityManager || !socialMemory) {
-        this.context.logger.debug?.(
-          "[concordia] Memory backends not available on context — memory wiring disabled",
-        );
-        return null;
-      }
-
-      return {
-        worldId,
-        workspaceId,
-        memoryBackend,
-        identityManager,
-        socialMemory,
-        proceduralMemory: ctx.proceduralMemory as MemoryWiringContext["proceduralMemory"],
-        graph: ctx.graph as MemoryWiringContext["graph"],
-        sharedMemory: ctx.sharedMemory as MemoryWiringContext["sharedMemory"],
-        traceLogger: ctx.traceLogger as MemoryWiringContext["traceLogger"],
-        dailyLogManager: ctx.dailyLogManager as MemoryWiringContext["dailyLogManager"],
-        encryptionKey: this.context.config.encryption_key,
-      };
-    } catch {
-      return null;
-    }
   }
 
   // ==========================================================================
@@ -232,7 +208,8 @@ export class ConcordiaChannelAdapter
     const sessions: Record<string, string> = {};
 
     // Resolve memory wiring context for this simulation
-    this.memoryCtx = this.resolveMemoryContext(
+    this.memoryCtx = resolveConcordiaMemoryContext(
+      this.context,
       request.world_id,
       request.workspace_id,
     );
@@ -332,18 +309,12 @@ export class ConcordiaChannelAdapter
     };
 
     // Create a promise that resolves when send() is called
-    const actionPromise = new Promise<string>((resolve) => {
-      const timeoutMs = 120_000;
-      const timeout = setTimeout(() => {
-        this.pendingActs.delete(agentId);
-        resolve(`${session.agentName} hesitates and does nothing.`);
-        this.context.logger.warn?.(
-          `[concordia] /act timeout for ${session.agentName} after ${timeoutMs}ms`,
-        );
-      }, timeoutMs);
-
-      this.pendingActs.set(agentId, { resolve, timeout });
-    });
+    const actionPromise = this.createPendingResponse(
+      sessionId,
+      `${session.agentName} hesitates and does nothing.`,
+      120_000,
+      `[concordia] /act timeout for ${session.agentName} after 120000ms`,
+    );
 
     // Fire the message into the daemon pipeline
     await this.context.on_message(inbound);
@@ -473,5 +444,172 @@ export class ConcordiaChannelAdapter
         "[concordia] logSimulationEvent failed:", err,
       );
     }
+  }
+
+  private async handleGetAgentState(
+    agentId: string,
+  ): Promise<AgentStateResponse | null> {
+    const session = this.sessionManager.get(agentId);
+    if (!session) return null;
+
+    if (this.memoryCtx) {
+      try {
+        return await loadAgentState(
+          this.memoryCtx,
+          agentId,
+          session.sessionId,
+          session.turnCount,
+          session.lastAction,
+        ) as unknown as AgentStateResponse;
+      } catch (err) {
+        this.context.logger.warn?.(
+          `[concordia] getAgentState failed for ${agentId}:`,
+          err,
+        );
+      }
+    }
+
+    return {
+      identity: {
+        name: session.agentName,
+        personality: "",
+        learnedTraits: [],
+        beliefs: {},
+      },
+      memoryCount: session.observations.length,
+      recentMemories: session.observations.slice(-5).map((content) => ({
+        content: content.slice(0, 200),
+        role: "system",
+        timestamp: Date.now(),
+      })),
+      relationships: [],
+      worldFacts: [],
+      turnCount: session.turnCount,
+      lastAction: session.lastAction,
+    };
+  }
+
+  private async handleGenerateAgents(
+    request: GenerateAgentsRequest,
+  ): Promise<{ agents: readonly GeneratedAgent[] }> {
+    const count = Math.max(2, Math.min(10, request.count || 3));
+    const sessionId = `concordia:generator:${randomUUID()}`;
+    const prompt = [
+      `Generate exactly ${count} diverse characters for this simulation scenario.`,
+      "",
+      `Premise: ${request.premise}`,
+      "",
+      'Respond with ONLY a JSON array (no markdown, no prose). Each item must contain "id", "name", "personality", and "goal".',
+      'Use lowercase hyphenated "id" values.',
+      "Make the characters meaningfully different so the simulation has conflict, alliances, and competing incentives.",
+    ].join("\n");
+
+    const responsePromise = this.createPendingResponse(
+      sessionId,
+      "",
+      60_000,
+      "[concordia] /generate-agents timed out after 60000ms",
+    );
+
+    const inbound: ChannelInboundMessage = {
+      id: randomUUID(),
+      channel: "concordia",
+      sender_id: "concordia-agent-generator",
+      sender_name: "Concordia Agent Generator",
+      session_id: sessionId,
+      scope: "dm",
+      content: prompt,
+      timestamp: Date.now(),
+      metadata: {
+        type: "concordia_generate_agents",
+        world_id: request.worldId ?? "generated-world",
+      },
+    };
+
+    await this.context.on_message(inbound);
+    const rawResponse = await responsePromise;
+    const agents = this.parseGeneratedAgents(rawResponse);
+    return { agents };
+  }
+
+  private async handleLaunch(
+    request: LaunchRequest,
+  ): Promise<Record<string, unknown>> {
+    await stopSimulationRunner(this.simulationRunner);
+    this.simulationRunner = null;
+
+    this.simulationRunner = await launchSimulationRunner({
+      request,
+      config: this.context.config,
+      logger: this.context.logger,
+    });
+
+    const launchedRunner = this.simulationRunner;
+    launchedRunner.child.once("exit", (code, signal) => {
+      this.context.logger.info?.(
+        `[concordia] runner exited code=${String(code)} signal=${String(signal)}`,
+      );
+      if (this.simulationRunner === launchedRunner) {
+        this.simulationRunner = null;
+      }
+    });
+
+    return {
+      world_id: request.world_id,
+      pid: this.simulationRunner.child.pid ?? null,
+      control_port: request.control_port ?? 3202,
+      event_port: request.event_port ?? 3201,
+    };
+  }
+
+  private createPendingResponse(
+    sessionId: string,
+    fallback: string,
+    timeoutMs: number,
+    timeoutLog: string,
+  ): Promise<string> {
+    return new Promise<string>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pendingResponses.delete(sessionId);
+        resolve(fallback);
+        this.context.logger.warn?.(timeoutLog);
+      }, timeoutMs);
+
+      this.pendingResponses.set(sessionId, { resolve, timeout });
+    });
+  }
+
+  private parseGeneratedAgents(rawResponse: string): GeneratedAgent[] {
+    const trimmed = rawResponse.trim();
+    const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const jsonText = match ? match[1].trim() : trimmed;
+    const parsed = JSON.parse(jsonText) as unknown;
+
+    if (!Array.isArray(parsed)) {
+      throw new Error("Expected JSON array of generated agents");
+    }
+
+    const agents = parsed.map((entry, index) => {
+      if (
+        typeof entry !== "object" ||
+        entry === null ||
+        typeof (entry as Record<string, unknown>).id !== "string" ||
+        typeof (entry as Record<string, unknown>).name !== "string" ||
+        typeof (entry as Record<string, unknown>).personality !== "string" ||
+        typeof (entry as Record<string, unknown>).goal !== "string"
+      ) {
+        throw new Error(`Generated agent ${index} is missing required fields`);
+      }
+
+      const agent = entry as Record<string, string>;
+      return {
+        id: agent.id,
+        name: agent.name,
+        personality: agent.personality,
+        goal: agent.goal,
+      };
+    });
+
+    return agents;
   }
 }

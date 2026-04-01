@@ -14,6 +14,8 @@ const actCalls: string[] = [];
 const observeCalls: string[] = [];
 const setupCalls: unknown[] = [];
 const eventCalls: unknown[] = [];
+const launchCalls: unknown[] = [];
+const generateCalls: unknown[] = [];
 
 beforeAll(async () => {
   sessionManager = new SessionManager();
@@ -44,6 +46,23 @@ beforeAll(async () => {
         sessions[agent.agent_id] = s.sessionId;
       }
       return sessions;
+    },
+    onLaunch: async (request) => {
+      launchCalls.push(request);
+      return { pid: 4242, world_id: request.world_id };
+    },
+    onGenerateAgents: async (request) => {
+      generateCalls.push(request);
+      return {
+        agents: [
+          {
+            id: "alex",
+            name: "Alex",
+            personality: "Careful and analytical.",
+            goal: "Understand the situation.",
+          },
+        ],
+      };
     },
     onEvent: async (event) => {
       eventCalls.push(event);
@@ -122,6 +141,50 @@ describe("Bridge HTTP Server", () => {
       expect(data.sessions).toBeDefined();
       expect(data.sessions.alice).toBeTruthy();
       expect(data.sessions.bob).toBeTruthy();
+    });
+  });
+
+  describe("POST /launch", () => {
+    it("delegates simulation launch", async () => {
+      const resp = await fetch(url("/launch"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          world_id: "launch-world",
+          workspace_id: "test-ws",
+          agents: [
+            { agent_id: "alice", agent_name: "Alice", personality: "Helpful", goal: "Win" },
+          ],
+          premise: "Test launch premise",
+          max_steps: 10,
+          gm_model: "grok-4",
+          gm_provider: "grok",
+        }),
+      });
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.status).toBe("ok");
+      expect(data.pid).toBe(4242);
+      expect(launchCalls).toHaveLength(1);
+    });
+  });
+
+  describe("POST /generate-agents", () => {
+    it("returns generated agents", async () => {
+      const resp = await fetch(url("/generate-agents"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          count: 3,
+          premise: "A tense market opening.",
+          worldId: "generated-market",
+        }),
+      });
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(Array.isArray(data.agents)).toBe(true);
+      expect(data.agents[0].id).toBe("alex");
+      expect(generateCalls).toHaveLength(1);
     });
   });
 

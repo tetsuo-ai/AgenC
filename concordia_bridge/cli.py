@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import importlib
+import json
 import logging
 import sys
 
@@ -42,6 +43,15 @@ def main() -> None:
     run_parser.add_argument("--event-port", type=int, default=3201)
     run_parser.add_argument("--control-port", type=int, default=3202)
 
+    # --- run-json ---
+    run_json_parser = subparsers.add_parser(
+        "run-json", help="Run a simulation from a JSON config file",
+    )
+    run_json_parser.add_argument(
+        "--config-file", required=True,
+        help="Path to a JSON file matching SimulationConfig fields",
+    )
+
     # --- examples ---
     subparsers.add_parser("examples", help="List available example configs")
 
@@ -58,6 +68,8 @@ def main() -> None:
 
     if args.command == "run":
         cmd_run(args)
+    elif args.command == "run-json":
+        cmd_run_json(args)
     elif args.command == "examples":
         cmd_examples()
     elif args.command == "status":
@@ -68,8 +80,6 @@ def main() -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     """Run a simulation from a config module."""
-    from concordia_bridge.runner import run_simulation
-
     # Import the config module
     try:
         module = importlib.import_module(args.config)
@@ -93,6 +103,63 @@ def cmd_run(args: argparse.Namespace) -> None:
         config = dataclasses.replace(config, event_port=args.event_port)
     if args.control_port:
         config = dataclasses.replace(config, control_port=args.control_port)
+
+    _run_config(config)
+
+
+def cmd_run_json(args: argparse.Namespace) -> None:
+    """Run a simulation from a JSON config file."""
+    from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
+
+    try:
+        with open(args.config_file, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: Config file not found: {args.config_file}")
+        sys.exit(1)
+    except json.JSONDecodeError as exc:
+        print(f"Error: Invalid JSON config: {exc}")
+        sys.exit(1)
+
+    agents = [
+        AgentConfig(
+            id=agent["agent_id"],
+            name=agent["agent_name"],
+            personality=agent.get("personality", ""),
+            goal=agent.get("goal", ""),
+        )
+        for agent in raw.get("agents", [])
+    ]
+
+    config = SimulationConfig(
+        world_id=raw.get("world_id", "default"),
+        workspace_id=raw.get("workspace_id", "concordia-sim"),
+        premise=raw.get("premise", ""),
+        agents=agents,
+        max_steps=raw.get("max_steps", 50),
+        gm_instructions=raw.get("gm_instructions", ""),
+        gm_model=raw.get("gm_model", "grok-3-mini"),
+        gm_provider=raw.get("gm_provider", "ollama"),
+        gm_api_key=raw.get("gm_api_key", ""),
+        gm_base_url=raw.get("gm_base_url", ""),
+        engine_type=raw.get("engine_type", "sequential"),
+        gm_prefab=raw.get("gm_prefab", "generic"),
+        bridge_url=raw.get("bridge_url", "http://localhost:3200"),
+        event_port=raw.get("event_port", 3201),
+        control_port=raw.get("control_port", 3202),
+        embedding_model=raw.get("embedding_model", "all-MiniLM-L6-v2"),
+        reflection_interval=raw.get("reflection_interval", 5),
+        consolidation_interval=raw.get("consolidation_interval", 20),
+        retention_interval=raw.get("retention_interval", 20),
+        encryption_key=raw.get("encryption_key", ""),
+        scenes=raw.get("scenes"),
+    )
+
+    _run_config(config)
+
+
+def _run_config(config) -> None:
+    from concordia_bridge.runner import run_simulation
 
     print(f"Running simulation: {config.world_id}")
     print(f"  Agents: {', '.join(a.name for a in config.agents)}")
