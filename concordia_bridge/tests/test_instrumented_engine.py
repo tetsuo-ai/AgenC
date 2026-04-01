@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from concordia.typing.entity import ActionSpec, OutputType, DEFAULT_ACTION_SPEC
+from concordia.typing.entity import ActionSpec, OutputType
 
 from concordia_bridge.bridge_types import SimulationEvent
 from concordia_bridge.instrumented_engine import InstrumentedSequentialEngine
@@ -117,6 +117,9 @@ class TestNextActing:
         entity, spec = engine.next_acting(gm, [alice, bob])
 
         assert entity.name == "Bob"
+        assert spec.output_type == OutputType.FREE
+        assert spec.tag == "action"
+        assert "Bob" in spec.call_to_action
 
     def test_falls_back_to_first_entity(self):
         engine = InstrumentedSequentialEngine(event_callback=lambda e: None)
@@ -126,6 +129,22 @@ class TestNextActing:
         entity, spec = engine.next_acting(gm, [alice])
 
         assert entity.name == "Alice"
+        assert "Alice" in spec.call_to_action
+
+    def test_builds_observation_prompt_with_required_engine_contract(self):
+        engine = InstrumentedSequentialEngine(event_callback=lambda e: None)
+        gm = make_mock_gm()
+        entity = make_mock_entity("Alice")
+
+        engine.make_observation(gm, entity)
+
+        observation_spec = gm.act.call_args_list[0].args[0]
+        assert observation_spec.output_type == OutputType.MAKE_OBSERVATION
+        assert observation_spec.call_to_action == (
+            "What is the current situation faced by Alice? "
+            "What do they now observe? Only include information of which "
+            "they are aware."
+        )
 
 
 class TestResolve:

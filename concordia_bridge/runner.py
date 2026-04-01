@@ -26,6 +26,7 @@ from concordia_bridge.bridge_types import AgentConfig, SimulationConfig, Simulat
 from concordia_bridge.proxy_entity import ProxyEntityWithLogging
 from concordia_bridge.event_server import EventServer
 from concordia_bridge.instrumented_engine import InstrumentedSequentialEngine
+from concordia_bridge.observation_component import FreshObservationComponent
 from concordia_bridge.control_server import (
     StepController,
     SimulationState,
@@ -197,20 +198,22 @@ def create_embedder(config: SimulationConfig):
         model = SentenceTransformer(config.embedding_model)
         return lambda text: model.encode(text)
     except ImportError:
-        logger.warning(
+        logger.info(
             "sentence-transformers not installed — GM memory will use "
-            "hash-based embeddings (low quality). Install with: "
-            "pip install sentence-transformers"
+            "lightweight deterministic fallback embeddings"
         )
         import hashlib
         import numpy as np
 
         def _hash_embed(text: str) -> np.ndarray:
-            """Deterministic hash-based embedding fallback."""
-            raw = hashlib.sha512(text.encode("utf-8")).digest()
-            while len(raw) < 384 * 4:
-                raw += hashlib.sha512(raw).digest()
-            arr = np.frombuffer(raw[: 384 * 4], dtype=np.float32).copy()
+            """Deterministic finite embedding fallback."""
+            raw = bytearray()
+            seed = text.encode("utf-8")
+            while len(raw) < 384:
+                seed = hashlib.sha512(seed).digest()
+                raw.extend(seed)
+            arr = np.frombuffer(raw[:384], dtype=np.uint8).astype(np.float32)
+            arr = (arr - 127.5) / 127.5
             norm = np.linalg.norm(arr)
             if norm > 0:
                 arr /= norm
@@ -374,6 +377,7 @@ def _build_game_master(
             description=description,
             entities=players,
         )
+        _configure_observation_override(prefab, model, players)
         if not hasattr(prefab, "build"):
             raise TypeError(f"{prefab_module.__name__}.GameMaster is not buildable")
         return prefab.build(model=model, memory_bank=memory_bank)
@@ -413,6 +417,48 @@ def _build_game_master(
             "Failed to build GM via prefab (%s) — using fallback", exc,
         )
         return _FallbackGameMaster(model, memory_bank, config.gm_instructions)
+
+
+def _configure_observation_override(
+    prefab: object,
+    model,
+    players: Sequence[Entity],
+) -> None:
+    """Inject the custom observation component into prefabs that support it."""
+    params = getattr(prefab, "params", None)
+    if params is None:
+        return
+
+    try:
+        params_dict = dict(params)
+    except TypeError:
+        return
+
+    if "extra_components" not in params_dict:
+        return
+
+    from concordia.components import game_master as gm_components
+
+    component_key = (
+        gm_components.make_observation.DEFAULT_MAKE_OBSERVATION_COMPONENT_KEY
+    )
+    extra_components = dict(params_dict.get("extra_components", {}))
+    extra_components[component_key] = FreshObservationComponent(
+        model=model,
+        player_names=[entity.name for entity in players],
+        components=[
+            "instructions",
+            "player_characters",
+            "relevant_memories",
+            "display_events",
+        ],
+        reformat_observations_in_specified_style=(
+            "The format to use when describing the "
+            'current situation to a player is: "//date or time//situation description".'
+        ),
+    )
+    params_dict["extra_components"] = extra_components
+    setattr(prefab, "params", params_dict)
 
 
 class _FallbackGameMaster:
