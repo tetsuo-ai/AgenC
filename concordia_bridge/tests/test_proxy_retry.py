@@ -11,7 +11,7 @@ import pytest
 
 from concordia.typing.entity import DEFAULT_ACTION_SPEC
 
-from concordia_bridge.proxy_entity import ProxyEntity
+from concordia_bridge.proxy_entity import ProxyEntity, ProxyEntityActError
 
 
 class FailThenSucceedHandler(BaseHTTPRequestHandler):
@@ -86,11 +86,10 @@ class TestProxyEntityRetry:
         )
 
         start = time.time()
-        result = entity.act()
+        with pytest.raises(ProxyEntityActError):
+            entity.act()
         elapsed = time.time() - start
 
-        # Should have retried and returned fallback
-        assert "hesitates" in result
         # Should have waited for retries (at least 0.1 + 0.2 = 0.3s)
         assert elapsed >= 0.2, f"Retries seem instant: {elapsed:.2f}s"
 
@@ -112,8 +111,8 @@ class TestProxyEntityRetry:
                 retry_delay_seconds=0.1,
                 timeout_seconds=0.5,
             )
-            result = entity.act()
-            assert "hesitates" in result
+            with pytest.raises(ProxyEntityActError):
+                entity.act()
         finally:
             sock.close()
 
@@ -129,8 +128,8 @@ class TestProxyEntityRetry:
             retry_delay_seconds=0.1,
         )
 
-        result = entity.act()
-        assert "hesitates" in result
+        with pytest.raises(ProxyEntityActError):
+            entity.act()
         # Should have been called only once (no retry on HTTP error)
         assert FailThenSucceedHandler._calls == 1
 
@@ -145,10 +144,10 @@ class TestProxyEntityRetry:
         )
 
         start = time.time()
-        result = entity.act()
+        with pytest.raises(ProxyEntityActError):
+            entity.act()
         elapsed = time.time() - start
 
-        assert "hesitates" in result
         # Should be fast — no retries
         assert elapsed < 2.0
 
@@ -163,10 +162,10 @@ class TestProxyEntityRetry:
         )
 
         start = time.time()
-        result = entity.act()
+        with pytest.raises(ProxyEntityActError):
+            entity.act()
         elapsed = time.time() - start
 
-        assert "hesitates" in result
         # 3 attempts: initial + retry after 0.1s + retry after 0.2s = ~0.3s minimum
         assert elapsed >= 0.25, f"Backoff too fast: {elapsed:.2f}s"
 

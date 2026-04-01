@@ -58,6 +58,7 @@ import {
   resolveConcordiaLaunchDefaults,
   resolveConcordiaMemoryContext,
 } from "./host-services.js";
+import { buildSimulationSystemContext } from "./prompt-builder.js";
 import {
   launchSimulationRunner,
   stopSimulationRunner,
@@ -90,6 +91,7 @@ export class ConcordiaChannelAdapter
   private pendingResponses = new Map<string, PendingResponseRequest>();
   private healthy = false;
   private simulationRunner: SpawnedSimulationRunner | null = null;
+  private simulationPremise = "";
 
   // Memory wiring state
   private memoryCtx: MemoryWiringContext | null = null;
@@ -167,6 +169,7 @@ export class ConcordiaChannelAdapter
 
     this.memoryCtx = null;
     this.simulationStep = 0;
+    this.simulationPremise = "";
     this.context.logger.info?.("[concordia] Bridge server stopped");
   }
 
@@ -217,6 +220,7 @@ export class ConcordiaChannelAdapter
       request.workspace_id,
     );
     this.simulationStep = 0;
+    this.simulationPremise = request.premise;
 
     for (const agent of request.agents) {
       const session = this.sessionManager.getOrCreate({
@@ -275,7 +279,13 @@ export class ConcordiaChannelAdapter
     }
 
     // Wire: build enriched context from memory (identity + procedural + KG + shared)
-    let enrichedMessage = message;
+    const simulationContext = buildSimulationSystemContext({
+      worldId: session.worldId,
+      agentName: session.agentName,
+      turnCount: session.turnCount,
+      premise: this.simulationPremise,
+    });
+    const contextBlocks: string[] = [simulationContext];
     if (this.memoryCtx) {
       try {
         const memoryContext = await buildFullActContext(
@@ -285,7 +295,7 @@ export class ConcordiaChannelAdapter
           message,
         );
         if (memoryContext) {
-          enrichedMessage = `${memoryContext}\n\n${message}`;
+          contextBlocks.push(memoryContext);
         }
       } catch (err) {
         this.context.logger.warn?.(
@@ -293,6 +303,8 @@ export class ConcordiaChannelAdapter
         );
       }
     }
+    contextBlocks.push(message);
+    const enrichedMessage = contextBlocks.join("\n\n");
 
     // Create a ChannelInboundMessage and send through the daemon pipeline
     const inbound: ChannelInboundMessage = {
@@ -305,6 +317,9 @@ export class ConcordiaChannelAdapter
       content: enrichedMessage,
       timestamp: Date.now(),
       metadata: {
+        type: "concordia_agent_turn",
+        turn_contract: "concordia_simulation_turn",
+        concordia_turn_contract: "concordia_simulation_turn",
         world_id: session.worldId,
         workspace_id: session.workspaceId,
         concordia_turn: session.turnCount,
@@ -314,7 +329,7 @@ export class ConcordiaChannelAdapter
     // Create a promise that resolves when send() is called
     const actionPromise = this.createPendingResponse(
       sessionId,
-      `${session.agentName} hesitates and does nothing.`,
+      "",
       120_000,
       `[concordia] /act timeout for ${session.agentName} after 120000ms`,
     );

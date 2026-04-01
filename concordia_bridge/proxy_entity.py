@@ -29,6 +29,10 @@ from concordia.typing.entity import (
 logger = logging.getLogger(__name__)
 
 
+class ProxyEntityActError(RuntimeError):
+    """Raised when the bridge cannot provide a valid agent action."""
+
+
 class ProxyEntity(Entity):
     """Concordia Entity that proxies act/observe to an AgenC bridge server.
 
@@ -86,10 +90,12 @@ class ProxyEntity(Entity):
 
         if self._circuit_breaker.is_open:
             logger.warning(
-                "ProxyEntity %s act() circuit breaker open — returning fallback",
+                "ProxyEntity %s act() circuit breaker open",
                 self._name,
             )
-            return f"{self._name} hesitates and does nothing."
+            raise ProxyEntityActError(
+                f"{self._name} bridge circuit breaker open",
+            )
 
         last_exc: Exception | None = None
 
@@ -120,11 +126,13 @@ class ProxyEntity(Entity):
                 return action
             except requests.Timeout:
                 logger.warning(
-                    "ProxyEntity %s act() timed out after %.1fs — returning fallback",
+                    "ProxyEntity %s act() timed out after %.1fs",
                     self._name,
                     self._timeout,
                 )
-                return f"{self._name} hesitates and does nothing."
+                raise ProxyEntityActError(
+                    f"{self._name} action timed out after {self._timeout:.1f}s",
+                )
             except requests.ConnectionError as exc:
                 last_exc = exc
                 self._circuit_breaker.record_failure()
@@ -147,7 +155,9 @@ class ProxyEntity(Entity):
                     self._name,
                     exc,
                 )
-                return f"{self._name} hesitates and does nothing."
+                raise ProxyEntityActError(
+                    f"{self._name} bridge HTTP error: {exc}",
+                ) from exc
 
         logger.error(
             "ProxyEntity %s act() all %d retries exhausted — bridge unreachable: %s",
@@ -155,7 +165,9 @@ class ProxyEntity(Entity):
             self._max_retries + 1,
             last_exc,
         )
-        return f"{self._name} hesitates and does nothing."
+        raise ProxyEntityActError(
+            f"{self._name} bridge unreachable after {self._max_retries + 1} attempts",
+        ) from last_exc
 
     def observe(self, observation: str) -> None:
         """Send observation to AgenC bridge for memory ingestion.

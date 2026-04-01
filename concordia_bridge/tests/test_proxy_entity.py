@@ -11,7 +11,11 @@ import pytest
 
 from concordia.typing.entity import ActionSpec, OutputType, DEFAULT_ACTION_SPEC
 
-from concordia_bridge.proxy_entity import ProxyEntity, ProxyEntityWithLogging
+from concordia_bridge.proxy_entity import (
+    ProxyEntity,
+    ProxyEntityActError,
+    ProxyEntityWithLogging,
+)
 
 
 # ============================================================================
@@ -184,31 +188,30 @@ class TestProxyEntity:
         entity.observe("This will fail but not crash")
         assert len(MockBridgeHandler.observe_called) == 0
 
-    def test_act_timeout_returns_fallback(self, mock_bridge: str) -> None:
+    def test_act_timeout_raises(self, mock_bridge: str) -> None:
         MockBridgeHandler.delay_seconds = 5.0
         entity = ProxyEntity(
             agent_name="Alice",
             bridge_url=mock_bridge,
             timeout_seconds=0.5,
         )
-        result = entity.act()
-        assert "hesitates" in result
-        assert "Alice" in result
+        with pytest.raises(ProxyEntityActError):
+            entity.act()
 
-    def test_act_http_error_returns_fallback(self, mock_bridge: str) -> None:
+    def test_act_http_error_raises(self, mock_bridge: str) -> None:
         MockBridgeHandler.error_code = 500
         entity = ProxyEntity(agent_name="Alice", bridge_url=mock_bridge)
-        result = entity.act()
-        assert "hesitates" in result
+        with pytest.raises(ProxyEntityActError):
+            entity.act()
 
-    def test_act_connection_error_returns_fallback(self) -> None:
+    def test_act_connection_error_raises(self) -> None:
         entity = ProxyEntity(
             agent_name="Alice",
             bridge_url="http://127.0.0.1:1",  # Nothing listening
             timeout_seconds=1.0,
         )
-        result = entity.act()
-        assert "hesitates" in result
+        with pytest.raises(ProxyEntityActError):
+            entity.act()
 
     def test_turn_count_increments(self, mock_bridge: str) -> None:
         entity = ProxyEntity(agent_name="Alice", bridge_url=mock_bridge)
