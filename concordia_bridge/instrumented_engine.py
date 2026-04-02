@@ -24,6 +24,11 @@ from concordia.environment.engine import Engine
 from concordia.environment import engine as engine_lib
 
 from concordia_bridge.bridge_types import SimulationEvent
+from concordia_bridge.simulation_identity import (
+    SimulationIdentity,
+    apply_identity_to_event,
+    with_identity_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,10 +111,12 @@ class InstrumentedSequentialEngine(Engine):
         self._raw_event_callback = event_callback
         self._bridge_url = bridge_url.rstrip("/")
         self._world_id = world_id
-        self._simulation_id = simulation_id
+        self._identity = SimulationIdentity(
+            simulation_id=simulation_id,
+            lineage_id=lineage_id,
+            parent_simulation_id=parent_simulation_id,
+        )
         self._workspace_id = workspace_id
-        self._lineage_id = lineage_id
-        self._parent_simulation_id = parent_simulation_id
         self._event_callback = lambda event: self._raw_event_callback(self._decorate_event(event))
         self._call_to_make_observation = call_to_make_observation
         self._call_to_next_acting = call_to_next_acting
@@ -461,17 +468,12 @@ class InstrumentedSequentialEngine(Engine):
         return stopped
 
     def _decorate_event(self, event: SimulationEvent) -> SimulationEvent:
-        if not event.simulation_id:
-            event.simulation_id = self._simulation_id
-        if not event.world_id:
-            event.world_id = self._world_id
-        if not event.workspace_id:
-            event.workspace_id = self._workspace_id
-        if event.lineage_id is None:
-            event.lineage_id = self._lineage_id
-        if event.parent_simulation_id is None:
-            event.parent_simulation_id = self._parent_simulation_id
-        return event
+        return apply_identity_to_event(
+            event,
+            self._identity,
+            world_id=self._world_id,
+            workspace_id=self._workspace_id,
+        )
 
     def _validate_pre_step(self, gm: Entity, entities: Sequence[Entity]) -> bool:
         """Pre-step validation: check GM and entity health (Phase 8.5)."""
@@ -495,17 +497,14 @@ class InstrumentedSequentialEngine(Engine):
         try:
             requests.post(
                 f"{self._bridge_url}/event",
-                json={
+                json=with_identity_payload({
                     "type": "resolution",
                     "step": self._current_step,
                     "acting_agent": self._last_acting_entity_name,
                     "content": resolved or putative,
                     "world_id": self._world_id,
                     "workspace_id": self._workspace_id,
-                    "simulation_id": self._simulation_id,
-                    "lineage_id": self._lineage_id,
-                    "parent_simulation_id": self._parent_simulation_id,
-                },
+                }, self._identity),
                 timeout=15,
             )
         except Exception as exc:

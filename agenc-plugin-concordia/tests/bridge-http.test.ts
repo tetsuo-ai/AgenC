@@ -14,6 +14,7 @@ const launchCalls: unknown[] = [];
 const generateCalls: unknown[] = [];
 const checkpointCalls: unknown[] = [];
 const resumeCalls: unknown[] = [];
+const agentStateCalls: Array<{ agentId: string; simulationId: string | null | undefined }> = [];
 const actRequestIds: string[] = [];
 const generateRequestIds: string[] = [];
 
@@ -94,7 +95,8 @@ beforeAll(async () => {
     onEvent: async (event) => {
       eventCalls.push(event);
     },
-    getAgentState: async (agentId) => {
+    getAgentState: async (agentId, simulationId) => {
+      agentStateCalls.push({ agentId, simulationId });
       if (agentId === "unknown") return null;
       return {
         simulationId: "sim-agent-state",
@@ -386,6 +388,19 @@ describe("Bridge HTTP Server", () => {
       expect(data.identity.name).toBe("alice");
       expect(data.turnCount).toBe(1);
       expect(data.simulationId).toBe("sim-agent-state");
+      expect(agentStateCalls.at(-1)).toEqual({
+        agentId: "alice",
+        simulationId: null,
+      });
+    });
+
+    it("passes simulation_id through to agent state lookups", async () => {
+      const resp = await fetch(url("/agent/alice/state?simulation_id=sim-state"));
+      expect(resp.status).toBe(200);
+      expect(agentStateCalls.at(-1)).toEqual({
+        agentId: "alice",
+        simulationId: "sim-state",
+      });
     });
 
     it("returns 404 for unknown agent", async () => {

@@ -81,11 +81,19 @@ export class SessionManager {
     return session;
   }
 
-  get(agentId: string): AgentSession | undefined {
-    for (const session of this.sessions.values()) {
-      if (session.agentId === agentId) {
-        return session;
-      }
+  findForSimulation(params: {
+    agentId: string;
+    simulationId?: string;
+    workspaceId?: string;
+  }): AgentSession | undefined {
+    const matches = Array.from(this.sessions.values()).filter((session) => (
+      session.agentId === params.agentId &&
+      (params.simulationId === undefined || session.simulationId === params.simulationId) &&
+      (params.workspaceId === undefined || session.workspaceId === params.workspaceId)
+    ));
+
+    if (matches.length === 1) {
+      return matches[0];
     }
     return undefined;
   }

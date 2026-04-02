@@ -29,6 +29,7 @@ import { createEmptyMetrics } from "./types.js";
 import { buildActPrompt } from "./prompt-builder.js";
 import { processResponse } from "./response-processor.js";
 import type { SessionManager } from "./session-manager.js";
+import { createSimulationIdentity, withSimulationIdentity } from "./simulation-identity.js";
 
 // ============================================================================
 // Types
@@ -56,7 +57,7 @@ export interface BridgeServerConfig {
     requestId: string,
   ) => Promise<{ agents: readonly { id: string; name: string; personality: string; goal: string }[] }>;
   readonly onEvent: (event: EventNotification) => Promise<void>;
-  readonly getAgentState?: (agentId: string) => Promise<AgentStateResponse | null>;
+  readonly getAgentState?: (agentId: string, simulationId?: string | null) => Promise<AgentStateResponse | null>;
 }
 
 // ============================================================================
@@ -135,7 +136,8 @@ async function handleGet(
   const agentStateMatch = path.match(/^\/agent\/([^/]+)\/state$/);
   if (agentStateMatch && config.getAgentState) {
     const agentId = decodeURIComponent(agentStateMatch[1]);
-    const state = await config.getAgentState(agentId);
+    const simulationId = url.searchParams.get("simulation_id");
+    const state = await config.getAgentState(agentId, simulationId);
     if (state) {
       sendJson(res, 200, state);
     } else {
@@ -207,16 +209,16 @@ async function handleAct(
   metrics.actRequests++;
   const start = Date.now();
 
-  const simulationId = requireStringField(request.simulation_id, "simulation_id");
+  const identity = requireSimulationIdentity(request);
 
   const session = config.sessionManager.getOrCreate({
     agentId: request.agent_id,
     agentName: request.agent_name,
     worldId: request.world_id,
     workspaceId: request.workspace_id,
-    simulationId,
-    lineageId: request.lineage_id,
-    parentSimulationId: request.parent_simulation_id,
+    simulationId: identity.simulationId!,
+    lineageId: identity.lineageId,
+    parentSimulationId: identity.parentSimulationId,
   });
 
   // Build the prompt from the ActionSpec
@@ -258,16 +260,16 @@ async function handleObserve(
 ): Promise<void> {
   metrics.observeRequests++;
 
-  const simulationId = requireStringField(request.simulation_id, "simulation_id");
+  const identity = requireSimulationIdentity(request);
 
   const session = config.sessionManager.getOrCreate({
     agentId: request.agent_id,
     agentName: request.agent_name,
     worldId: request.world_id,
     workspaceId: request.workspace_id,
-    simulationId,
-    lineageId: request.lineage_id,
-    parentSimulationId: request.parent_simulation_id,
+    simulationId: identity.simulationId!,
+    lineageId: identity.lineageId,
+    parentSimulationId: identity.parentSimulationId,
   });
 
   // Buffer observation for context
@@ -295,7 +297,7 @@ async function handleSetup(
 ): Promise<void> {
   metrics.setupRequests++;
 
-  requireStringField(request.simulation_id, "simulation_id");
+  const identity = requireSimulationIdentity(request);
 
   const sessions = await config.onSetup(request);
 
@@ -303,13 +305,10 @@ async function handleSetup(
     `[concordia] /setup world=${request.world_id} simulation=${request.simulation_id} agents=${request.agents.length}`,
   );
 
-  sendJson(res, 200, {
+  sendJson(res, 200, withSimulationIdentity({
     status: "ok",
-    simulation_id: request.simulation_id,
-    lineage_id: request.lineage_id ?? null,
-    parent_simulation_id: request.parent_simulation_id ?? null,
     sessions,
-  });
+  }, identity));
 }
 
 async function handleEvent(
@@ -320,7 +319,7 @@ async function handleEvent(
 ): Promise<void> {
   metrics.eventNotifications++;
 
-  requireStringField(event.simulation_id, "simulation_id");
+  requireSimulationIdentity(event);
   requireStringField(event.workspace_id, "workspace_id");
 
   await config.onEvent(event);
@@ -356,7 +355,7 @@ async function handleCheckpoint(
     return;
   }
 
-  requireStringField(request.simulation_id, "simulation_id");
+  requireSimulationIdentity(request);
 
   const result = await config.onCheckpoint(request);
   sendJson(res, 200, { status: "ok", ...result });
@@ -405,6 +404,17 @@ function sendEmpty(res: ServerResponse, status: number): void {
   setCorsHeaders(res);
   res.writeHead(status);
   res.end();
+}
+
+function requireSimulationIdentity(value: { simulation_id?: unknown; lineage_id?: unknown; parent_simulation_id?: unknown; }) {
+  return createSimulationIdentity({
+    simulationId: requireStringField(value.simulation_id, "simulation_id"),
+    lineageId: typeof value.lineage_id === "string" ? value.lineage_id : null,
+    parentSimulationId:
+      typeof value.parent_simulation_id === "string"
+        ? value.parent_simulation_id
+        : null,
+  });
 }
 
 function requireStringField(value: unknown, field: string): string {

@@ -24,6 +24,10 @@ import requests
 from concordia.typing.entity import EntityWithLogging
 
 from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
+from concordia_bridge.simulation_identity import (
+    identity_from_config,
+    with_identity_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +68,10 @@ def save_checkpoint(
         except Exception as exc:
             logger.warning("Failed to get GM state: %s", exc)
 
-    checkpoint = {
+    identity = identity_from_config(config)
+
+    checkpoint = with_identity_payload({
         "version": CHECKPOINT_VERSION,
-        "simulation_id": config.simulation_id,
-        "lineage_id": config.lineage_id,
-        "parent_simulation_id": config.parent_simulation_id,
         "world_id": config.world_id,
         "workspace_id": config.workspace_id,
         "user_id": config.user_id,
@@ -80,9 +83,9 @@ def save_checkpoint(
         "entity_states": entity_states,
         "gm_state": _serialize_state(gm_state),
         "agent_ids": [a.id for a in config.agents],
-    }
+    }, identity)
 
-    filename = _checkpoint_filename(config.simulation_id, step)
+    filename = _checkpoint_filename(identity.simulation_id, step)
     filepath = os.path.join(checkpoint_dir, filename)
 
     with open(filepath, "w", encoding="utf-8") as f:
@@ -93,14 +96,11 @@ def save_checkpoint(
     try:
         requests.post(
             f"{config.bridge_url}/checkpoint",
-            json={
+            json=with_identity_payload({
                 "world_id": config.world_id,
                 "workspace_id": config.workspace_id,
-                "simulation_id": config.simulation_id,
-                "lineage_id": config.lineage_id,
-                "parent_simulation_id": config.parent_simulation_id,
                 "step": step,
-            },
+            }, identity),
             timeout=5,
         )
     except Exception as exc:

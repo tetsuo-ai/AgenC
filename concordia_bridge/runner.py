@@ -36,6 +36,11 @@ from concordia_bridge.control_server import (
     start_control_server,
 )
 from concordia_bridge.checkpoint import save_checkpoint
+from concordia_bridge.simulation_identity import (
+    apply_identity_to_event,
+    identity_from_config,
+    with_identity_payload,
+)
 
 logger = logging.getLogger(__name__)
 _MAX_MULTIPLE_CHOICE_ATTEMPTS = 20
@@ -242,6 +247,8 @@ def run_simulation(
         config.max_steps,
     )
 
+    identity = identity_from_config(config)
+
     # 1. Start event server
     event_server = EventServer(port=config.event_port)
     event_server.start()
@@ -273,9 +280,9 @@ def run_simulation(
                 agent_id=agent.id,
                 world_id=config.world_id,
                 workspace_id=config.workspace_id,
-                simulation_id=config.simulation_id,
-                lineage_id=config.lineage_id,
-                parent_simulation_id=config.parent_simulation_id,
+                simulation_id=identity.simulation_id,
+                lineage_id=identity.lineage_id,
+                parent_simulation_id=identity.parent_simulation_id,
                 stop_event=controller.stop_event,
             )
             for agent in config.agents
@@ -301,20 +308,20 @@ def run_simulation(
                 event_callback=event_server.broadcast,
                 bridge_url=config.bridge_url,
                 world_id=config.world_id,
-                simulation_id=config.simulation_id,
+                simulation_id=identity.simulation_id,
                 workspace_id=config.workspace_id,
-                lineage_id=config.lineage_id,
-                parent_simulation_id=config.parent_simulation_id,
+                lineage_id=identity.lineage_id,
+                parent_simulation_id=identity.parent_simulation_id,
             )
         else:
             engine = InstrumentedSequentialEngine(
                 event_callback=event_server.broadcast,
                 bridge_url=config.bridge_url,
                 world_id=config.world_id,
-                simulation_id=config.simulation_id,
+                simulation_id=identity.simulation_id,
                 workspace_id=config.workspace_id,
-                lineage_id=config.lineage_id,
-                parent_simulation_id=config.parent_simulation_id,
+                lineage_id=identity.lineage_id,
+                parent_simulation_id=identity.parent_simulation_id,
             )
 
         # 8. Run the simulation
@@ -324,19 +331,21 @@ def run_simulation(
                 running=not controller.is_stopped,
                 last_step_outcome=outcome,
             )
-            event_server.broadcast(SimulationEvent(
-                type="step",
-                step=step,
-                timestamp=time.time(),
-                simulation_id=config.simulation_id,
+            event_server.broadcast(apply_identity_to_event(
+                SimulationEvent(
+                    type="step",
+                    step=step,
+                    timestamp=time.time(),
+                    world_id=config.world_id,
+                    workspace_id=config.workspace_id,
+                    metadata={
+                        "phase": "step_complete",
+                        "outcome": outcome,
+                    },
+                ),
+                identity,
                 world_id=config.world_id,
                 workspace_id=config.workspace_id,
-                lineage_id=config.lineage_id,
-                parent_simulation_id=config.parent_simulation_id,
-                metadata={
-                    "phase": "step_complete",
-                    "outcome": outcome,
-                },
             ))
 
         def checkpoint_callback(step: int) -> None:
@@ -398,12 +407,9 @@ def _setup_agents(config: SimulationConfig) -> None:
     try:
         response = requests.post(
             f"{config.bridge_url}/setup",
-            json={
+            json=with_identity_payload({
                 "world_id": config.world_id,
                 "workspace_id": config.workspace_id,
-                "simulation_id": config.simulation_id,
-                "lineage_id": config.lineage_id,
-                "parent_simulation_id": config.parent_simulation_id,
                 "user_id": config.user_id,
                 "agents": [
                     {
@@ -415,7 +421,7 @@ def _setup_agents(config: SimulationConfig) -> None:
                     for agent in config.agents
                 ],
                 "premise": config.premise,
-            },
+            }, identity_from_config(config)),
             timeout=30,
         )
         response.raise_for_status()

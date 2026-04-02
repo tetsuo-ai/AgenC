@@ -19,6 +19,11 @@ from typing import Any
 import requests
 
 from concordia_bridge.resilience import CircuitBreaker
+from concordia_bridge.simulation_identity import (
+    SimulationIdentity,
+    identity_from_payload,
+    with_identity_payload,
+)
 
 from concordia.typing.entity import (
     ActionSpec,
@@ -64,9 +69,11 @@ class ProxyEntity(Entity):
         self._agent_id = agent_id or agent_name.lower().replace(" ", "-")
         self._world_id = world_id
         self._workspace_id = workspace_id
-        self._simulation_id = simulation_id
-        self._lineage_id = lineage_id
-        self._parent_simulation_id = parent_simulation_id
+        self._identity = SimulationIdentity(
+            simulation_id=simulation_id,
+            lineage_id=lineage_id,
+            parent_simulation_id=parent_simulation_id,
+        )
         self._timeout = timeout_seconds
         self._max_retries = max_retries
         self._retry_delay = retry_delay_seconds
@@ -91,6 +98,41 @@ class ProxyEntity(Entity):
     def turn_count(self) -> int:
         return self._turn_count
 
+    def _bridge_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return with_identity_payload(payload, self._identity)
+
+    def _act_payload(self, action_spec: ActionSpec) -> dict[str, Any]:
+        return self._bridge_payload({
+            "agent_id": self._agent_id,
+            "agent_name": self._name,
+            "world_id": self._world_id,
+            "workspace_id": self._workspace_id,
+            "action_spec": action_spec.to_dict(),
+            "turn_count": self._turn_count,
+        })
+
+    def _observe_payload(self, observation: str) -> dict[str, Any]:
+        return self._bridge_payload({
+            "agent_id": self._agent_id,
+            "agent_name": self._name,
+            "world_id": self._world_id,
+            "workspace_id": self._workspace_id,
+            "observation": observation,
+        })
+
+    def _parse_action_response(self, response: requests.Response) -> str:
+        response.raise_for_status()
+        result = response.json()
+        action = result.get("action", "")
+        self._circuit_breaker.record_success()
+        logger.debug(
+            "ProxyEntity %s act() turn=%d: %s",
+            self._name,
+            self._turn_count,
+            action[:100],
+        )
+        return action
+
     def _perform_act_request(self, action_spec: ActionSpec) -> str:
         if self._circuit_breaker.is_open:
             logger.warning(
@@ -111,30 +153,10 @@ class ProxyEntity(Entity):
             try:
                 response = requests.post(
                     f"{self._bridge_url}/act",
-                    json={
-                        "agent_id": self._agent_id,
-                        "agent_name": self._name,
-                        "world_id": self._world_id,
-                        "workspace_id": self._workspace_id,
-                        "simulation_id": self._simulation_id,
-                        "lineage_id": self._lineage_id,
-                        "parent_simulation_id": self._parent_simulation_id,
-                        "action_spec": action_spec.to_dict(),
-                        "turn_count": self._turn_count,
-                    },
+                    json=self._act_payload(action_spec),
                     timeout=self._timeout,
                 )
-                response.raise_for_status()
-                result = response.json()
-                action = result.get("action", "")
-                self._circuit_breaker.record_success()
-                logger.debug(
-                    "ProxyEntity %s act() turn=%d: %s",
-                    self._name,
-                    self._turn_count,
-                    action[:100],
-                )
-                return action
+                return self._parse_action_response(response)
             except requests.Timeout:
                 logger.warning(
                     "ProxyEntity %s act() timed out after %.1fs",
@@ -241,16 +263,7 @@ class ProxyEntity(Entity):
         try:
             response = requests.post(
                 f"{self._bridge_url}/observe",
-                json={
-                    "agent_id": self._agent_id,
-                    "agent_name": self._name,
-                    "world_id": self._world_id,
-                    "workspace_id": self._workspace_id,
-                    "simulation_id": self._simulation_id,
-                    "lineage_id": self._lineage_id,
-                    "parent_simulation_id": self._parent_simulation_id,
-                    "observation": observation,
-                },
+                json=self._observe_payload(observation),
                 timeout=self._timeout,
             )
             response.raise_for_status()
@@ -290,9 +303,7 @@ class ProxyEntityWithLogging(ProxyEntity, EntityWithLogging):
             "agent_name": self._name,
             "world_id": self._world_id,
             "workspace_id": self._workspace_id,
-            "simulation_id": self._simulation_id,
-            "lineage_id": self._lineage_id,
-            "parent_simulation_id": self._parent_simulation_id,
+            **self._bridge_payload({}),
             "turn_count": self._turn_count,
             "elapsed_ms": round(elapsed_ms, 1),
         }
@@ -307,20 +318,14 @@ class ProxyEntityWithLogging(ProxyEntity, EntityWithLogging):
             "agent_name": self._name,
             "world_id": self._world_id,
             "workspace_id": self._workspace_id,
-            "simulation_id": self._simulation_id,
-            "lineage_id": self._lineage_id,
-            "parent_simulation_id": self._parent_simulation_id,
+            **self._bridge_payload({}),
             "turn_count": self._turn_count,
             "last_log": self._last_log,
         }
 
     def set_state(self, state: dict[str, Any]) -> None:
         self._turn_count = int(state.get("turn_count", self._turn_count))
-        self._simulation_id = str(state.get("simulation_id", self._simulation_id))
-        lineage_id = state.get("lineage_id")
-        self._lineage_id = str(lineage_id) if lineage_id else None
-        parent_simulation_id = state.get("parent_simulation_id")
-        self._parent_simulation_id = str(parent_simulation_id) if parent_simulation_id else None
+        self._identity = identity_from_payload(state)
         last_log = state.get("last_log")
         if isinstance(last_log, dict):
             self._last_log = last_log

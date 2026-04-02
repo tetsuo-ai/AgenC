@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ChannelAdapterLogger } from "@tetsuo-ai/plugin-kit";
 import type { ConcordiaChannelConfig, LaunchRequest } from "./types.js";
+import { withSimulationIdentity } from "./simulation-identity.js";
 
 export interface SpawnedSimulationRunner {
   readonly child: ChildProcess;
@@ -21,14 +22,9 @@ export async function launchSimulationRunner(params: {
   const tempDir = await mkdtemp(join(tmpdir(), "agenc-concordia-"));
   const configPath = join(tempDir, "simulation-config.json");
 
-  const payload = {
+  const payload = withSimulationIdentity({
     world_id: params.request.world_id,
     workspace_id: params.request.workspace_id,
-    simulation_id: params.request.simulation_id,
-    ...(params.request.lineage_id ? { lineage_id: params.request.lineage_id } : {}),
-    ...(params.request.parent_simulation_id
-      ? { parent_simulation_id: params.request.parent_simulation_id }
-      : {}),
     ...(params.request.user_id ? { user_id: params.request.user_id } : {}),
     premise: params.request.premise,
     agents: params.request.agents,
@@ -42,7 +38,11 @@ export async function launchSimulationRunner(params: {
     engine_type: params.request.engine_type ?? "simultaneous",
     gm_prefab: params.request.gm_prefab ?? "generic",
     bridge_url: `http://127.0.0.1:${params.config.bridge_port ?? 3200}`,
-  };
+  }, {
+    simulationId: params.request.simulation_id ?? null,
+    lineageId: params.request.lineage_id ?? null,
+    parentSimulationId: params.request.parent_simulation_id ?? null,
+  });
 
   await writeFile(configPath, JSON.stringify(payload, null, 2), "utf-8");
 

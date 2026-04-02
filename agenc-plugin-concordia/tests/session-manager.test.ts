@@ -93,9 +93,43 @@ describe("SessionManager", () => {
     expect(firstRun.sessionId).not.toBe(secondRun.sessionId);
   });
 
-  it("get returns undefined for unknown agent", () => {
+  it("findForSimulation returns the matching session", () => {
     const mgr = new SessionManager();
-    expect(mgr.get("nonexistent")).toBeUndefined();
+    const session = mgr.getOrCreate({
+      agentId: "alice",
+      agentName: "Alice",
+      worldId: "w1",
+      workspaceId: "ws1",
+      simulationId: "sim-1",
+    });
+
+    expect(
+      mgr.findForSimulation({
+        agentId: "alice",
+        simulationId: "sim-1",
+        workspaceId: "ws1",
+      }),
+    ).toBe(session);
+  });
+
+  it("findForSimulation returns undefined when the lookup is ambiguous", () => {
+    const mgr = new SessionManager();
+    mgr.getOrCreate({
+      agentId: "alice",
+      agentName: "Alice",
+      worldId: "w1",
+      workspaceId: "ws1",
+      simulationId: "sim-1",
+    });
+    mgr.getOrCreate({
+      agentId: "alice",
+      agentName: "Alice",
+      worldId: "w2",
+      workspaceId: "ws2",
+      simulationId: "sim-2",
+    });
+
+    expect(mgr.findForSimulation({ agentId: "alice" })).toBeUndefined();
   });
 
   it("findBySessionId returns matching session", () => {
