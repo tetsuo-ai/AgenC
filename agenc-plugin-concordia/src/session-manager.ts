@@ -174,12 +174,45 @@ export class SessionManager {
     );
   }
 
+  getAllForSimulation(
+    simulationId: string,
+    workspaceId?: string,
+  ): AgentSession[] {
+    return Array.from(this.sessions.values()).filter(
+      (session) =>
+        session.simulationId === simulationId &&
+        (workspaceId === undefined || session.workspaceId === workspaceId),
+    );
+  }
+
+  clearSimulation(
+    simulationId?: string,
+    workspaceId?: string,
+  ): void {
+    if (simulationId === undefined) {
+      this.sessions.clear();
+      return;
+    }
+    for (const [key, session] of this.sessions.entries()) {
+      if (session.simulationId !== simulationId) {
+        continue;
+      }
+      if (workspaceId !== undefined && session.workspaceId !== workspaceId) {
+        continue;
+      }
+      this.sessions.delete(key);
+    }
+  }
+
   clear(): void {
     this.sessions.clear();
   }
 
-  resetSimulation(): void {
-    this.clear();
+  resetSimulation(
+    simulationId?: string,
+    workspaceId?: string,
+  ): void {
+    this.clearSimulation(simulationId, workspaceId);
   }
 
   get size(): number {

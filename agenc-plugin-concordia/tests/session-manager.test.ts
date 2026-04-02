@@ -194,6 +194,28 @@ describe("SessionManager", () => {
     expect(sessions[0].simulationId).toBe("sim-1");
   });
 
+
+  it("getAllForSimulation returns only sessions for the requested run", () => {
+    const mgr = new SessionManager();
+    mgr.getOrCreate({ agentId: "a", agentName: "A", worldId: "w", workspaceId: "ws", simulationId: "sim-1" });
+    mgr.getOrCreate({ agentId: "b", agentName: "B", worldId: "w", workspaceId: "ws", simulationId: "sim-2" });
+
+    const sessions = mgr.getAllForSimulation("sim-2", "ws");
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].agentId).toBe("b");
+  });
+
+  it("clearSimulation removes only the targeted run", () => {
+    const mgr = new SessionManager();
+    mgr.getOrCreate({ agentId: "a", agentName: "A", worldId: "w", workspaceId: "ws", simulationId: "sim-1" });
+    mgr.getOrCreate({ agentId: "b", agentName: "B", worldId: "w", workspaceId: "ws", simulationId: "sim-2" });
+
+    mgr.clearSimulation("sim-1", "ws");
+
+    expect(mgr.getAllForSimulation("sim-1", "ws")).toHaveLength(0);
+    expect(mgr.getAllForSimulation("sim-2", "ws")).toHaveLength(1);
+  });
+
   it("clear removes all sessions", () => {
     const mgr = new SessionManager();
     mgr.getOrCreate({ agentId: "a", agentName: "A", worldId: "w", workspaceId: "ws", simulationId: "sim-1" });

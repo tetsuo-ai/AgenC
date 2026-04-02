@@ -123,6 +123,48 @@ export interface EventNotification {
   readonly parent_simulation_id?: string | null;
 }
 
+export type SimulationLifecycleStatus =
+  | "launching"
+  | "running"
+  | "paused"
+  | "stopping"
+  | "stopped"
+  | "finished"
+  | "failed"
+  | "archived"
+  | "deleted";
+
+export interface SimulationSummary {
+  readonly simulation_id: string;
+  readonly world_id: string;
+  readonly workspace_id: string;
+  readonly lineage_id: string | null;
+  readonly parent_simulation_id: string | null;
+  readonly status: SimulationLifecycleStatus;
+  readonly reason: string | null;
+  readonly error: string | null;
+  readonly created_at: number;
+  readonly updated_at: number;
+  readonly started_at: number | null;
+  readonly ended_at: number | null;
+  readonly agent_ids: readonly string[];
+  readonly current_alias: boolean;
+  readonly pid: number | null;
+  readonly control_port: number | null;
+  readonly event_port: number | null;
+  readonly last_completed_step: number;
+  readonly last_step_outcome: string | null;
+  readonly replay_event_count: number;
+}
+
+export interface SimulationRecord extends SimulationSummary {
+  readonly agents: readonly AgentSetupConfig[];
+  readonly premise: string;
+  readonly max_steps: number | null;
+  readonly gm_model?: string;
+  readonly gm_provider?: string;
+}
+
 export interface AgentStateResponse {
   readonly simulationId?: string;
   readonly lineageId?: string | null;

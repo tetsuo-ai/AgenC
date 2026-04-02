@@ -201,3 +201,7 @@ Last updated: 2026-03-25
 - Concordia request correlation is only mandatory for actionable turns. `ingest_only` observations and other out-of-band bridge writes should bypass the runtime correlation guard, and adapter-side sends with no pending request should log at debug rather than warn.
 - Concordia session and agent-state lookups must never key on `agentId` alone once concurrent runs exist. Use `simulationId`-aware lookup APIs or the state/read path becomes ambiguous the moment the same agent appears in two runs.
 - Concordia TS/Python bridge payloads should be assembled through the shared simulation-identity helpers, not by hand. Rebuilding `simulation_id` / `lineage_id` / `parent_simulation_id` inline across adapters, runners, checkpoints, and events is how cross-run bugs creep back in.
+
+- Concordia bridge state must stay keyed by `simulationId` all the way through runner handles, pending responses, and session lookup. Keeping even one fallback singleton path in the adapter is enough to make concurrent sims bleed back together.
+- Concordia request-id recovery fallback must stay simulation-scoped. If a send path ever searches pending requests outside the matched simulation handle, one sim can resolve or reject another sim's `/act` promise.
+- Concordia browser refresh recovery should read the bridge registry (`GET /simulations`, `GET /simulations/:id`), not React-local launch state. The bridge is now the source of truth for active/recent sim summaries while it stays alive.

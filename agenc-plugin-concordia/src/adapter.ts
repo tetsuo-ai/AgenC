@@ -40,9 +40,17 @@ import type {
   AgentStateResponse,
   CheckpointRequest,
   ResumeRequest,
+  SimulationRecord,
+  SimulationSummary,
+  SimulationLifecycleStatus,
 } from "./types.js";
 import { SessionManager, type AgentSession } from "./session-manager.js";
-import { createBridgeServer } from "./bridge-http.js";
+import {
+  SimulationRegistry,
+  type NormalizedLaunchRequest,
+  type SimulationHandle,
+} from "./simulation-registry.js";
+import { createBridgeServer, type BridgeServerConfig } from "./bridge-http.js";
 import type { Server } from "node:http";
 import type { MemoryWiringContext } from "./memory-wiring.js";
 import {
@@ -99,6 +107,7 @@ interface PendingResponseRequest {
 }
 
 interface PendingSendTarget {
+  readonly handle: ConcordiaSimulationHandle;
   readonly requestId: string;
   readonly pending: PendingResponseRequest;
   readonly usedSessionFallback: boolean;
@@ -127,9 +136,39 @@ function extractRequestId(
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+interface RunnerStatusSnapshot {
+  readonly step: number;
+  readonly max_steps: number;
+  readonly running: boolean;
+  readonly paused: boolean;
+  readonly world_id?: string;
+  readonly simulation_id?: string;
+  readonly agent_count?: number;
+  readonly last_step_outcome?: string;
+  readonly terminal_reason?: string | null;
+}
+
+const TERMINAL_SIMULATION_STATUSES = new Set<SimulationLifecycleStatus>([
+  "stopped",
+  "finished",
+  "failed",
+  "archived",
+  "deleted",
+]);
+
+function isTerminalSimulationStatus(status: SimulationLifecycleStatus): boolean {
+  return TERMINAL_SIMULATION_STATUSES.has(status);
+}
+
 // ============================================================================
 // Adapter
 // ============================================================================
+
+type ConcordiaSimulationHandle = SimulationHandle<
+  SpawnedSimulationRunner,
+  MemoryWiringContext,
+  PendingResponseRequest
+>;
 
 export class ConcordiaChannelAdapter
   implements ChannelAdapter<ConcordiaChannelConfig>
@@ -139,107 +178,45 @@ export class ConcordiaChannelAdapter
   private context!: ChannelAdapterContext<ConcordiaChannelConfig>;
   private bridgeServer: Server | null = null;
   private sessionManager = new SessionManager();
-  private pendingResponses = new Map<string, PendingResponseRequest>();
+  private registry!: SimulationRegistry<
+    SpawnedSimulationRunner,
+    MemoryWiringContext,
+    PendingResponseRequest
+  >;
   private healthy = false;
-  private simulationRunner: SpawnedSimulationRunner | null = null;
-  private simulationPremise = "";
-  private simulationUserId: string | undefined;
-  private simulationId: string | null = null;
-  private lineageId: string | null = null;
-  private parentSimulationId: string | null = null;
-
-  // Memory wiring state
-  private memoryCtx: MemoryWiringContext | null = null;
-  private simulationStep = 0;
 
   async initialize(
     context: ChannelAdapterContext<ConcordiaChannelConfig>,
   ): Promise<void> {
     this.context = context;
+    this.registry = new SimulationRegistry(context.logger);
   }
 
   async start(): Promise<void> {
     const port = this.context.config.bridge_port ?? 3200;
     const host = "127.0.0.1";
 
-    this.bridgeServer = createBridgeServer({
-      port,
-      host,
-      logger: this.context.logger,
-      sessionManager: this.sessionManager,
-      onAct: (agentId, sessionId, message, requestId) =>
-        this.handleAct(agentId, sessionId, message, requestId),
-      onObserve: (agentId, sessionId, observation) =>
-        this.handleObserve(agentId, sessionId, observation),
-      onSetup: (request) => this.handleSetup(request),
-      onReset: () => this.handleReset(),
-      onCheckpoint: (request) => this.handleCheckpoint(request),
-      onResume: (request) => this.handleResume(request),
-      onLaunch: (request) => this.handleLaunch(request),
-      onGenerateAgents: (request, requestId) =>
-        this.handleGenerateAgents(request, requestId),
-      onEvent: (event) => this.handleEvent(event),
-      getAgentState: (agentId, simulationId) =>
-        this.handleGetAgentState(agentId, simulationId),
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      this.bridgeServer!.on("error", reject);
-      this.bridgeServer!.listen(port, host, () => {
-        this.healthy = true;
-        this.context.logger.info?.(
-          `[concordia] Bridge server listening on ${host}:${port}`,
-        );
-        resolve();
-      });
-    });
+    this.bridgeServer = createBridgeServer(this.buildBridgeServerConfig(port, host));
+    await this.listenBridgeServer(port, host);
   }
 
   async stop(): Promise<void> {
     this.healthy = false;
 
-    // Wire: post-simulation cleanup
-    if (this.memoryCtx) {
-      try {
-        const agentIds = this.sessionManager
-          .getAllForWorld(
-            this.memoryCtx.worldId,
-            this.memoryCtx.workspaceId,
-            this.simulationId ?? undefined,
-          )
-          .map((session) => session.agentId);
-        await postSimulationCleanup(
-          this.memoryCtx,
-          agentIds,
-          this.context.logger,
-        );
-      } catch (err) {
-        this.context.logger.warn?.(
-          "[concordia] postSimulationCleanup failed:", err,
-        );
-      }
-    }
+    await this.cleanupAllSimulations("Concordia bridge stopped", {
+      status: "stopped",
+      removeHandle: false,
+      stopRunner: true,
+      removeSessions: true,
+      runPostCleanup: true,
+      clearMemoryContext: true,
+    });
 
-    await stopSimulationRunner(this.simulationRunner);
-    this.simulationRunner = null;
+    this.registry.clear();
+    this.sessionManager.clear();
 
-    this.clearPendingResponses("Concordia bridge stopped");
+    await this.closeBridgeServer();
 
-    // Close HTTP server
-    if (this.bridgeServer) {
-      await new Promise<void>((resolve) => {
-        this.bridgeServer!.close(() => resolve());
-      });
-      this.bridgeServer = null;
-    }
-
-    this.memoryCtx = null;
-    this.simulationStep = 0;
-    this.simulationPremise = "";
-    this.simulationUserId = undefined;
-    this.simulationId = null;
-    this.lineageId = null;
-    this.parentSimulationId = null;
     this.context.logger.info?.("[concordia] Bridge server stopped");
   }
 
@@ -255,9 +232,10 @@ export class ConcordiaChannelAdapter
       return;
     }
 
-    const { requestId, pending, usedSessionFallback } = target;
+    const { handle, requestId, pending, usedSessionFallback } = target;
     if (pending.sessionId !== message.session_id) {
       this.rejectPendingResponse(
+        handle,
         requestId,
         new Error(
           `[concordia] send() session mismatch for request ${requestId}: expected ${pending.sessionId}, got ${message.session_id}`,
@@ -268,6 +246,7 @@ export class ConcordiaChannelAdapter
     }
 
     this.resolvePendingResponse(
+      handle,
       requestId,
       pending,
       message.content,
@@ -287,28 +266,43 @@ export class ConcordiaChannelAdapter
     request: SetupRequest,
   ): Promise<Record<string, string>> {
     const sessions: Record<string, string> = {};
+    let handle = this.registry.get(request.simulation_id) ?? null;
 
-    this.sessionManager.resetSimulation();
-    this.clearPendingResponses("Concordia simulation reset");
+    if (!handle) {
+      handle = await this.createSimulationHandle(
+        this.buildSetupHandleRequest(request),
+        {
+          status: "launching",
+          reservePorts: false,
+          currentAlias: true,
+        },
+      );
+    } else {
+      handle = this.registry.setLaunchMetadata(handle.simulationId, {
+        worldId: request.world_id,
+        workspaceId: request.workspace_id,
+        lineageId: request.lineage_id ?? handle.lineageId,
+        parentSimulationId:
+          request.parent_simulation_id ?? handle.parentSimulationId,
+        premise: request.premise,
+        userId: request.user_id ?? handle.userId,
+        agents: request.agents,
+      });
+      this.registry.updateLifecycle(handle.simulationId, {
+        reason: null,
+        error: null,
+      });
+      this.registry.setCurrentAlias(handle.simulationId);
+    }
 
-    this.simulationId = request.simulation_id;
-    this.lineageId = request.lineage_id ?? null;
-    this.parentSimulationId = request.parent_simulation_id ?? null;
-
-    // Resolve memory wiring context for this simulation
-    this.memoryCtx = await resolveConcordiaMemoryContext(
-      this.context,
+    const resolvedMemory = await this.resolveHandleMemoryContext(
+      handle,
       request.world_id,
       request.workspace_id,
-      {
-        simulationId: this.simulationId,
-        lineageId: this.lineageId,
-        parentSimulationId: this.parentSimulationId,
-      },
     );
-    this.simulationStep = 0;
-    this.simulationPremise = request.premise;
-    this.simulationUserId = request.user_id ?? this.simulationUserId;
+    handle = resolvedMemory.handle;
+    const { memoryCtx } = resolvedMemory;
+    this.sessionManager.clearSimulation(handle.simulationId, handle.workspaceId);
 
     for (const agent of request.agents) {
       const session = this.sessionManager.getOrCreate({
@@ -316,17 +310,16 @@ export class ConcordiaChannelAdapter
         agentName: agent.agent_name,
         worldId: request.world_id,
         workspaceId: request.workspace_id,
-        simulationId: request.simulation_id,
-        lineageId: request.lineage_id,
-        parentSimulationId: request.parent_simulation_id,
+        simulationId: handle.simulationId,
+        lineageId: handle.lineageId,
+        parentSimulationId: handle.parentSimulationId,
       });
       sessions[agent.agent_id] = session.sessionId;
 
-      // Wire: setup agent identity in memory
-      if (this.memoryCtx) {
+      if (memoryCtx) {
         try {
           await setupAgentIdentity(
-            this.memoryCtx,
+            memoryCtx,
             agent.agent_id,
             agent.agent_name,
             agent.personality,
@@ -345,13 +338,13 @@ export class ConcordiaChannelAdapter
       );
     }
 
-    // Wire: store premise as world fact
-    if (this.memoryCtx && request.premise) {
+    if (memoryCtx && request.premise) {
       try {
-        await storePremise(this.memoryCtx, request.premise);
+        await storePremise(memoryCtx, request.premise);
       } catch (err) {
         this.context.logger.warn?.(
-          "[concordia] Failed to store premise:", err,
+          "[concordia] Failed to store premise:",
+          err,
         );
       }
     }
@@ -360,47 +353,68 @@ export class ConcordiaChannelAdapter
   }
 
   private async handleReset(): Promise<void> {
+    await this.cleanupAllSimulations("Concordia simulation reset", {
+      status: "stopped",
+      removeHandle: true,
+      stopRunner: true,
+      removeSessions: true,
+      runPostCleanup: true,
+      clearMemoryContext: true,
+    });
+    this.registry.clear();
     this.sessionManager.clear();
-    this.clearPendingResponses("Concordia simulation reset");
-    await stopSimulationRunner(this.simulationRunner);
-    this.simulationRunner = null;
-    this.memoryCtx = null;
-    this.simulationStep = 0;
-    this.simulationPremise = "";
-    this.simulationUserId = undefined;
-    this.simulationId = null;
-    this.lineageId = null;
-    this.parentSimulationId = null;
   }
 
   private async handleCheckpoint(
     request: CheckpointRequest,
   ): Promise<Record<string, unknown>> {
-    if (
-      !this.memoryCtx ||
-      this.memoryCtx.worldId !== request.world_id ||
-      this.memoryCtx.workspaceId !== request.workspace_id ||
-      this.simulationId !== request.simulation_id
-    ) {
-      this.simulationId = request.simulation_id;
-      this.lineageId = request.lineage_id ?? this.lineageId ?? null;
-      this.parentSimulationId =
-        request.parent_simulation_id ?? this.parentSimulationId ?? null;
-      this.memoryCtx = await resolveConcordiaMemoryContext(
-        this.context,
-        request.world_id,
-        request.workspace_id,
+    let handle = this.registry.get(request.simulation_id) ?? null;
+    if (!handle) {
+      handle = await this.createSimulationHandle(
         {
-          simulationId: this.simulationId,
-          lineageId: this.lineageId,
-          parentSimulationId: this.parentSimulationId,
+          world_id: request.world_id,
+          workspace_id: request.workspace_id,
+          simulation_id: request.simulation_id,
+          lineage_id: request.lineage_id ?? null,
+          parent_simulation_id: request.parent_simulation_id ?? null,
+          agents: this.sessionManager.getAllForSimulation(
+            request.simulation_id,
+            request.workspace_id,
+          ).map((session) => ({
+            agent_id: session.agentId,
+            agent_name: session.agentName,
+            personality: "",
+          })),
+          premise: "",
+        },
+        {
+          status: "paused",
+          reservePorts: false,
+          currentAlias: false,
         },
       );
+    } else {
+      handle = this.registry.setLaunchMetadata(handle.simulationId, {
+        worldId: request.world_id,
+        workspaceId: request.workspace_id,
+        lineageId: request.lineage_id ?? handle.lineageId,
+        parentSimulationId:
+          request.parent_simulation_id ?? handle.parentSimulationId,
+      });
     }
 
-    if (this.memoryCtx) {
-      await runCheckpointMaintenance(this.memoryCtx);
+    const resolvedMemory = await this.resolveHandleMemoryContext(
+      handle,
+      request.world_id,
+      request.workspace_id,
+    );
+    handle = resolvedMemory.handle;
+    const { memoryCtx } = resolvedMemory;
+
+    if (memoryCtx) {
+      await runCheckpointMaintenance(memoryCtx);
     }
+    handle = await this.refreshSimulationStatus(handle);
 
     const sessions = this.sessionManager
       .getAllForWorld(
@@ -424,7 +438,7 @@ export class ConcordiaChannelAdapter
         agent_id: session.agent_id,
         state: await this.handleGetAgentState(
           session.agent_id,
-          session.simulation_id,
+          request.simulation_id,
         ),
       })),
     );
@@ -433,8 +447,8 @@ export class ConcordiaChannelAdapter
       world_id: request.world_id,
       workspace_id: request.workspace_id,
       simulation_id: request.simulation_id,
-      lineage_id: this.lineageId,
-      parent_simulation_id: this.parentSimulationId,
+      lineage_id: handle.lineageId,
+      parent_simulation_id: handle.parentSimulationId,
       step: request.step,
       sessions,
       agent_states,
@@ -446,7 +460,8 @@ export class ConcordiaChannelAdapter
   ): Promise<Record<string, unknown>> {
     const checkpoint = request.checkpoint;
     const config = asRecord(checkpoint.config);
-    const worldId = asString(checkpoint.world_id) ?? asString(config.world_id) ?? "default";
+    const worldId =
+      asString(checkpoint.world_id) ?? asString(config.world_id) ?? "default";
     const workspaceId =
       asString(checkpoint.workspace_id) ??
       asString(config.workspace_id) ??
@@ -467,63 +482,126 @@ export class ConcordiaChannelAdapter
       asString(checkpoint.parent_simulation_id) ??
       null;
     const premise = asString(config.premise) ?? "";
-    const agents = Array.isArray(config.agents) ? config.agents : [];
+    const rawAgents = Array.isArray(config.agents) ? config.agents : [];
+    const agents = rawAgents.flatMap((rawAgent) => {
+      const agent = asRecord(rawAgent);
+      const agentId = asString(agent.id) ?? asString(agent.agent_id);
+      const agentName = asString(agent.name) ?? asString(agent.agent_name);
+      if (!agentId || !agentName) {
+        return [];
+      }
+      const normalized = {
+        agent_id: agentId,
+        agent_name: agentName,
+        personality: asString(agent.personality) ?? "",
+        ...(asString(agent.goal) ? { goal: asString(agent.goal) } : {}),
+      };
+      return [normalized];
+    });
     const entityStates = asRecord(checkpoint.entity_states);
+    const existing = this.registry.get(resumedSimulationId);
+    if (existing) {
+      await this.cleanupSimulationHandle(
+        existing,
+        "Concordia simulation resume replacement",
+        {
+          status: "stopped",
+          removeHandle: true,
+          stopRunner: true,
+          removeSessions: true,
+          runPostCleanup: false,
+          clearMemoryContext: true,
+        },
+      );
+    }
 
-    await this.handleReset();
-
-    this.simulationId = resumedSimulationId;
-    this.lineageId = resumedLineageId;
-    this.parentSimulationId = resumedParentSimulationId;
-    this.memoryCtx = await resolveConcordiaMemoryContext(
-      this.context,
-      worldId,
-      workspaceId,
+    let handle = await this.createSimulationHandle(
       {
-        simulationId: this.simulationId,
-        lineageId: this.lineageId,
-        parentSimulationId: this.parentSimulationId,
+        world_id: worldId,
+        workspace_id: workspaceId,
+        simulation_id: resumedSimulationId,
+        lineage_id: resumedLineageId,
+        parent_simulation_id: resumedParentSimulationId,
+        user_id:
+          request.user_id ??
+          asString(checkpoint.user_id) ??
+          asString(config.user_id),
+        agents,
+        premise,
+        ...(asNumber(config.max_steps) !== undefined
+          ? { max_steps: asNumber(config.max_steps) }
+          : {}),
+        ...(asString(config.gm_model)
+          ? { gm_model: asString(config.gm_model) }
+          : {}),
+        ...(asString(config.gm_provider)
+          ? { gm_provider: asString(config.gm_provider) }
+          : {}),
+        ...(asString(config.gm_api_key)
+          ? { gm_api_key: asString(config.gm_api_key) }
+          : {}),
+        ...(asString(config.gm_base_url)
+          ? { gm_base_url: asString(config.gm_base_url) }
+          : {}),
+        ...(asString(config.engine_type)
+          ? {
+              engine_type: asString(config.engine_type) as
+                | "sequential"
+                | "simultaneous",
+            }
+          : {}),
+        ...(asString(config.gm_prefab)
+          ? { gm_prefab: asString(config.gm_prefab) }
+          : {}),
+      },
+      {
+        status: "paused",
+        reservePorts: false,
+        currentAlias: true,
       },
     );
-    this.simulationPremise = premise;
-    this.simulationStep = asNumber(checkpoint.step) ?? 0;
-    this.simulationUserId =
-      request.user_id ??
-      asString(checkpoint.user_id) ??
-      asString(config.user_id) ??
-      this.simulationUserId;
+
+    const resolvedMemory = await this.resolveHandleMemoryContext(
+      handle,
+      worldId,
+      workspaceId,
+    );
+    handle = resolvedMemory.handle;
+    const { memoryCtx } = resolvedMemory;
+    const resumedFromStep = asNumber(checkpoint.step) ?? 0;
+    this.registry.updateLifecycle(handle.simulationId, {
+      status: "paused",
+      reason: "resumed_from_checkpoint",
+      error: null,
+      lastCompletedStep: resumedFromStep,
+      endedAt: null,
+    });
+    this.sessionManager.clearSimulation(handle.simulationId, handle.workspaceId);
 
     const sessions: Record<string, string> = {};
-    for (const rawAgent of agents) {
-      const agent = asRecord(rawAgent);
-      const agentId = asString(agent.id);
-      const agentName = asString(agent.name);
-      if (!agentId || !agentName) {
-        continue;
-      }
-
+    for (const agent of agents) {
       const session = this.sessionManager.getOrCreate({
-        agentId,
-        agentName,
+        agentId: agent.agent_id,
+        agentName: agent.agent_name,
         worldId,
         workspaceId,
         simulationId: resumedSimulationId,
         lineageId: resumedLineageId,
         parentSimulationId: resumedParentSimulationId,
       });
-      sessions[agentId] = session.sessionId;
+      sessions[agent.agent_id] = session.sessionId;
 
-      if (this.memoryCtx) {
+      if (memoryCtx) {
         await setupAgentIdentity(
-          this.memoryCtx,
-          agentId,
-          agentName,
-          asString(agent.personality) ?? "",
-          asString(agent.goal) ?? "",
+          memoryCtx,
+          agent.agent_id,
+          agent.agent_name,
+          agent.personality,
+          agent.goal ?? "",
         );
       }
 
-      const entityState = asRecord(entityStates[agentName]);
+      const entityState = asRecord(entityStates[agent.agent_name]);
       const turnCount = asNumber(entityState.turn_count);
       session.turnCount = turnCount ?? session.turnCount;
       const lastLog = asRecord(entityState.last_log);
@@ -537,7 +615,7 @@ export class ConcordiaChannelAdapter
       simulation_id: resumedSimulationId,
       lineage_id: resumedLineageId,
       parent_simulation_id: resumedParentSimulationId,
-      resumed_from_step: this.simulationStep,
+      resumed_from_step: resumedFromStep,
       sessions,
     };
   }
@@ -553,28 +631,30 @@ export class ConcordiaChannelAdapter
       return "Agent not found — cannot act.";
     }
 
+    const handle = this.registry.get(session.simulationId) ?? null;
     const simulationContext = buildSimulationSystemContext({
       worldId: session.worldId,
       agentName: session.agentName,
       turnCount: session.turnCount + 1,
-      premise: this.simulationPremise,
+      premise: handle?.premise ?? "",
     });
     const contextBlocks: string[] = [simulationContext];
-    if (this.memoryCtx) {
+    if (handle?.memoryCtx) {
       try {
         const memoryContext = await buildFullActContext(
-          this.memoryCtx,
+          handle.memoryCtx,
           agentId,
           sessionId,
           message,
-          this.simulationUserId,
+          handle.userId,
         );
         if (memoryContext) {
           contextBlocks.push(memoryContext);
         }
       } catch (err) {
         this.context.logger.warn?.(
-          `[concordia] buildFullActContext failed for ${agentId}:`, err,
+          `[concordia] buildFullActContext failed for ${agentId}:`,
+          err,
         );
       }
     }
@@ -602,7 +682,30 @@ export class ConcordiaChannelAdapter
       },
     };
 
-    const action = await this.dispatchInboundAwaitingResponse({
+    const pendingHandle = handle ?? (await this.createSimulationHandle(
+      {
+        world_id: session.worldId,
+        workspace_id: session.workspaceId,
+        simulation_id: session.simulationId,
+        lineage_id: session.lineageId ?? null,
+        parent_simulation_id: session.parentSimulationId ?? null,
+        agents: [
+          {
+            agent_id: session.agentId,
+            agent_name: session.agentName,
+            personality: "",
+          },
+        ],
+        premise: "",
+      },
+      {
+        status: "running",
+        reservePorts: false,
+        currentAlias: false,
+      },
+    ));
+
+    const action = await this.dispatchInboundAwaitingResponse(pendingHandle, {
       requestId,
       inbound,
       sessionId,
@@ -610,7 +713,7 @@ export class ConcordiaChannelAdapter
       timeoutMs: 120_000,
       timeoutLog: `[concordia] /act timeout for ${session.agentName} after 120000ms`,
       worldId: session.worldId,
-      step: this.simulationStep,
+      step: pendingHandle.lastCompletedStep,
       simulationId: session.simulationId,
       logMessageLength: message.length,
     });
@@ -618,9 +721,14 @@ export class ConcordiaChannelAdapter
     session.lastAction = action;
     session.turnCount += 1;
 
-    if (this.memoryCtx) {
+    if (pendingHandle.memoryCtx) {
       try {
-        await recordAgentAction(this.memoryCtx, agentId, sessionId, action);
+        await recordAgentAction(
+          pendingHandle.memoryCtx,
+          agentId,
+          sessionId,
+          action,
+        );
       } catch (err) {
         this.context.logger.warn?.(
           `[concordia] recordAgentAction failed for ${agentId}:`,
@@ -638,25 +746,24 @@ export class ConcordiaChannelAdapter
     observation: string,
   ): Promise<void> {
     const session = this.sessionManager.findBySessionId(sessionId);
+    const handle = session ? this.registry.get(session.simulationId) ?? null : null;
 
-    // Wire: ingest observation into persistent memory
-    if (this.memoryCtx) {
+    if (handle?.memoryCtx) {
       try {
-        await ingestObservation(this.memoryCtx, agentId, sessionId, observation);
+        await ingestObservation(handle.memoryCtx, agentId, sessionId, observation);
         await recordObservationWorldFact(
-          this.memoryCtx,
+          handle.memoryCtx,
           agentId,
           observation,
         );
       } catch (err) {
         this.context.logger.warn?.(
-          `[concordia] ingestObservation failed for ${agentId}:`, err,
+          `[concordia] ingestObservation failed for ${agentId}:`,
+          err,
         );
       }
     }
 
-    // Send the observation as a system message so it appears in the agent's
-    // context window on the next /act call.
     const inbound: ChannelInboundMessage = {
       id: randomUUID(),
       channel: "concordia",
@@ -678,12 +785,11 @@ export class ConcordiaChannelAdapter
         is_observation: true,
         ...withSimulationIdentity(
           {},
-          session ? this.sessionIdentity(session) : this.currentSimulationIdentity(),
+          session ? this.sessionIdentity(session) : this.handleIdentity(handle),
         ),
       },
     };
 
-    // Fire-and-forget — observations should not block the simulation
     try {
       await this.context.on_message(inbound);
     } catch (err) {
@@ -699,30 +805,41 @@ export class ConcordiaChannelAdapter
       `[concordia] Event: simulation=${event.simulation_id} step=${event.step} type=${event.type} agent=${event.acting_agent ?? "gm"}`,
     );
 
-    if (!this.memoryCtx) {
-      return;
-    }
-    if (!this.isActiveSimulationEvent(event)) {
+    const handle = this.registry.get(event.simulation_id) ?? null;
+    if (!handle) {
       this.context.logger.warn?.(
-        `[concordia] Ignoring event for inactive simulation ${event.simulation_id}; active simulation is ${this.simulationId}`,
+        `[concordia] Ignoring event for unknown simulation ${event.simulation_id}`,
       );
       return;
     }
 
-    await this.maybeRunResolutionPeriodicTasks(event);
-    await this.recordSimulationEventSideEffects(event);
+    this.registry.incrementReplayEventCount(handle.simulationId);
+    this.registry.updateLifecycle(handle.simulationId, {
+      lastStepOutcome:
+        event.type === "resolution"
+          ? event.content.slice(0, 240)
+          : handle.lastStepOutcome,
+    });
+
+    if (!handle.memoryCtx) {
+      return;
+    }
+
+    await this.maybeRunResolutionPeriodicTasks(handle, event);
+    await this.recordSimulationEventSideEffects(handle, event);
   }
 
   private async handleGetAgentState(
     agentId: string,
-    simulationId: string | null = this.simulationId,
+    simulationId: string | null = null,
   ): Promise<AgentStateResponse | null> {
-    const session = this.memoryCtx
+    const handle = this.getHandleForSimulation(simulationId);
+    const session = handle
       ? this.sessionManager.getForWorld({
           agentId,
-          worldId: this.memoryCtx.worldId,
-          workspaceId: this.memoryCtx.workspaceId,
-          simulationId: simulationId ?? undefined,
+          worldId: handle.worldId,
+          workspaceId: handle.workspaceId,
+          simulationId: handle.simulationId,
         })
       : this.sessionManager.findForSimulation({
           agentId,
@@ -730,15 +847,20 @@ export class ConcordiaChannelAdapter
         });
     if (!session) return null;
 
-    if (this.memoryCtx) {
+    const memoryCtx =
+      handle?.memoryCtx ??
+      this.registry.get(session.simulationId)?.memoryCtx ??
+      null;
+
+    if (memoryCtx) {
       try {
-        const state = await loadAgentState(
-          this.memoryCtx,
+        const state = (await loadAgentState(
+          memoryCtx,
           agentId,
           session.sessionId,
           session.turnCount,
           session.lastAction,
-        ) as unknown as AgentStateResponse;
+        )) as unknown as AgentStateResponse;
         return {
           simulationId: session.simulationId,
           lineageId: session.lineageId ?? null,
@@ -796,96 +918,329 @@ export class ConcordiaChannelAdapter
     ].join("\n");
 
     const worldId = request.worldId ?? "generated-world";
-    const identity = this.currentSimulationIdentity();
-    const rawResponse = await this.dispatchInboundAwaitingResponse({
-      requestId,
-      inbound: {
-        id: randomUUID(),
-        channel: "concordia",
-        sender_id: "concordia-agent-generator",
-        sender_name: "Concordia Agent Generator",
-        session_id: sessionId,
-        scope: "dm",
-        content: prompt,
-        timestamp: Date.now(),
-        metadata: {
-          type: "concordia_generate_agents",
-          request_id: requestId,
+    let handle = this.registry.getCurrentHandle() ?? null;
+    let ephemeralHandle: ConcordiaSimulationHandle | null = null;
+
+    if (!handle) {
+      ephemeralHandle = await this.createSimulationHandle(
+        {
           world_id: worldId,
-          ...withSimulationIdentity({}, identity),
+          workspace_id: "concordia-generator",
+          simulation_id: randomUUID(),
+          lineage_id: null,
+          parent_simulation_id: null,
+          agents: [],
+          premise: request.premise,
         },
-      },
-      sessionId,
-      agentId: "concordia-agent-generator",
-      timeoutMs: 60_000,
-      timeoutLog: "[concordia] /generate-agents timed out after 60000ms",
-      worldId,
-      step: this.simulationStep,
-      simulationId: identity.simulationId,
-      logMessageLength: prompt.length,
-    });
-    const agents = this.parseGeneratedAgents(rawResponse);
-    return { agents };
+        {
+          status: "paused",
+          reservePorts: false,
+          currentAlias: false,
+        },
+      );
+      handle = ephemeralHandle;
+    }
+
+    try {
+      const rawResponse = await this.dispatchInboundAwaitingResponse(handle, {
+        requestId,
+        inbound: {
+          id: randomUUID(),
+          channel: "concordia",
+          sender_id: "concordia-agent-generator",
+          sender_name: "Concordia Agent Generator",
+          session_id: sessionId,
+          scope: "dm",
+          content: prompt,
+          timestamp: Date.now(),
+          metadata: {
+            type: "concordia_generate_agents",
+            request_id: requestId,
+            world_id: worldId,
+            ...withSimulationIdentity({}, this.handleIdentity(handle)),
+          },
+        },
+        sessionId,
+        agentId: "concordia-agent-generator",
+        timeoutMs: 60_000,
+        timeoutLog: "[concordia] /generate-agents timed out after 60000ms",
+        worldId,
+        step: handle.lastCompletedStep,
+        simulationId: handle.simulationId,
+        logMessageLength: prompt.length,
+      });
+      const agents = this.parseGeneratedAgents(rawResponse);
+      return { agents };
+    } finally {
+      if (ephemeralHandle) {
+        this.clearPendingResponsesForSimulation(
+          ephemeralHandle,
+          "Concordia agent generation cleanup",
+        );
+        this.registry.deleteHandle(ephemeralHandle.simulationId);
+      }
+    }
   }
 
   private async handleLaunch(
     request: LaunchRequest,
   ): Promise<Record<string, unknown>> {
     const defaults = resolveConcordiaLaunchDefaults(this.context);
-    const simulationId = request.simulation_id ?? randomUUID();
-    const lineageId = request.lineage_id ?? null;
-    const parentSimulationId = request.parent_simulation_id ?? null;
-    const launchRequest: LaunchRequest = {
+    const launchRequest = this.normalizeLaunchRequest({
       ...request,
-      simulation_id: simulationId,
-      lineage_id: lineageId,
-      parent_simulation_id: parentSimulationId,
       gm_provider: request.gm_provider ?? defaults.gm_provider,
       gm_model: request.gm_model ?? defaults.gm_model,
       gm_api_key: request.gm_api_key ?? defaults.gm_api_key,
       gm_base_url: request.gm_base_url ?? defaults.gm_base_url,
-    };
-    this.simulationUserId = launchRequest.user_id ?? this.simulationUserId;
-    this.simulationId = simulationId;
-    this.lineageId = lineageId;
-    this.parentSimulationId = parentSimulationId;
-
-    await stopSimulationRunner(this.simulationRunner);
-    this.simulationRunner = null;
-
-    this.simulationRunner = await launchSimulationRunner({
-      request: launchRequest,
-      config: this.context.config,
-      logger: this.context.logger,
     });
 
-    const launchedRunner = this.simulationRunner;
-    launchedRunner.child.once("exit", (code, signal) => {
-      const exitMessage = `[concordia] runner exited code=${String(code)} signal=${String(signal)}`;
-      this.context.logger.info?.(exitMessage);
-      if (this.simulationRunner === launchedRunner) {
-        this.simulationRunner = null;
-        this.clearPendingResponses(exitMessage);
-      }
-    });
+    let handle = this.registry.get(launchRequest.simulation_id) ?? null;
+    if (handle?.runner) {
+      await this.cleanupSimulationHandle(
+        handle,
+        "Concordia simulation launch replacement",
+        {
+          status: "stopped",
+          removeHandle: false,
+          stopRunner: true,
+          removeSessions: true,
+          runPostCleanup: true,
+          clearMemoryContext: true,
+        },
+      );
+      handle = this.registry.get(launchRequest.simulation_id) ?? null;
+    }
+
+    if (!handle) {
+      handle = await this.createSimulationHandle(launchRequest, {
+        status: "launching",
+        currentAlias: true,
+      });
+    } else {
+      const reserved = await this.registry.reservePorts({
+        controlPort:
+          launchRequest.control_port ?? handle.controlPort ?? undefined,
+        eventPort: launchRequest.event_port ?? handle.eventPort ?? undefined,
+      });
+      handle = this.registry.setLaunchMetadata(handle.simulationId, {
+        worldId: launchRequest.world_id,
+        workspaceId: launchRequest.workspace_id,
+        lineageId: launchRequest.lineage_id,
+        parentSimulationId: launchRequest.parent_simulation_id,
+        premise: launchRequest.premise,
+        userId: launchRequest.user_id,
+        agents: launchRequest.agents,
+        maxSteps: launchRequest.max_steps ?? null,
+        gmModel: launchRequest.gm_model,
+        gmProvider: launchRequest.gm_provider,
+      });
+      handle.launchRequest = {
+        ...handle.launchRequest,
+        ...launchRequest,
+        control_port: reserved.controlPort,
+        event_port: reserved.eventPort,
+      };
+      handle = this.registry.updateLifecycle(handle.simulationId, {
+        status: "launching",
+        reason: null,
+        error: null,
+        startedAt: null,
+        endedAt: null,
+        pid: null,
+        controlPort: reserved.controlPort,
+        eventPort: reserved.eventPort,
+      });
+      this.registry.setCurrentAlias(handle.simulationId);
+    }
+
+    try {
+      const runner = await launchSimulationRunner({
+        request: handle.launchRequest,
+        config: this.context.config,
+        logger: this.context.logger,
+      });
+      handle = this.registry.attachRunner(
+        handle.simulationId,
+        runner,
+        runner.child.pid ?? null,
+      );
+
+      const launchedRunner = runner;
+      const launchedSimulationId = handle.simulationId;
+      runner.child.once("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+        const exitMessage = `[concordia] runner exited code=${String(code)} signal=${String(signal)}`;
+        this.context.logger.info?.(exitMessage);
+        const currentHandle = this.registry.get(launchedSimulationId) ?? null;
+        if (!currentHandle || currentHandle.runner !== launchedRunner) {
+          return;
+        }
+        const status: SimulationLifecycleStatus =
+          signal === "SIGTERM"
+            ? "stopped"
+            : code === 0
+              ? "finished"
+              : "failed";
+        void this.cleanupSimulationHandle(currentHandle, exitMessage, {
+          status,
+          removeHandle: false,
+          stopRunner: false,
+          removeSessions: false,
+          runPostCleanup: true,
+          clearMemoryContext: false,
+          error: status === "failed" ? exitMessage : null,
+        });
+      });
+    } catch (error) {
+      this.registry.detachRunner(handle.simulationId);
+      this.registry.updateLifecycle(handle.simulationId, {
+        status: "failed",
+        reason: "launch_failed",
+        error: error instanceof Error ? error.message : String(error),
+        endedAt: Date.now(),
+      });
+      throw error;
+    }
 
     return {
-      world_id: launchRequest.world_id,
-      workspace_id: launchRequest.workspace_id,
-      simulation_id: simulationId,
-      lineage_id: lineageId,
-      parent_simulation_id: parentSimulationId,
-      pid: this.simulationRunner.child.pid ?? null,
-      control_port: launchRequest.control_port ?? 3202,
-      event_port: launchRequest.event_port ?? 3201,
+      world_id: handle.worldId,
+      workspace_id: handle.workspaceId,
+      simulation_id: handle.simulationId,
+      lineage_id: handle.lineageId,
+      parent_simulation_id: handle.parentSimulationId,
+      pid: handle.pid,
+      control_port: handle.controlPort,
+      event_port: handle.eventPort,
+    };
+  }
+
+  private async closeBridgeServer(): Promise<void> {
+    if (!this.bridgeServer) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      this.bridgeServer!.close(() => resolve());
+    });
+    this.bridgeServer = null;
+  }
+
+  private buildSetupHandleRequest(
+    request: SetupRequest,
+  ): NormalizedLaunchRequest {
+    return {
+      world_id: request.world_id,
+      workspace_id: request.workspace_id,
+      simulation_id: request.simulation_id,
+      lineage_id: request.lineage_id ?? null,
+      parent_simulation_id: request.parent_simulation_id ?? null,
+      user_id: request.user_id,
+      agents: request.agents,
+      premise: request.premise,
+    };
+  }
+
+  private buildBridgeServerConfig(
+    port: number,
+    host: string,
+  ): BridgeServerConfig {
+    return {
+      port,
+      host,
+      logger: this.context.logger,
+      sessionManager: this.sessionManager,
+      onAct: (agentId, sessionId, message, requestId) =>
+        this.handleAct(agentId, sessionId, message, requestId),
+      onObserve: (agentId, sessionId, observation) =>
+        this.handleObserve(agentId, sessionId, observation),
+      onSetup: (request) => this.handleSetup(request),
+      onReset: () => this.handleReset(),
+      onCheckpoint: (request) => this.handleCheckpoint(request),
+      onResume: (request) => this.handleResume(request),
+      onLaunch: (request) => this.handleLaunch(request),
+      onGenerateAgents: (request, requestId) =>
+        this.handleGenerateAgents(request, requestId),
+      onEvent: (event) => this.handleEvent(event),
+      getAgentState: (agentId, simulationId) =>
+        this.handleGetAgentState(agentId, simulationId),
+      listSimulations: () => this.handleListSimulations(),
+      getSimulation: (simulationId) => this.handleGetSimulation(simulationId),
+    };
+  }
+
+  private async listenBridgeServer(port: number, host: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      this.bridgeServer!.on("error", reject);
+      this.bridgeServer!.listen(port, host, () => {
+        this.healthy = true;
+        this.context.logger.info?.(
+          `[concordia] Bridge server listening on ${host}:${port}`,
+        );
+        resolve();
+      });
+    });
+  }
+
+  private async cleanupAllSimulations(
+    reason: string,
+    options: {
+      readonly status?: SimulationLifecycleStatus;
+      readonly removeHandle?: boolean;
+      readonly stopRunner?: boolean;
+      readonly removeSessions?: boolean;
+      readonly runPostCleanup?: boolean;
+      readonly clearMemoryContext?: boolean;
+      readonly error?: string | null;
+    },
+  ): Promise<void> {
+    for (const handle of this.registry.listHandles()) {
+      await this.cleanupSimulationHandle(handle, reason, options);
+    }
+  }
+
+  private async resolveHandleMemoryContext(
+    handle: ConcordiaSimulationHandle,
+    worldId: string,
+    workspaceId: string,
+  ): Promise<{
+    handle: ConcordiaSimulationHandle;
+    memoryCtx: MemoryWiringContext | null;
+  }> {
+    const existingMemory = handle.memoryCtx;
+    if (
+      existingMemory &&
+      existingMemory.worldId === worldId &&
+      existingMemory.workspaceId === workspaceId &&
+      existingMemory.simulationId === handle.simulationId
+    ) {
+      return { handle, memoryCtx: existingMemory };
+    }
+
+    const memoryCtx = await resolveConcordiaMemoryContext(
+      this.context,
+      worldId,
+      workspaceId,
+      {
+        simulationId: handle.simulationId,
+        lineageId: handle.lineageId,
+        parentSimulationId: handle.parentSimulationId,
+      },
+    );
+    return {
+      handle: this.registry.attachMemoryContext(handle.simulationId, memoryCtx),
+      memoryCtx,
     };
   }
 
   private currentSimulationIdentity(): SimulationIdentity {
+    return this.handleIdentity(this.registry.getCurrentHandle() ?? null);
+  }
+
+  private handleIdentity(
+    handle: Pick<ConcordiaSimulationHandle, "simulationId" | "lineageId" | "parentSimulationId"> | null | undefined,
+  ): SimulationIdentity {
     return createSimulationIdentity({
-      simulationId: this.simulationId,
-      lineageId: this.lineageId,
-      parentSimulationId: this.parentSimulationId,
+      simulationId: handle?.simulationId ?? null,
+      lineageId: handle?.lineageId ?? null,
+      parentSimulationId: handle?.parentSimulationId ?? null,
     });
   }
 
@@ -899,12 +1254,176 @@ export class ConcordiaChannelAdapter
     });
   }
 
+  private getHandleForSimulation(
+    simulationId: string | null | undefined,
+  ): ConcordiaSimulationHandle | null {
+    if (simulationId) {
+      return this.registry.get(simulationId) ?? null;
+    }
+    return this.registry.getCurrentHandle() ?? null;
+  }
+
+  private getHandleForSession(sessionId: string): {
+    handle: ConcordiaSimulationHandle;
+    session: AgentSession;
+  } | null {
+    const session = this.sessionManager.findBySessionId(sessionId);
+    if (!session) {
+      return null;
+    }
+    const handle = this.registry.get(session.simulationId);
+    if (!handle) {
+      return null;
+    }
+    return { handle, session };
+  }
+
+  private normalizeLaunchRequest(request: LaunchRequest): NormalizedLaunchRequest {
+    return {
+      ...request,
+      simulation_id: request.simulation_id ?? randomUUID(),
+      lineage_id: request.lineage_id ?? null,
+      parent_simulation_id: request.parent_simulation_id ?? null,
+    };
+  }
+
+  private async createSimulationHandle(
+    request: NormalizedLaunchRequest,
+    options: {
+      readonly status?: SimulationLifecycleStatus;
+      readonly reservePorts?: boolean;
+      readonly currentAlias?: boolean;
+    } = {},
+  ): Promise<ConcordiaSimulationHandle> {
+    const reserved = options.reservePorts === false
+      ? {
+          controlPort: request.control_port ?? null,
+          eventPort: request.event_port ?? null,
+        }
+      : await this.registry.reservePorts({
+          controlPort: request.control_port ?? null,
+          eventPort: request.event_port ?? null,
+        });
+    return this.registry.createHandle({
+      request: {
+        ...request,
+        control_port: reserved.controlPort ?? request.control_port,
+        event_port: reserved.eventPort ?? request.event_port,
+      },
+      status: options.status,
+      controlPort: reserved.controlPort ?? request.control_port ?? null,
+      eventPort: reserved.eventPort ?? request.event_port ?? null,
+      currentAlias: options.currentAlias,
+    });
+  }
+
+  private async refreshSimulationStatus(
+    handle: ConcordiaSimulationHandle,
+  ): Promise<ConcordiaSimulationHandle> {
+    if (!handle.controlPort || isTerminalSimulationStatus(handle.status)) {
+      return handle;
+    }
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${handle.controlPort}/simulation/status`,
+      );
+      if (!response.ok) {
+        return handle;
+      }
+      const status = await response.json() as RunnerStatusSnapshot;
+      const mapped = this.mapRunnerStatus(status, handle.status);
+      return this.registry.updateLifecycle(handle.simulationId, mapped);
+    } catch (error) {
+      this.context.logger.debug?.(
+        `[concordia] Failed to refresh simulation status for ${handle.simulationId}: ${String(error)}`,
+      );
+      return handle;
+    }
+  }
+
+  private mapRunnerStatus(
+    status: RunnerStatusSnapshot,
+    previousStatus: SimulationLifecycleStatus,
+  ): {
+    status: SimulationLifecycleStatus;
+    reason: string | null;
+    error: string | null;
+    lastCompletedStep: number;
+    lastStepOutcome: string | null;
+    endedAt?: number | null;
+  } {
+    const terminalReason = typeof status.terminal_reason === "string"
+      ? status.terminal_reason
+      : null;
+    let lifecycleStatus: SimulationLifecycleStatus = previousStatus;
+    let error: string | null = null;
+
+    if (status.running && status.paused) {
+      lifecycleStatus = "paused";
+    } else if (status.running) {
+      lifecycleStatus = "running";
+    } else if (terminalReason === "completed") {
+      lifecycleStatus = "finished";
+    } else if (terminalReason === "stopped" || terminalReason === "stopped_by_user") {
+      lifecycleStatus = "stopped";
+    } else if (terminalReason && terminalReason.startsWith("error:")) {
+      lifecycleStatus = "failed";
+      error = terminalReason;
+    } else if (!status.running && !status.paused && previousStatus === "launching") {
+      lifecycleStatus = "launching";
+    }
+
+    return {
+      status: lifecycleStatus,
+      reason: terminalReason,
+      error,
+      lastCompletedStep: status.step,
+      lastStepOutcome: status.last_step_outcome ?? null,
+      ...(isTerminalSimulationStatus(lifecycleStatus)
+        ? { endedAt: Date.now() }
+        : {}),
+    };
+  }
+
+  private async handleListSimulations(): Promise<SimulationSummary[]> {
+    const handles = this.registry.listHandles();
+    for (const handle of handles) {
+      await this.refreshSimulationStatus(handle);
+    }
+    return this.registry.listSummaries();
+  }
+
+  private async handleGetSimulation(
+    simulationId: string,
+  ): Promise<SimulationRecord | null> {
+    const handle = this.registry.get(simulationId);
+    if (!handle) {
+      return null;
+    }
+    await this.refreshSimulationStatus(handle);
+    return this.registry.getRecord(simulationId);
+  }
+
   private resolvePendingSendTarget(
     message: ChannelOutboundMessage,
   ): PendingSendTarget | null {
     const metadataRequestId = extractRequestId(message.metadata);
     if (!metadataRequestId) {
-      const matches = this.findPendingResponsesBySession(message.session_id);
+      const sessionMatch = this.getHandleForSession(message.session_id);
+      if (!sessionMatch) {
+        this.context.logger.debug?.(
+          `[concordia] send() ignored outbound message without request_id ${JSON.stringify({
+            session_id: message.session_id,
+          })}`,
+        );
+        return null;
+      }
+      const matches = this.registry.findPendingBySession(
+        sessionMatch.handle.simulationId,
+        message.session_id,
+        (pending) => pending.sessionId,
+      );
       if (matches.length === 1) {
         const [requestId, pending] = matches[0];
         this.logPendingResponse(
@@ -914,7 +1433,12 @@ export class ConcordiaChannelAdapter
           {},
           "warn",
         );
-        return { requestId, pending, usedSessionFallback: true };
+        return {
+          handle: sessionMatch.handle,
+          requestId,
+          pending,
+          usedSessionFallback: true,
+        };
       }
       if (matches.length === 0) {
         this.context.logger.debug?.(
@@ -928,13 +1452,14 @@ export class ConcordiaChannelAdapter
         `[concordia] send() missing request_id ${JSON.stringify({
           session_id: message.session_id,
           pending_matches: matches.length,
+          simulation_id: sessionMatch.handle.simulationId,
         })}`,
       );
       return null;
     }
 
-    const pending = this.pendingResponses.get(metadataRequestId);
-    if (!pending) {
+    const target = this.registry.getPendingByRequestId(metadataRequestId);
+    if (!target) {
       this.context.logger.warn?.(
         `[concordia] send() for unknown request_id ${JSON.stringify({
           request_id: metadataRequestId,
@@ -945,25 +1470,30 @@ export class ConcordiaChannelAdapter
     }
 
     return {
+      handle: target.handle,
       requestId: metadataRequestId,
-      pending,
+      pending: target.pending,
       usedSessionFallback: false,
     };
   }
 
-  private async dispatchInboundAwaitingResponse({
-    requestId,
-    inbound,
-    sessionId,
-    agentId,
-    timeoutMs,
-    timeoutLog,
-    worldId,
-    step,
-    simulationId = null,
-    logMessageLength,
-  }: PendingDispatchRequest): Promise<string> {
+  private async dispatchInboundAwaitingResponse(
+    handle: ConcordiaSimulationHandle,
+    {
+      requestId,
+      inbound,
+      sessionId,
+      agentId,
+      timeoutMs,
+      timeoutLog,
+      worldId,
+      step,
+      simulationId = null,
+      logMessageLength,
+    }: PendingDispatchRequest,
+  ): Promise<string> {
     const responsePromise = this.createPendingResponse(
+      handle,
       requestId,
       sessionId,
       agentId,
@@ -977,7 +1507,7 @@ export class ConcordiaChannelAdapter
     this.logPendingResponse(
       "dispatch",
       requestId,
-      this.pendingResponses.get(requestId),
+      this.registry.getPendingByRequestId(requestId)?.pending,
       logMessageLength === undefined ? {} : { message_length: logMessageLength },
       "debug",
     );
@@ -986,6 +1516,7 @@ export class ConcordiaChannelAdapter
       await this.context.on_message(inbound);
     } catch (err) {
       this.rejectPendingResponse(
+        handle,
         requestId,
         err instanceof Error ? err : new Error(String(err)),
         "dispatch_failed",
@@ -997,37 +1528,43 @@ export class ConcordiaChannelAdapter
     return responsePromise;
   }
 
-  private isActiveSimulationEvent(event: EventNotification): boolean {
-    return !!this.memoryCtx && (
-      this.memoryCtx.worldId === event.world_id &&
-      this.memoryCtx.workspaceId === event.workspace_id &&
-      this.simulationId === event.simulation_id
+  private isEventForHandle(
+    handle: ConcordiaSimulationHandle,
+    event: EventNotification,
+  ): boolean {
+    return (
+      handle.worldId === event.world_id &&
+      handle.workspaceId === event.workspace_id &&
+      handle.simulationId === event.simulation_id
     );
   }
 
   private async maybeRunResolutionPeriodicTasks(
+    handle: ConcordiaSimulationHandle,
     event: EventNotification,
   ): Promise<void> {
     if (
-      !this.memoryCtx ||
+      !handle.memoryCtx ||
       event.type !== "resolution" ||
-      event.step <= this.simulationStep
+      event.step <= handle.lastCompletedStep
     ) {
       return;
     }
 
-    this.simulationStep = event.step;
+    this.registry.updateLifecycle(handle.simulationId, {
+      lastCompletedStep: event.step,
+    });
     try {
       const agentIds = this.sessionManager
         .getAllForWorld(
           event.world_id,
-          this.memoryCtx.workspaceId,
+          handle.workspaceId,
           event.simulation_id,
         )
         .map((session) => session.agentId);
       await runPeriodicTasks(
-        this.memoryCtx,
-        this.simulationStep,
+        handle.memoryCtx,
+        event.step,
         agentIds,
         {
           reflectionInterval: this.context.config.reflection_interval,
@@ -1036,38 +1573,43 @@ export class ConcordiaChannelAdapter
         this.context.logger,
       );
       const promotedFacts = await promoteCollectiveEmergenceFacts(
-        this.memoryCtx,
-        this.simulationStep,
+        handle.memoryCtx,
+        event.step,
       );
       if (promotedFacts.length > 0) {
         this.context.logger.info?.(
-          `[concordia] Promoted ${promotedFacts.length} collectively confirmed world facts at step ${this.simulationStep}`,
+          `[concordia] Promoted ${promotedFacts.length} collectively confirmed world facts at step ${event.step}`,
         );
       }
     } catch (err) {
       this.context.logger.warn?.(
-        `[concordia] runPeriodicTasks failed at step ${this.simulationStep}:`,
+        `[concordia] runPeriodicTasks failed at step ${event.step}:`,
         err,
       );
     }
   }
 
   private async recordSimulationEventSideEffects(
+    handle: ConcordiaSimulationHandle,
     event: EventNotification,
   ): Promise<void> {
-    if (!this.memoryCtx) {
+    if (!handle.memoryCtx) {
       return;
     }
 
     try {
-      await recordSocialEvent(this.memoryCtx, event, this.knownAgentsForEvent(event));
+      await recordSocialEvent(
+        handle.memoryCtx,
+        event,
+        this.knownAgentsForEvent(handle, event),
+      );
     } catch (err) {
       this.context.logger.warn?.("[concordia] recordSocialEvent failed:", err);
     }
 
     try {
       await updateTemporalEdges(
-        this.memoryCtx,
+        handle.memoryCtx,
         event.acting_agent,
         event.content,
       );
@@ -1079,9 +1621,9 @@ export class ConcordiaChannelAdapter
     }
 
     try {
-      const agentSession = this.resolveAgentSessionForEvent(event);
+      const agentSession = this.resolveAgentSessionForEvent(handle, event);
       if (agentSession) {
-        await logSimulationEvent(this.memoryCtx, agentSession.sessionId, {
+        await logSimulationEvent(handle.memoryCtx, agentSession.sessionId, {
           step: event.step,
           actingAgent: event.acting_agent,
           content: event.content,
@@ -1096,14 +1638,14 @@ export class ConcordiaChannelAdapter
     }
   }
 
-  private knownAgentsForEvent(event: EventNotification): KnownAgentReference[] {
-    if (!this.memoryCtx) {
-      return [];
-    }
+  private knownAgentsForEvent(
+    handle: ConcordiaSimulationHandle,
+    event: EventNotification,
+  ): KnownAgentReference[] {
     return this.sessionManager
       .getAllForWorld(
         event.world_id,
-        this.memoryCtx.workspaceId,
+        handle.workspaceId,
         event.simulation_id,
       )
       .map((session) => ({
@@ -1113,26 +1655,25 @@ export class ConcordiaChannelAdapter
   }
 
   private resolveAgentSessionForEvent(
+    handle: ConcordiaSimulationHandle,
     event: EventNotification,
   ): AgentSession | undefined {
-    if (!this.memoryCtx) {
-      return undefined;
-    }
     return event.acting_agent
       ? this.sessionManager.getForWorld({
           agentId: event.acting_agent,
           worldId: event.world_id,
-          workspaceId: this.memoryCtx.workspaceId,
+          workspaceId: handle.workspaceId,
           simulationId: event.simulation_id,
         })
       : this.sessionManager.getAllForWorld(
           event.world_id,
-          this.memoryCtx.workspaceId,
+          handle.workspaceId,
           event.simulation_id,
         )[0];
   }
 
   private createPendingResponse(
+    handle: ConcordiaSimulationHandle,
     requestId: string,
     sessionId: string,
     agentId: string | undefined,
@@ -1145,6 +1686,7 @@ export class ConcordiaChannelAdapter
     return new Promise<string>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.rejectPendingResponse(
+          handle,
           requestId,
           new Error(timeoutLog),
           "timeout",
@@ -1162,7 +1704,7 @@ export class ConcordiaChannelAdapter
         reject,
         timeout,
       };
-      this.pendingResponses.set(requestId, pending);
+      this.registry.registerPendingResponse(handle.simulationId, requestId, pending);
       this.logPendingResponse(
         "created",
         requestId,
@@ -1173,22 +1715,15 @@ export class ConcordiaChannelAdapter
     });
   }
 
-  private findPendingResponsesBySession(
-    sessionId: string,
-  ): Array<[string, PendingResponseRequest]> {
-    return Array.from(this.pendingResponses.entries()).filter(([, pending]) => (
-      pending.sessionId === sessionId
-    ));
-  }
-
   private resolvePendingResponse(
+    handle: ConcordiaSimulationHandle,
     requestId: string,
     pending: PendingResponseRequest,
     content: string,
     event: string,
   ): void {
     clearTimeout(pending.timeout);
-    this.pendingResponses.delete(requestId);
+    this.registry.deletePendingResponse(handle.simulationId, requestId);
     this.logPendingResponse(
       event,
       requestId,
@@ -1200,30 +1735,34 @@ export class ConcordiaChannelAdapter
   }
 
   private rejectPendingResponse(
+    handle: ConcordiaSimulationHandle,
     requestId: string,
     error: Error,
     event: string,
   ): void {
-    const pending = this.pendingResponses.get(requestId);
-    if (!pending) {
+    const target = this.registry.getPendingByRequestId(requestId);
+    if (!target) {
       return;
     }
-    clearTimeout(pending.timeout);
-    this.pendingResponses.delete(requestId);
+    clearTimeout(target.pending.timeout);
+    this.registry.deletePendingResponse(handle.simulationId, requestId);
     this.logPendingResponse(
       event,
       requestId,
-      pending,
+      target.pending,
       { error: error.message },
       "warn",
     );
-    pending.reject(error);
+    target.pending.reject(error);
   }
 
-  private clearPendingResponses(reason: string): void {
-    for (const [requestId, pending] of Array.from(this.pendingResponses.entries())) {
+  private clearPendingResponsesForSimulation(
+    handle: ConcordiaSimulationHandle,
+    reason: string,
+  ): void {
+    this.registry.clearPending(handle.simulationId, (requestId, pending) => {
       clearTimeout(pending.timeout);
-      this.pendingResponses.delete(requestId);
+      this.registry.deletePendingResponse(handle.simulationId, requestId);
       this.logPendingResponse(
         "cleared",
         requestId,
@@ -1232,7 +1771,7 @@ export class ConcordiaChannelAdapter
         "warn",
       );
       pending.reject(new Error(reason));
-    }
+    });
   }
 
   private logPendingResponse(
@@ -1262,6 +1801,66 @@ export class ConcordiaChannelAdapter
       return;
     }
     logger.debug?.(message);
+  }
+
+  private async cleanupSimulationHandle(
+    handle: ConcordiaSimulationHandle,
+    reason: string,
+    options: {
+      readonly status?: SimulationLifecycleStatus;
+      readonly removeHandle?: boolean;
+      readonly stopRunner?: boolean;
+      readonly removeSessions?: boolean;
+      readonly runPostCleanup?: boolean;
+      readonly clearMemoryContext?: boolean;
+      readonly error?: string | null;
+    } = {},
+  ): Promise<void> {
+    if (options.runPostCleanup !== false && handle.memoryCtx) {
+      try {
+        const agentIds = this.sessionManager
+          .getAllForSimulation(handle.simulationId, handle.workspaceId)
+          .map((session) => session.agentId);
+        await postSimulationCleanup(
+          handle.memoryCtx,
+          agentIds,
+          this.context.logger,
+        );
+      } catch (err) {
+        this.context.logger.warn?.(
+          `[concordia] postSimulationCleanup failed for ${handle.simulationId}:`,
+          err,
+        );
+      }
+    }
+
+    this.clearPendingResponsesForSimulation(handle, reason);
+
+    let runnerToStop: SpawnedSimulationRunner | null = null;
+    if (handle.runner) {
+      runnerToStop = options.stopRunner === false ? null : handle.runner;
+      this.registry.detachRunner(handle.simulationId);
+    }
+    if (options.clearMemoryContext) {
+      this.registry.attachMemoryContext(handle.simulationId, null);
+    }
+    if (runnerToStop) {
+      await stopSimulationRunner(runnerToStop);
+    }
+    this.registry.updateLifecycle(handle.simulationId, {
+      status: options.status ?? "stopped",
+      reason,
+      error: options.error ?? null,
+      endedAt: Date.now(),
+    });
+
+    if (options.removeSessions !== false) {
+      this.sessionManager.clearSimulation(handle.simulationId, handle.workspaceId);
+    }
+
+    if (options.removeHandle) {
+      this.registry.deleteHandle(handle.simulationId);
+    }
   }
 
   private parseGeneratedAgents(rawResponse: string): GeneratedAgent[] {

@@ -24,6 +24,8 @@ import type {
   EventNotification,
   AgentStateResponse,
   BridgeMetrics,
+  SimulationRecord,
+  SimulationSummary,
 } from "./types.js";
 import { createEmptyMetrics } from "./types.js";
 import { buildActPrompt } from "./prompt-builder.js";
@@ -58,6 +60,8 @@ export interface BridgeServerConfig {
   ) => Promise<{ agents: readonly { id: string; name: string; personality: string; goal: string }[] }>;
   readonly onEvent: (event: EventNotification) => Promise<void>;
   readonly getAgentState?: (agentId: string, simulationId?: string | null) => Promise<AgentStateResponse | null>;
+  readonly listSimulations?: () => Promise<readonly SimulationSummary[]>;
+  readonly getSimulation?: (simulationId: string) => Promise<SimulationRecord | null>;
 }
 
 // ============================================================================
@@ -103,9 +107,18 @@ async function handleGet(
   const path = url.pathname;
 
   if (path === "/health") {
+    const simulations = config.listSimulations
+      ? await config.listSimulations()
+      : [];
     sendJson(res, 200, {
       status: "ok",
       active_sessions: config.sessionManager.size,
+      active_simulations: simulations.filter((simulation) => (
+        simulation.status === "launching" ||
+        simulation.status === "running" ||
+        simulation.status === "paused" ||
+        simulation.status === "stopping"
+      )).length,
       uptime_ms: Date.now() - metrics.startedAt,
     });
     return;
@@ -129,6 +142,24 @@ async function handleGet(
       active_sessions: config.sessionManager.size,
       uptime_ms: Date.now() - metrics.startedAt,
     });
+    return;
+  }
+
+  if (path === "/simulations" && config.listSimulations) {
+    const simulations = await config.listSimulations();
+    sendJson(res, 200, { simulations });
+    return;
+  }
+
+  const simulationMatch = path.match(/^\/simulations\/([^/]+)$/);
+  if (simulationMatch && config.getSimulation) {
+    const simulationId = decodeURIComponent(simulationMatch[1]);
+    const simulation = await config.getSimulation(simulationId);
+    if (!simulation) {
+      sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
+    } else {
+      sendJson(res, 200, simulation);
+    }
     return;
   }
 

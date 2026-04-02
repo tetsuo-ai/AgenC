@@ -17,6 +17,67 @@ const resumeCalls: unknown[] = [];
 const agentStateCalls: Array<{ agentId: string; simulationId: string | null | undefined }> = [];
 const actRequestIds: string[] = [];
 const generateRequestIds: string[] = [];
+const simulationSummaries = [
+  {
+    simulation_id: "sim-running",
+    world_id: "world-alpha",
+    workspace_id: "ws-alpha",
+    lineage_id: null,
+    parent_simulation_id: null,
+    status: "running",
+    reason: null,
+    error: null,
+    created_at: 1,
+    updated_at: 2,
+    started_at: 2,
+    ended_at: null,
+    agent_ids: ["alice"],
+    current_alias: true,
+    pid: 1111,
+    control_port: 3202,
+    event_port: 3201,
+    last_completed_step: 3,
+    last_step_outcome: "resolved",
+    replay_event_count: 7,
+  },
+  {
+    simulation_id: "sim-paused",
+    world_id: "world-beta",
+    workspace_id: "ws-beta",
+    lineage_id: "lineage-beta",
+    parent_simulation_id: "sim-older",
+    status: "paused",
+    reason: null,
+    error: null,
+    created_at: 3,
+    updated_at: 4,
+    started_at: 4,
+    ended_at: null,
+    agent_ids: ["bob"],
+    current_alias: false,
+    pid: 2222,
+    control_port: 3302,
+    event_port: 3301,
+    last_completed_step: 5,
+    last_step_outcome: "paused",
+    replay_event_count: 9,
+  },
+] as const;
+const simulationRecords = new Map([
+  [
+    "sim-running",
+    {
+      ...simulationSummaries[0],
+      agents: [
+        { agent_id: "alice", agent_name: "Alice", personality: "Helpful", goal: "Win" },
+      ],
+      premise: "Active premise",
+      max_steps: 12,
+      gm_model: "grok-4",
+      gm_provider: "grok",
+    },
+  ],
+]);
 
 beforeAll(async () => {
   sessionManager = new SessionManager();
@@ -95,6 +156,8 @@ beforeAll(async () => {
     onEvent: async (event) => {
       eventCalls.push(event);
     },
+    listSimulations: async () => simulationSummaries,
+    getSimulation: async (simulationId) => simulationRecords.get(simulationId) ?? null,
     getAgentState: async (agentId, simulationId) => {
       agentStateCalls.push({ agentId, simulationId });
       if (agentId === "unknown") return null;
@@ -131,6 +194,7 @@ describe("Bridge HTTP Server", () => {
       const data = await resp.json();
       expect(resp.status).toBe(200);
       expect(data.status).toBe("ok");
+      expect(data.active_simulations).toBe(2);
       expect(typeof data.uptime_ms).toBe("number");
     });
   });
@@ -143,6 +207,33 @@ describe("Bridge HTTP Server", () => {
       expect(typeof data.act_requests).toBe("number");
       expect(typeof data.observe_requests).toBe("number");
       expect(typeof data.errors).toBe("number");
+    });
+  });
+
+
+  describe("GET /simulations", () => {
+    it("returns active and recent simulation summaries", async () => {
+      const resp = await fetch(url("/simulations"));
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.simulations).toHaveLength(2);
+      expect(data.simulations[0].simulation_id).toBe("sim-running");
+      expect(data.simulations[1].simulation_id).toBe("sim-paused");
+    });
+  });
+
+  describe("GET /simulations/:id", () => {
+    it("returns the simulation record when present", async () => {
+      const resp = await fetch(url("/simulations/sim-running"));
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.simulation_id).toBe("sim-running");
+      expect(data.premise).toBe("Active premise");
+    });
+
+    it("returns 404 when the simulation is unknown", async () => {
+      const resp = await fetch(url("/simulations/missing-sim"));
+      expect(resp.status).toBe(404);
     });
   });
 
