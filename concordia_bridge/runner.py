@@ -359,6 +359,7 @@ def _setup_agents(config: SimulationConfig) -> None:
             json={
                 "world_id": config.world_id,
                 "workspace_id": config.workspace_id,
+                "user_id": config.user_id,
                 "agents": [
                     {
                         "agent_id": agent.id,

@@ -81,6 +81,44 @@ export class SessionManager {
     return undefined;
   }
 
+  getForWorld(params: {
+    agentId: string;
+    worldId: string;
+    workspaceId?: string;
+  }): AgentSession | undefined;
+  getForWorld(agentId: string, worldId: string): AgentSession | undefined;
+  getForWorld(
+    paramsOrAgentId:
+      | {
+          agentId: string;
+          worldId: string;
+          workspaceId?: string;
+        }
+      | string,
+    worldIdArg?: string,
+  ): AgentSession | undefined {
+    const params =
+      typeof paramsOrAgentId === "string"
+        ? { agentId: paramsOrAgentId, worldId: worldIdArg ?? "" }
+        : paramsOrAgentId;
+    for (const session of this.sessions.values()) {
+      if (session.agentId !== params.agentId) {
+        continue;
+      }
+      if (session.worldId !== params.worldId) {
+        continue;
+      }
+      if (
+        params.workspaceId !== undefined &&
+        session.workspaceId !== params.workspaceId
+      ) {
+        continue;
+      }
+      return session;
+    }
+    return undefined;
+  }
+
   findBySessionId(sessionId: string): AgentSession | undefined {
     for (const session of this.sessions.values()) {
       if (session.sessionId === sessionId) return session;
@@ -96,6 +134,14 @@ export class SessionManager {
 
   getAll(): AgentSession[] {
     return Array.from(this.sessions.values());
+  }
+
+  getAllForWorld(worldId: string, workspaceId?: string): AgentSession[] {
+    return Array.from(this.sessions.values()).filter(
+      (session) =>
+        session.worldId === worldId &&
+        (workspaceId === undefined || session.workspaceId === workspaceId),
+    );
   }
 
   clear(): void {

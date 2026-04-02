@@ -180,3 +180,10 @@ Last updated: 2026-03-25
   being routed through the full chat executor. Otherwise passive world-state
   updates burn planner/provider budget and make simulation turns look much
   slower than they are.
+## 2026-04-02
+
+- Concordia isolation must be keyed by world as well as agent. If the daemon session layer keys only by channel and sender, observations and history bleed across simulations with the same agent ID.
+- Concordia periodic memory tasks must run on completed simulation steps, not on every `/act` call. In simultaneous mode, per-agent action counting fires reflection/consolidation too often and distorts memory behavior.
+- Never let Concordia bridge timeouts resolve as fake empty actions. Timeouts and resets need to fail hard so the Python `ProxyEntity` can surface a real bridge failure instead of poisoning the simulation with silent success.
+- Concordia GM observations must enter the next turn as `system` history, not `user` history. Treating them as user messages makes world-state observations compete with or override agent intent.
+- Concordia adapter session state must update `turnCount` and `lastAction` when `/act` returns successfully. Waiting for checkpoint/resume state to catch up leaves the live UI and prompt framing stale.

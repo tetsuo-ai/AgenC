@@ -39,6 +39,7 @@ export interface ObserveRequest {
 export interface SetupRequest {
   readonly world_id: string;
   readonly workspace_id: string;
+  readonly user_id?: string;
   readonly agents: readonly AgentSetupConfig[];
   readonly premise: string;
 }
@@ -46,6 +47,7 @@ export interface SetupRequest {
 export interface LaunchRequest {
   readonly world_id: string;
   readonly workspace_id: string;
+  readonly user_id?: string;
   readonly agents: readonly AgentSetupConfig[];
   readonly premise: string;
   readonly max_steps?: number;
@@ -73,6 +75,7 @@ export interface CheckpointRequest {
 
 export interface ResumeRequest {
   readonly checkpoint: Record<string, unknown>;
+  readonly user_id?: string;
 }
 
 export interface GeneratedAgent {

@@ -214,8 +214,6 @@ async function handleAct(
     workspaceId: request.workspace_id,
   });
 
-  session.turnCount++;
-
   // Build the prompt from the ActionSpec
   const message = buildActPrompt(request.action_spec, request.agent_name);
   const requestId = randomUUID();

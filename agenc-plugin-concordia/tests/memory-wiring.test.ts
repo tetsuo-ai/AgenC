@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createHash } from "node:crypto";
 import {
   ingestObservation,
+  recordObservationWorldFact,
+  recordAgentAction,
   setupAgentIdentity,
   recordSocialEvent,
   storePremise,
@@ -8,10 +11,12 @@ import {
   recordProcedure,
   retrieveProcedures,
   updateActivationScores,
+  updateTemporalEdges,
   buildGraphContext,
   getSharedContext,
   promoteToSharedMemory,
   checkCollectiveEmergence,
+  promoteCollectiveEmergenceFacts,
   traceMemoryRetrieval,
   logSimulationEvent,
   buildFullActContext,
@@ -32,8 +37,20 @@ function createMockBackend(): MemoryBackendLike {
   return {
     addEntry: vi.fn().mockResolvedValue({ id: "entry-1", timestamp: Date.now() }),
     getThread: vi.fn().mockResolvedValue([
-      { id: "e1", content: "[observation] You see a market", role: "system", timestamp: 1000 },
-      { id: "e2", content: "I will go shopping", role: "assistant", timestamp: 2000 },
+      {
+        id: "e1",
+        content: "[observation] You see a market",
+        role: "system",
+        timestamp: 1000,
+        metadata: { world_id: "test-world", agent_id: "alice" },
+      },
+      {
+        id: "e2",
+        content: "I will go shopping",
+        role: "assistant",
+        timestamp: 2000,
+        metadata: { world_id: "test-world", agent_id: "alice" },
+      },
     ]),
     set: vi.fn().mockResolvedValue(undefined),
     get: vi.fn().mockResolvedValue(undefined),
@@ -59,11 +76,25 @@ function createMockSocialMemory(): SocialMemoryLike {
   return {
     recordInteraction: vi.fn().mockResolvedValue({}),
     getRelationship: vi.fn().mockResolvedValue({
+      relationship: "acquaintance",
       interactions: [{ timestamp: 1000, summary: "Met at market" }],
       sentiment: 0.5,
     }),
     listKnownAgents: vi.fn().mockResolvedValue(["bob", "sera"]),
-    addWorldFact: vi.fn().mockResolvedValue({}),
+    addWorldFact: vi.fn().mockResolvedValue({
+      id: "fact-1",
+      content: "It is morning",
+      observedBy: "gm",
+      confirmations: 1,
+      confirmedBy: ["gm"],
+    }),
+    confirmWorldFact: vi.fn().mockResolvedValue({
+      id: "fact-1",
+      content: "It is morning",
+      observedBy: "gm",
+      confirmations: 2,
+      confirmedBy: ["gm", "alice"],
+    }),
     getWorldFacts: vi.fn().mockResolvedValue([
       { content: "It is morning", observedBy: "gm", confirmations: 0 },
     ]),
@@ -85,6 +116,12 @@ function createMockProceduralMemory(): ProceduralMemoryLike {
 
 function createMockGraph(): MemoryGraphLike {
   return {
+    upsertNode: vi.fn().mockResolvedValue({
+      id: "event-node-1",
+      content: "Resolved event node",
+      entityName: "Marcus",
+      entityType: "simulation_event",
+    }),
     findByEntity: vi.fn().mockResolvedValue([
       { id: "n1", content: "Marcus is a merchant", entityName: "Marcus", entityType: "person" },
     ]),
@@ -195,6 +232,78 @@ describe("ingestObservation", () => {
   });
 });
 
+describe("recordObservationWorldFact", () => {
+  it("stores a private world fact for a first observation", async () => {
+    const ctx = createContext();
+
+    await recordObservationWorldFact(
+      ctx,
+      "alice",
+      "//09:15 AM//A red sell order flashes across the board.",
+    );
+
+    expect(ctx.socialMemory.addWorldFact).toHaveBeenCalledWith(
+      "test-world",
+      "A red sell order flashes across the board.",
+      "alice",
+      "private",
+    );
+    expect(ctx.memoryBackend.set).toHaveBeenCalled();
+  });
+
+  it("confirms an existing fact when another agent independently observes it", async () => {
+    const backend = createMockBackend();
+    const factFingerprint = createHash("sha256")
+      .update("a red sell order flashes across the board")
+      .digest("hex");
+    (backend.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      [factFingerprint]: {
+        factId: "fact-1",
+        canonicalContent: "A red sell order flashes across the board.",
+        confirmedBy: ["alice"],
+      },
+    });
+    const ctx = createContext({ memoryBackend: backend });
+
+    await recordObservationWorldFact(
+      ctx,
+      "bob",
+      "//09:30 AM//A red sell order flashes across the board.",
+    );
+
+    expect(ctx.socialMemory.confirmWorldFact).toHaveBeenCalledWith(
+      "fact-1",
+      "test-world",
+      "bob",
+    );
+  });
+});
+
+describe("recordAgentAction", () => {
+  it("stores agent actions in world-scoped memory with action metadata", async () => {
+    const ctx = createContext();
+
+    await recordAgentAction(ctx, "alice", "session-1", "places a bid for 10 contracts");
+
+    expect(ctx.memoryBackend.addEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-1",
+        role: "assistant",
+        content: "places a bid for 10 contracts",
+        workspaceId: "test-ws",
+        agentId: "alice",
+        worldId: "test-world",
+        channel: "concordia",
+        metadata: expect.objectContaining({
+          type: "concordia_action",
+          concordia_tag: "action",
+          trustSource: "agent",
+        }),
+      }),
+    );
+  });
+});
+
 describe("setupAgentIdentity", () => {
   it("creates agent identity with personality and goal", async () => {
     const ctx = createContext();
@@ -230,10 +339,14 @@ describe("recordSocialEvent", () => {
         type: "resolution",
         step: 5,
         acting_agent: "alice",
-        content: "Alice trades iron with bob at the smithy",
+        content: "Alice trades iron with Bob at the smithy",
         world_id: "test-world",
       },
-      ["alice", "bob", "sera"],
+      [
+        { agentId: "alice", agentName: "Alice" },
+        { agentId: "bob", agentName: "Bob" },
+        { agentId: "sera", agentName: "Sera" },
+      ],
     );
 
     expect(ctx.socialMemory.recordInteraction).toHaveBeenCalledWith(
@@ -242,7 +355,16 @@ describe("recordSocialEvent", () => {
       "test-world",
       expect.objectContaining({
         summary: expect.stringContaining("Alice trades iron"),
-        context: "step:5",
+        context: "step:5:resolution",
+      }),
+    );
+    expect(ctx.socialMemory.recordInteraction).toHaveBeenCalledWith(
+      "bob",
+      "alice",
+      "test-world",
+      expect.objectContaining({
+        summary: expect.stringContaining("Alice trades iron"),
+        context: "step:5:resolution",
       }),
     );
   });
@@ -252,7 +374,10 @@ describe("recordSocialEvent", () => {
     await recordSocialEvent(
       ctx,
       { type: "resolution", step: 1, content: "The sun rises", world_id: "w" },
-      ["alice", "bob"],
+      [
+        { agentId: "alice", agentName: "Alice" },
+        { agentId: "bob", agentName: "Bob" },
+      ],
     );
     expect(ctx.socialMemory.recordInteraction).not.toHaveBeenCalled();
   });
@@ -265,13 +390,37 @@ describe("recordSocialEvent", () => {
         type: "resolution",
         step: 3,
         acting_agent: "alice",
-        content: "Alice greets bob and sera at the market",
+        content: "Alice greets Bob and Sera at the market",
         world_id: "test-world",
       },
-      ["alice", "bob", "sera"],
+      [
+        { agentId: "alice", agentName: "Alice" },
+        { agentId: "bob", agentName: "Bob" },
+        { agentId: "sera", agentName: "Sera" },
+      ],
     );
 
-    expect(ctx.socialMemory.recordInteraction).toHaveBeenCalledTimes(2);
+    expect(ctx.socialMemory.recordInteraction).toHaveBeenCalledTimes(4);
+  });
+
+  it("records pairwise interactions for simultaneous events without a single actor", async () => {
+    const ctx = createContext();
+    await recordSocialEvent(
+      ctx,
+      {
+        type: "resolution",
+        step: 4,
+        content: "Alice and Bob shout over Sera as the market turns chaotic.",
+        world_id: "test-world",
+      },
+      [
+        { agentId: "alice", agentName: "Alice" },
+        { agentId: "bob", agentName: "Bob" },
+        { agentId: "sera", agentName: "Sera" },
+      ],
+    );
+
+    expect(ctx.socialMemory.recordInteraction).toHaveBeenCalledTimes(6);
   });
 });
 
@@ -301,6 +450,8 @@ describe("getAgentState", () => {
     expect(state.lastAction).toBe("goes to market");
     expect((state.relationships as unknown[]).length).toBe(2); // bob + sera
     expect((state.worldFacts as unknown[]).length).toBe(1);
+    expect((state.relationships as Array<Record<string, unknown>>)[0]?.relationship).toBe("acquaintance");
+    expect((state.recentMemories as Array<Record<string, unknown>>)[0]?.metadata).toBeDefined();
   });
 
   it("handles missing identity gracefully", async () => {
@@ -421,6 +572,27 @@ describe("buildGraphContext", () => {
   });
 });
 
+describe("updateTemporalEdges", () => {
+  it("creates graph updates for simultaneous events without a single acting agent", async () => {
+    const graph = createMockGraph();
+    const ctx = createContext({ graph });
+
+    await updateTemporalEdges(
+      ctx,
+      undefined,
+      "Alice and Bob discover the assay report was false and gold reserves are lower than claimed.",
+    );
+
+    expect(graph.upsertNode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: "simulation_event",
+        content: "Alice and Bob discover the assay report was false and gold reserves are lower than claimed.",
+      }),
+    );
+    expect(graph.addEdge).toHaveBeenCalled();
+  });
+});
+
 // === Task 10.5: Shared memory ===
 
 describe("getSharedContext", () => {
@@ -431,8 +603,8 @@ describe("getSharedContext", () => {
     expect(result).toContain("detailed simulations");
   });
 
-  it("returns empty when no shared memory", async () => {
-    const ctx = createContext();
+  it("returns empty when no shared memory or user scope is unavailable", async () => {
+    const ctx = createContext({ sharedMemory: createMockSharedMemory() });
     const result = await getSharedContext(ctx);
     expect(result).toBe("");
   });
@@ -460,6 +632,24 @@ describe("checkCollectiveEmergence", () => {
     expect(result).toHaveLength(1);
     expect(result[0].content).toBe("The market opens at dawn");
     expect(result[0].confirmedBy).toContain("alice");
+  });
+});
+
+describe("promoteCollectiveEmergenceFacts", () => {
+  it("promotes newly emerged facts into world-visible social memory", async () => {
+    const backend = createMockBackend();
+    (backend.get as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    const ctx = createContext({ memoryBackend: backend });
+
+    const promoted = await promoteCollectiveEmergenceFacts(ctx, 5, 3);
+
+    expect(promoted).toHaveLength(1);
+    expect(ctx.socialMemory.addWorldFact).toHaveBeenCalledWith(
+      "test-world",
+      "The market opens at dawn",
+      "concordia:collective-emergence",
+      "world",
+    );
   });
 });
 
@@ -532,6 +722,8 @@ describe("buildFullActContext", () => {
     });
     const result = await buildFullActContext(ctx, "alice", "s1", "What does Marcus think?", "user-1");
     expect(result).toContain("Alice"); // identity
+    expect(result).toContain("Current Relationships");
+    expect(result).toContain("Visible World Facts");
     expect(result).toContain("greet_and_trade"); // procedural
     expect(result).toContain("Knowledge about Marcus"); // graph
     expect(result).toContain("Shared Knowledge"); // shared
@@ -541,5 +733,6 @@ describe("buildFullActContext", () => {
     const ctx = createContext();
     const result = await buildFullActContext(ctx, "alice", "s1", "test");
     expect(result).toContain("Alice"); // identity always included
+    expect(result).toContain("Visible World Facts");
   });
 });
