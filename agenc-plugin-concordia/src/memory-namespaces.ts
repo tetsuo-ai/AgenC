@@ -6,16 +6,36 @@
  * world, workspace, and carry-over scopes.
  */
 
+import type {
+  ConcordiaCheckpointManifest,
+  ConcordiaCheckpointStatus,
+  ConcordiaReplayCursorState,
+  ConcordiaRuntimeCursorState,
+  ConcordiaSceneCursorState,
+  ConcordiaWorldStateRefs,
+  ConcordiaCheckpointSubsystemRestore,
+} from "./checkpoint-manifest.js";
+
 export type ConcordiaMemoryContinuityMode = "isolated" | "lineage_resume";
 export type ConcordiaCarryOverScope = "simulation" | "lineage" | "shared";
 
 export interface ConcordiaCheckpointMetadata {
+  readonly checkpointId?: string | null;
+  readonly checkpointPath?: string | null;
+  readonly checkpointSchemaVersion?: number | null;
   readonly checkpointSimulationId?: string | null;
   readonly checkpointLineageId?: string | null;
   readonly checkpointParentSimulationId?: string | null;
   readonly checkpointWorldId?: string | null;
   readonly checkpointWorkspaceId?: string | null;
   readonly resumedFromStep?: number | null;
+  readonly sceneCursor?: ConcordiaSceneCursorState | null;
+  readonly runtimeCursor?: ConcordiaRuntimeCursorState | null;
+  readonly replayCursor?: ConcordiaReplayCursorState | null;
+  readonly worldStateRefs?: ConcordiaWorldStateRefs | null;
+  readonly subsystemRestore?: ConcordiaCheckpointSubsystemRestore | null;
+  readonly checkpointManifest?: ConcordiaCheckpointManifest | null;
+  readonly checkpointStatus?: ConcordiaCheckpointStatus | null;
   readonly [key: string]: unknown;
 }
 

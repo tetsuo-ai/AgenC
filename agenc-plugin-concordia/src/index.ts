@@ -20,6 +20,8 @@ import type {
 import type { ConcordiaChannelConfig } from "./types.js";
 import { ConcordiaChannelAdapter } from "./adapter.js";
 
+const MAX_TCP_PORT = 65535;
+
 export const manifest: ChannelAdapterManifest = {
   schema_version: 1,
   plugin_id: "ai.tetsuo.channel.concordia",
@@ -45,14 +47,14 @@ export function validateConfig(
   const c = config as Partial<ConcordiaChannelConfig>;
 
   if (c.bridge_port !== undefined) {
-    if (typeof c.bridge_port !== "number" || c.bridge_port < 1 || c.bridge_port > 65535) {
-      errors.push("bridge_port must be a number between 1 and 65535");
+    if (typeof c.bridge_port !== "number" || c.bridge_port < 1 || c.bridge_port > MAX_TCP_PORT) {
+      errors.push(`bridge_port must be a number between 1 and ${MAX_TCP_PORT}`);
     }
   }
 
   if (c.event_port !== undefined) {
-    if (typeof c.event_port !== "number" || c.event_port < 1 || c.event_port > 65535) {
-      errors.push("event_port must be a number between 1 and 65535");
+    if (typeof c.event_port !== "number" || c.event_port < 1 || c.event_port > MAX_TCP_PORT) {
+      errors.push(`event_port must be a number between 1 and ${MAX_TCP_PORT}`);
     }
   }
 
@@ -101,6 +103,15 @@ export {
   traceMemoryTrustFilter,
   logSimulationEvent,
 } from "./memory-wiring.js";
+
+// Re-export checkpoint manifest helpers (Phase 5)
+export {
+  buildCheckpointMetadataFromManifest,
+  buildCheckpointStatusFromManifest,
+  buildDefaultSubsystemRestore,
+  normalizeCheckpointManifest,
+} from "./checkpoint-manifest.js";
+export type * from "./checkpoint-manifest.js";
 
 // Re-export simulation memory namespace policy helpers (Phase 4)
 export {

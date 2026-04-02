@@ -325,6 +325,64 @@ class TestRunLoop:
         action_events = [e for e in events if e.type == "action"]
         assert len(action_events) <= 3  # Should stop early
 
+    def test_restore_checkpoint_state_skips_scene_restart_event(self):
+        events = []
+        engine = InstrumentedSequentialEngine(
+            event_callback=events.append,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        scene1 = type("Scene", (), {"num_rounds": 1, "scene_type": {"name": "intro"}})()
+        scene2 = type("Scene", (), {"num_rounds": 2, "scene_type": {"name": "market"}})()
+        engine.restore_checkpoint_state({
+            "step": 5,
+            "scene_cursor": {
+                "scene_index": 1,
+                "scene_round": 1,
+                "current_scene_name": "market",
+            },
+            "runtime_cursor": {
+                "current_step": 5,
+                "start_step": 6,
+                "max_steps": 8,
+                "last_step_outcome": "resolved",
+            },
+        }, scenes=[scene1, scene2])
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[make_mock_entity("A")],
+                max_steps=6,
+                start_step=6,
+                scenes=[scene1, scene2],
+            )
+
+        scene_events = [e for e in events if e.type == "scene_change"]
+        assert all(event.step != 0 for event in scene_events)
+
+    def test_get_checkpoint_state_reports_runtime_and_replay_cursor(self):
+        engine = InstrumentedSequentialEngine(
+            event_callback=lambda _event: None,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        scene = type("Scene", (), {"num_rounds": 2, "scene_type": {"name": "intro"}})()
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[make_mock_entity("A")],
+                max_steps=1,
+                scenes=[scene],
+            )
+
+        state = engine.get_checkpoint_state(max_steps=5, replay_event_count=4)
+        assert state["runtime_cursor"]["current_step"] == 1
+        assert state["runtime_cursor"]["engine_type"] == "sequential"
+        assert state["replay_cursor"]["replay_cursor"] == 4
+        assert state["scene_cursor"]["scene_index"] == 0
+
     def test_scene_transitions(self):
         events = []
         engine = InstrumentedSequentialEngine(

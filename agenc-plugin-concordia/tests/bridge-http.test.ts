@@ -41,6 +41,7 @@ const simulationSummaries = [
     last_completed_step: 3,
     last_step_outcome: "resolved",
     replay_event_count: 7,
+    checkpoint: null,
   },
   {
     simulation_id: "sim-paused",
@@ -61,6 +62,7 @@ const simulationSummaries = [
     last_completed_step: 5,
     last_step_outcome: "paused",
     replay_event_count: 9,
+    checkpoint: null,
   },
 ] as const;
 const simulationStatuses = new Map([
@@ -83,6 +85,7 @@ const simulationStatuses = new Map([
       updated_at: 5,
       last_step_outcome: "resolved",
       terminal_reason: null,
+      checkpoint: null,
     },
   ],
   [
@@ -104,6 +107,7 @@ const simulationStatuses = new Map([
       updated_at: 6,
       last_step_outcome: "paused",
       terminal_reason: null,
+      checkpoint: null,
     },
   ],
 ]);
@@ -202,6 +206,45 @@ beforeAll(async () => {
         simulation_id: request.simulation_id,
         step: request.step,
         sessions: [],
+        checkpoint_manifest: {
+          simulation_id: request.simulation_id,
+          world_id: request.world_id,
+          workspace_id: request.workspace_id,
+          step: request.step,
+          checkpoint_id: `${request.simulation_id}:step:${request.step}`,
+          checkpoint_path: `/tmp/checkpoints/${request.simulation_id}_step_${request.step}.json`,
+        },
+        checkpoint: {
+          checkpoint_id: `${request.simulation_id}:step:${request.step}`,
+          checkpoint_path: `/tmp/checkpoints/${request.simulation_id}_step_${request.step}.json`,
+          schema_version: 3,
+          world_id: request.world_id,
+          workspace_id: request.workspace_id,
+          simulation_id: request.simulation_id,
+          lineage_id: request.lineage_id ?? null,
+          parent_simulation_id: request.parent_simulation_id ?? null,
+          step: request.step,
+          timestamp: 1,
+          max_steps: request.max_steps ?? request.step,
+          scene_cursor: null,
+          runtime_cursor: {
+            current_step: request.step,
+            start_step: request.step + 1,
+            max_steps: request.max_steps ?? request.step,
+          },
+          replay_cursor: {
+            replay_cursor: 0,
+            replay_event_count: 0,
+          },
+          world_state_refs: {
+            source: "inline_checkpoint",
+            entity_state_keys: [],
+          },
+          subsystem_state: {
+            resumed: ["gm_state"],
+            reset: ["control_port"],
+          },
+        },
       };
     },
     onResume: async (request) => {
@@ -514,6 +557,8 @@ describe("Bridge HTTP Server", () => {
       expect(data.status).toBe("ok");
       expect(data.step).toBe(7);
       expect(data.simulation_id).toBe("sim-checkpoint");
+      expect(data.checkpoint_manifest.checkpoint_id).toBe("sim-checkpoint:step:7");
+      expect(data.checkpoint.checkpoint_id).toBe("sim-checkpoint:step:7");
       expect(checkpointCalls).toHaveLength(1);
     });
   });

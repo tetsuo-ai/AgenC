@@ -102,6 +102,50 @@ describe("SimulationRegistry", () => {
     expect(registry.getRecord("sim-replay")?.replay_event_count).toBe(2);
   });
 
+  it("surfaces checkpoint status in summaries and records", () => {
+    const registry = new SimulationRegistry();
+    registry.createHandle({
+      request: buildHandleRequest("sim-checkpoint", "world-c", "ws-c"),
+      status: "paused",
+      currentAlias: false,
+    });
+
+    registry.setCheckpoint("sim-checkpoint", {
+      checkpoint_id: "sim-checkpoint:step:5",
+      checkpoint_path: "/tmp/checkpoints/sim-checkpoint_step_5.json",
+      schema_version: 3,
+      world_id: "world-c",
+      workspace_id: "ws-c",
+      simulation_id: "sim-checkpoint",
+      lineage_id: null,
+      parent_simulation_id: null,
+      step: 5,
+      timestamp: 123,
+      max_steps: 12,
+      scene_cursor: null,
+      runtime_cursor: {
+        current_step: 5,
+        start_step: 6,
+        max_steps: 12,
+      },
+      replay_cursor: {
+        replay_cursor: 9,
+        replay_event_count: 9,
+      },
+      world_state_refs: {
+        source: "inline_checkpoint",
+        entity_state_keys: [],
+      },
+      subsystem_state: {
+        resumed: ["gm_state"],
+        reset: ["control_port"],
+      },
+    });
+
+    expect(registry.listSummaries()[0]?.checkpoint?.checkpoint_id).toBe("sim-checkpoint:step:5");
+    expect(registry.getRecord("sim-checkpoint")?.checkpoint?.runtime_cursor.current_step).toBe(5);
+  });
+
   it("hydrates replay history before live append on an opened stream", () => {
     const registry = new SimulationRegistry();
     registry.createHandle({

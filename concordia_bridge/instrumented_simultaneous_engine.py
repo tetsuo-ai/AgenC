@@ -48,6 +48,9 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
         )
         self._max_workers = max_workers
 
+    def _engine_type(self) -> str:
+        return "simultaneous"
+
     def _iter_simultaneous_steps(
         self,
         game_masters: Sequence[Entity],

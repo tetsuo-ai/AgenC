@@ -261,13 +261,26 @@ def run_simulation(
     # 2. Create step controller and control server
     controller = StepController()
     sim_state = SimulationState()
+    checkpoint_runtime_cursor = (
+        checkpoint.get("runtime_cursor")
+        if checkpoint and isinstance(checkpoint.get("runtime_cursor"), dict)
+        else {}
+    )
+    initial_step = (
+        max(int(checkpoint_runtime_cursor.get("current_step", checkpoint.get("step", 0))), 0)
+        if checkpoint
+        else 0
+    )
     sim_state.update(
         max_steps=config.max_steps,
         world_id=config.world_id,
         simulation_id=config.simulation_id,
         agent_count=len(config.agents),
         running=True,
-        step=max(int(checkpoint.get("step", 0)), 0) if checkpoint else 0,
+        step=initial_step,
+        last_step_outcome=(
+            checkpoint_runtime_cursor.get("last_step_outcome") if checkpoint else None
+        ),
     )
     control_srv = start_control_server(
         controller, sim_state, port=config.control_port,
@@ -329,6 +342,9 @@ def run_simulation(
                 parent_simulation_id=identity.parent_simulation_id,
             )
 
+        if checkpoint:
+            engine.restore_checkpoint_state(checkpoint, scenes=config.scenes)
+
         # 8. Run the simulation
         def step_callback(step: int, outcome: str = "resolved") -> None:
             sim_state.update(
@@ -354,11 +370,18 @@ def run_simulation(
             ))
 
         def checkpoint_callback(step: int) -> None:
+            checkpoint_state = engine.get_checkpoint_state(
+                max_steps=config.max_steps,
+                replay_event_count=event_server.event_count,
+            )
             save_checkpoint(
                 config=config,
                 step=step,
                 game_master=game_master,
                 entities=proxy_entities,
+                scene_cursor=checkpoint_state.get("scene_cursor"),
+                runtime_cursor=checkpoint_state.get("runtime_cursor"),
+                replay_cursor=checkpoint_state.get("replay_cursor"),
             )
 
         try:
@@ -367,7 +390,7 @@ def run_simulation(
                 entities=proxy_entities,
                 premise=config.premise,
                 max_steps=config.max_steps,
-                start_step=max(int(checkpoint.get("step", 0)), 0) + 1 if checkpoint else 1,
+                start_step=(_checkpoint_start_step(checkpoint) if checkpoint else 1),
                 step_controller=controller,
                 step_callback=step_callback,
                 checkpoint_callback=checkpoint_callback,
@@ -451,6 +474,13 @@ def _post_bridge_event(config: SimulationConfig, event: SimulationEvent) -> None
             event.type,
             exc,
         )
+
+
+def _checkpoint_start_step(checkpoint: dict) -> int:
+    runtime_cursor = checkpoint.get("runtime_cursor")
+    if isinstance(runtime_cursor, dict):
+        return max(int(runtime_cursor.get("start_step", checkpoint.get("step", 0) + 1) or 1), 1)
+    return max(int(checkpoint.get("step", 0)), 0) + 1
 
 
 def _restore_checkpoint_state(

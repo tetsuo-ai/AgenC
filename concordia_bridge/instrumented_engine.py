@@ -149,6 +149,9 @@ class InstrumentedSequentialEngine(Engine):
         self._call_to_check_termination = call_to_check_termination
         self._current_step = 0
         self._last_acting_entity_name: Optional[str] = None
+        self._last_step_outcome: Optional[str] = None
+        self._scene_state: Optional[_SceneState] = None
+        self._premise_emitted = False
 
     def _emit_premise(
         self,
@@ -156,9 +159,13 @@ class InstrumentedSequentialEngine(Engine):
         premise: str,
         start_step: int,
     ) -> None:
-        if not premise or start_step > 1:
+        if not premise:
+            return
+        if start_step > 1 or self._premise_emitted:
+            self._premise_emitted = True
             return
         game_master.observe(f"[event] {premise}")
+        self._premise_emitted = True
         self._event_callback(SimulationEvent(
             type="step",
             step=0,
@@ -179,8 +186,21 @@ class InstrumentedSequentialEngine(Engine):
         self,
         scenes: Optional[Sequence[object]],
     ) -> _SceneState:
+        if self._scene_state is not None:
+            state = _SceneState(
+                index=self._scene_state.index,
+                round=self._scene_state.round,
+            )
+            if scenes and 0 <= state.index < len(scenes):
+                state.current = scenes[state.index]
+            else:
+                state.current = self._scene_state.current
+            self._scene_state = state
+            return state
+
         current_scene = scenes[0] if scenes else None
         state = _SceneState(current=current_scene)
+        self._scene_state = state
         if current_scene is not None:
             self._event_callback(SimulationEvent(
                 type="scene_change",
@@ -197,18 +217,21 @@ class InstrumentedSequentialEngine(Engine):
         scenes: Optional[Sequence[object]],
         state: _SceneState,
     ) -> None:
+        self._scene_state = state
         if not scenes or state.current is None:
             return
 
         state.round += 1
         num_rounds = getattr(state.current, "num_rounds", None) or 999
         if state.round <= num_rounds:
+            self._scene_state = state
             return
 
         state.index += 1
         state.round = 0
         if state.index < len(scenes):
             state.current = scenes[state.index]
+            self._scene_state = state
             self._event_callback(SimulationEvent(
                 type="scene_change",
                 step=step,
@@ -219,6 +242,64 @@ class InstrumentedSequentialEngine(Engine):
             return
 
         state.current = None
+        self._scene_state = state
+
+    def _engine_type(self) -> str:
+        return "sequential"
+
+    def restore_checkpoint_state(
+        self,
+        checkpoint: dict,
+        scenes: Optional[Sequence[object]] = None,
+    ) -> None:
+        runtime_cursor = checkpoint.get("runtime_cursor") if isinstance(checkpoint.get("runtime_cursor"), dict) else {}
+        scene_cursor = checkpoint.get("scene_cursor") if isinstance(checkpoint.get("scene_cursor"), dict) else {}
+        self._current_step = int(runtime_cursor.get("current_step", checkpoint.get("step", 0)) or 0)
+        self._last_acting_entity_name = runtime_cursor.get("last_acting_agent")
+        self._last_step_outcome = runtime_cursor.get("last_step_outcome")
+        self._premise_emitted = self._current_step > 0
+        if scene_cursor:
+            scene_index = int(scene_cursor.get("scene_index", 0) or 0)
+            current_scene = None
+            if scenes and 0 <= scene_index < len(scenes):
+                current_scene = scenes[scene_index]
+            self._scene_state = _SceneState(
+                index=scene_index,
+                round=int(scene_cursor.get("scene_round", 0) or 0),
+                current=current_scene,
+            )
+
+    def get_checkpoint_state(
+        self,
+        *,
+        max_steps: int,
+        replay_event_count: int,
+    ) -> dict[str, object]:
+        scene_cursor = None
+        if self._scene_state is not None:
+            scene_cursor = {
+                "scene_index": self._scene_state.index,
+                "scene_round": self._scene_state.round,
+                "current_scene_name": self._scene_name(self._scene_state.current, self._scene_state.index)
+                if self._scene_state.current is not None
+                else None,
+            }
+        return {
+            "scene_cursor": scene_cursor,
+            "runtime_cursor": {
+                "current_step": self._current_step,
+                "start_step": self._current_step + 1,
+                "max_steps": max_steps,
+                "last_acting_agent": self._last_acting_entity_name,
+                "last_step_outcome": self._last_step_outcome,
+                "engine_type": self._engine_type(),
+            },
+            "replay_cursor": {
+                "replay_cursor": replay_event_count,
+                "replay_event_count": replay_event_count,
+                "last_event_id": str(replay_event_count) if replay_event_count > 0 else None,
+            },
+        }
 
     def build_entity_action_spec(self, entity: Entity) -> ActionSpec:
         """Build an explicit, per-entity action prompt for the next move."""
@@ -552,6 +633,8 @@ class InstrumentedSequentialEngine(Engine):
         outcome: str,
         step_callback: Optional[Callable[..., None]],
     ) -> None:
+        self._current_step = step
+        self._last_step_outcome = outcome
         logger.info(
             "Step %d outcome=%s world=%s",
             step,

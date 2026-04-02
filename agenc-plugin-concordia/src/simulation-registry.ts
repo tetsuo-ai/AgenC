@@ -2,6 +2,7 @@ import { createServer } from "node:net";
 import type { ChannelAdapterLogger } from "@tetsuo-ai/plugin-kit";
 import type {
   AgentSetupConfig,
+  ConcordiaCheckpointStatus,
   EventNotification,
   LaunchRequest,
   SimulationLifecycleStatus,
@@ -62,6 +63,7 @@ export interface SimulationHandle<TRunner = unknown, TMemoryContext = unknown, T
   replayEventCount: number;
   replayCursor: number;
   currentAlias: boolean;
+  checkpoint: ConcordiaCheckpointStatus | null;
   launchRequest: MutableNormalizedLaunchRequest;
   runner: TRunner | null;
   memoryCtx: TMemoryContext | null;
@@ -251,6 +253,7 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       replayEventCount: 0,
       replayCursor: 0,
       currentAlias: false,
+      checkpoint: null,
       launchRequest: {
         ...params.request,
       },
@@ -341,6 +344,15 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
   ): SimulationHandle<TRunner, TMemoryContext, TPending> {
     return this.requireMutated(simulationId, (handle) => {
       handle.memoryCtx = memoryCtx;
+    });
+  }
+
+  setCheckpoint(
+    simulationId: string,
+    checkpoint: ConcordiaCheckpointStatus | null,
+  ): SimulationHandle<TRunner, TMemoryContext, TPending> {
+    return this.requireMutated(simulationId, (handle) => {
+      handle.checkpoint = checkpoint;
     });
   }
 
@@ -612,6 +624,7 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       last_completed_step: handle.lastCompletedStep,
       last_step_outcome: handle.lastStepOutcome,
       replay_event_count: handle.replayEventCount,
+      checkpoint: handle.checkpoint,
     };
   }
 

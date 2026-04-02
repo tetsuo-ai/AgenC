@@ -19,11 +19,12 @@ import importlib
 import json
 import logging
 import sys
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agenc-concordia",
         description="AgenC x Concordia simulation bridge",
@@ -33,7 +34,6 @@ def main() -> None:
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    # --- run ---
     run_parser = subparsers.add_parser("run", help="Run a simulation")
     run_parser.add_argument(
         "--config", required=True,
@@ -44,7 +44,6 @@ def main() -> None:
     run_parser.add_argument("--event-port", type=int, default=3201)
     run_parser.add_argument("--control-port", type=int, default=3202)
 
-    # --- run-json ---
     run_json_parser = subparsers.add_parser(
         "run-json", help="Run a simulation from a JSON config file",
     )
@@ -53,7 +52,6 @@ def main() -> None:
         help="Path to a JSON file matching SimulationConfig fields",
     )
 
-    # --- resume ---
     resume_parser = subparsers.add_parser(
         "resume", help="Resume a simulation from a checkpoint",
     )
@@ -62,32 +60,40 @@ def main() -> None:
         help="Path to a checkpoint JSON file",
     )
 
-    # --- examples ---
     subparsers.add_parser("examples", help="List available example configs")
 
-    # --- status ---
     status_parser = subparsers.add_parser("status", help="Check simulation status")
     status_parser.add_argument("--control-port", type=int, default=3202)
+    return parser
 
-    args = parser.parse_args()
 
+def configure_logging(verbose: bool) -> None:
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
     )
 
-    if args.command == "run":
-        cmd_run(args)
-    elif args.command == "run-json":
-        cmd_run_json(args)
-    elif args.command == "resume":
-        cmd_resume(args)
-    elif args.command == "examples":
-        cmd_examples()
-    elif args.command == "status":
-        cmd_status(args)
-    else:
+
+def dispatch_command(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    command_handlers = {
+        "run": lambda: cmd_run(args),
+        "run-json": lambda: cmd_run_json(args),
+        "resume": lambda: cmd_resume(args),
+        "examples": cmd_examples,
+        "status": lambda: cmd_status(args),
+    }
+    handler = command_handlers.get(args.command)
+    if handler is None:
         parser.print_help()
+        return
+    handler()
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    configure_logging(args.verbose)
+    dispatch_command(parser, args)
 
 
 def cmd_run(args: argparse.Namespace) -> None:

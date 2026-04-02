@@ -102,6 +102,14 @@ import {
   type ResumeHandleParamsInput,
   type ResumeHandleStateInput,
 } from "./adapter-utils.js";
+import {
+  buildCheckpointMetadataFromManifest,
+  buildCheckpointStatusFromManifest,
+  buildDefaultSubsystemRestore,
+  normalizeCheckpointManifest,
+  type ConcordiaCheckpointManifest,
+  type ConcordiaCheckpointStatus,
+} from "./checkpoint-manifest.js";
 
 const MAX_GENERATED_AGENTS = 25;
 const LOOPBACK_HOST = "127.0.0.1";
@@ -209,7 +217,7 @@ function buildResumeHandleState(
   lineageId: string,
   parentSimulationId: string | null,
   request: ResumeRequest,
-  checkpoint: Record<string, unknown>,
+  checkpoint: ConcordiaCheckpointManifest,
   config: Record<string, unknown>,
   agents: SetupRequest["agents"],
   premise: string,
@@ -236,6 +244,7 @@ function buildResumeResponse(
   parentSimulationId: string | null,
   resumedFromStep: number,
   sessions: Record<string, string>,
+  checkpoint: ConcordiaCheckpointStatus,
 ): Record<string, unknown> {
   return {
     world_id: worldId,
@@ -245,6 +254,7 @@ function buildResumeResponse(
     parent_simulation_id: parentSimulationId,
     resumed_from_step: resumedFromStep,
     sessions,
+    checkpoint,
   };
 }
 
@@ -319,6 +329,27 @@ function buildCheckpointLaunchMetadata(
     parentSimulationId:
       request.parent_simulation_id ?? existingHandle.parentSimulationId,
   };
+}
+
+function buildCheckpointRequestManifest(
+  request: CheckpointRequest,
+): ConcordiaCheckpointManifest {
+  return normalizeCheckpointManifest({
+    ...(request.checkpoint_manifest ?? {}),
+    world_id: request.world_id,
+    workspace_id: request.workspace_id,
+    simulation_id: request.simulation_id,
+    lineage_id: request.lineage_id ?? request.checkpoint_manifest?.lineage_id ?? null,
+    parent_simulation_id:
+      request.parent_simulation_id ??
+      request.checkpoint_manifest?.parent_simulation_id ??
+      null,
+    step: request.step,
+    checkpoint_id:
+      request.checkpoint_id ?? request.checkpoint_manifest?.checkpoint_id,
+    checkpoint_path:
+      request.checkpoint_path ?? request.checkpoint_manifest?.checkpoint_path,
+  });
 }
 
 function mapAgentSessionToKnownAgent(
@@ -480,6 +511,7 @@ export class ConcordiaChannelAdapter
   private async handleCheckpoint(
     request: CheckpointRequest,
   ): Promise<Record<string, unknown>> {
+    const manifest = buildCheckpointRequestManifest(request);
     let handle = await this.ensureCheckpointHandle(request);
 
     const resolvedMemory = await this.resolveHandleMemoryContext(
@@ -498,30 +530,37 @@ export class ConcordiaChannelAdapter
       sessions,
       request.simulation_id,
     );
+    const enrichedManifest = this.buildCheckpointManifestForHandle(
+      manifest,
+      handle,
+      sessions,
+      memoryCtx,
+    );
+    const checkpointStatus = this.buildCheckpointStatusForHandle(
+      enrichedManifest,
+      memoryCtx,
+    );
+    this.registry.setCheckpoint(handle.simulationId, checkpointStatus);
 
     return this.buildCheckpointResponse(
       request,
       handle,
       sessions,
       agent_states,
+      enrichedManifest,
+      checkpointStatus,
     );
   }
 
   private async handleResume(
     request: ResumeRequest,
   ): Promise<Record<string, unknown>> {
-    const checkpoint = request.checkpoint;
-    const config = asRecord(checkpoint.config);
-    const worldId =
-      asString(checkpoint.world_id) ?? asString(config.world_id) ?? "default";
-    const workspaceId =
-      asString(checkpoint.workspace_id) ??
-      asString(config.workspace_id) ??
-      "concordia-sim";
-    const checkpointSimulationId =
-      asString(checkpoint.simulation_id) ?? asString(config.simulation_id);
-    const checkpointLineageId =
-      asString(checkpoint.lineage_id) ?? asString(config.lineage_id);
+    const checkpoint = normalizeCheckpointManifest(request.checkpoint);
+    const config = checkpoint.config;
+    const worldId = checkpoint.world_id;
+    const workspaceId = checkpoint.workspace_id;
+    const checkpointSimulationId = checkpoint.simulation_id;
+    const checkpointLineageId = checkpoint.lineage_id;
     const resumedSimulationId = request.simulation_id ?? randomUUID();
     const resumedLineageId =
       request.lineage_id ??
@@ -531,7 +570,7 @@ export class ConcordiaChannelAdapter
     const resumedParentSimulationId =
       request.parent_simulation_id ??
       checkpointSimulationId ??
-      asString(checkpoint.parent_simulation_id) ??
+      checkpoint.parent_simulation_id ??
       null;
     const premise = asString(config.premise) ?? "";
     const rawAgents = Array.isArray(config.agents) ? config.agents : [];
@@ -556,21 +595,13 @@ export class ConcordiaChannelAdapter
       premise,
     );
     const resumeHandleRequest = this.resolveResumeHandleRequest(resumeState);
-    const resumedFromStep = asNumber(checkpoint.step) ?? 0;
+    const resumedFromStep = checkpoint.step;
 
     const { handle, memoryCtx } = await this.createResumedHandleWithMemory(
       resumeHandleRequest,
       worldId,
       workspaceId,
-      {
-        checkpointSimulationId: checkpointSimulationId ?? null,
-        checkpointLineageId: checkpointLineageId ?? null,
-        checkpointParentSimulationId:
-          asString(checkpoint.parent_simulation_id) ?? null,
-        checkpointWorldId: worldId,
-        checkpointWorkspaceId: workspaceId,
-        resumedFromStep,
-      },
+      buildCheckpointMetadataFromManifest(checkpoint),
     );
     const sessions = await this.resumeSimulationSessions(
       handle,
@@ -581,6 +612,8 @@ export class ConcordiaChannelAdapter
       entityStates,
       resumedFromStep,
     );
+    const checkpointStatus = this.buildCheckpointStatusForHandle(checkpoint, memoryCtx);
+    this.registry.setCheckpoint(handle.simulationId, checkpointStatus);
 
     return buildResumeResponse(
       worldId,
@@ -590,6 +623,7 @@ export class ConcordiaChannelAdapter
       resumedParentSimulationId,
       resumedFromStep,
       sessions,
+      checkpointStatus,
     );
   }
 
@@ -1828,6 +1862,100 @@ export class ConcordiaChannelAdapter
     }
   }
 
+  private buildCheckpointMemoryNamespaceRefs(
+    manifest: ConcordiaCheckpointManifest,
+    memoryCtx: MemoryWiringContext | null,
+  ): ConcordiaCheckpointManifest["memory_namespace_refs"] {
+    if (!memoryCtx) {
+      return manifest.memory_namespace_refs;
+    }
+    return {
+      ...manifest.memory_namespace_refs,
+      continuity_mode: memoryCtx.continuityMode,
+      simulation_scope_id: memoryCtx.namespaces.simulationScopeId,
+      lineage_scope_id: memoryCtx.namespaces.lineageScopeId,
+      continuity_scope_id: memoryCtx.namespaces.continuityScopeId,
+      world_scope_id: memoryCtx.namespaces.worldScopeId,
+      effective_storage_key: memoryCtx.effectiveStorageKey,
+      log_storage_key: memoryCtx.namespaces.logStorageKey,
+      memory_workspace_id: memoryCtx.namespaces.memoryWorkspaceId,
+      identity_workspace_id: memoryCtx.namespaces.identityWorkspaceId,
+      procedural_workspace_id: memoryCtx.namespaces.proceduralWorkspaceId,
+      graph_workspace_id: memoryCtx.namespaces.graphWorkspaceId,
+      activation_key_prefix: memoryCtx.namespaces.activationKeyPrefix,
+      lifecycle_key_prefix: memoryCtx.namespaces.lifecycleKeyPrefix,
+      observation_fact_index_key: memoryCtx.namespaces.observationFactIndexKey,
+      collective_emergence_key: memoryCtx.namespaces.collectiveEmergenceKey,
+      shared_author: memoryCtx.namespaces.sharedAuthor,
+      shared_source_scope: memoryCtx.namespaces.sharedSourceScope,
+    };
+  }
+
+  private buildCheckpointManifestForHandle(
+    manifest: ConcordiaCheckpointManifest,
+    handle: ConcordiaSimulationHandle,
+    sessions: Awaited<ReturnType<ConcordiaChannelAdapter["buildCheckpointSessions"]>>,
+    memoryCtx: MemoryWiringContext | null,
+  ): ConcordiaCheckpointManifest {
+    const namespaceRefs = this.buildCheckpointMemoryNamespaceRefs(manifest, memoryCtx);
+    const replayCursor = Math.max(manifest.replay_cursor.replay_cursor, handle.replayCursor);
+    const replayEventCount = Math.max(
+      manifest.replay_cursor.replay_event_count,
+      handle.replayEventCount,
+    );
+    const currentStep = manifest.runtime_cursor.current_step || manifest.step;
+    return {
+      ...manifest,
+      world_id: handle.worldId,
+      workspace_id: handle.workspaceId,
+      simulation_id: handle.simulationId,
+      lineage_id: handle.lineageId ?? manifest.lineage_id ?? null,
+      parent_simulation_id: handle.parentSimulationId ?? manifest.parent_simulation_id ?? null,
+      agent_ids: manifest.agent_ids.length > 0 ? manifest.agent_ids : [...handle.agentIds],
+      restored_sessions: sessions,
+      runtime_cursor: {
+        ...manifest.runtime_cursor,
+        current_step: currentStep,
+        start_step: manifest.runtime_cursor.start_step || currentStep + 1,
+        max_steps: manifest.runtime_cursor.max_steps || handle.maxSteps || manifest.max_steps,
+        last_step_outcome:
+          manifest.runtime_cursor.last_step_outcome ?? handle.lastStepOutcome ?? null,
+        engine_type:
+          manifest.runtime_cursor.engine_type ??
+          handle.launchRequest.engine_type ??
+          null,
+      },
+      replay_cursor: {
+        ...manifest.replay_cursor,
+        replay_cursor: replayCursor,
+        replay_event_count: replayEventCount,
+        last_event_id:
+          manifest.replay_cursor.last_event_id ??
+          (replayCursor > 0 ? String(replayCursor) : null),
+      },
+      memory_namespace_refs: namespaceRefs,
+      subsystem_state:
+        manifest.subsystem_state ?? buildDefaultSubsystemRestore(),
+    };
+  }
+
+  private buildCheckpointStatusForHandle(
+    manifest: ConcordiaCheckpointManifest,
+    memoryCtx: MemoryWiringContext | null,
+  ): ConcordiaCheckpointStatus {
+    const checkpointStatus = buildCheckpointStatusFromManifest(manifest);
+    if (!memoryCtx) {
+      return checkpointStatus;
+    }
+    return {
+      ...checkpointStatus,
+      memory_namespace_refs: this.buildCheckpointMemoryNamespaceRefs(
+        manifest,
+        memoryCtx,
+      ),
+    };
+  }
+
   private buildCheckpointResponse(
     request: CheckpointRequest,
     handle: ConcordiaSimulationHandle,
@@ -1835,6 +1963,8 @@ export class ConcordiaChannelAdapter
     agentStates: Awaited<
       ReturnType<ConcordiaChannelAdapter["buildCheckpointAgentStates"]>
     >,
+    checkpointManifest: ConcordiaCheckpointManifest,
+    checkpoint: ConcordiaCheckpointStatus,
   ): Record<string, unknown> {
     return {
       world_id: request.world_id,
@@ -1845,6 +1975,8 @@ export class ConcordiaChannelAdapter
       step: request.step,
       sessions,
       agent_states: agentStates,
+      checkpoint_manifest: checkpointManifest,
+      checkpoint,
     };
   }
 
@@ -2409,6 +2541,7 @@ export class ConcordiaChannelAdapter
       terminal_reason: isTerminalSimulationStatus(handle.status)
         ? handle.reason
         : null,
+      checkpoint: handle.checkpoint,
     };
   }
 

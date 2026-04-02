@@ -4,6 +4,32 @@
  * @module
  */
 
+import type {
+  ConcordiaCheckpointManifest,
+  ConcordiaCheckpointResumeState,
+  ConcordiaCheckpointStatus,
+  ConcordiaCheckpointSummary,
+} from "./checkpoint-manifest.js";
+
+export type {
+  ConcordiaCheckpointManifest,
+  ConcordiaCheckpointMemoryNamespaceRefs,
+  ConcordiaCheckpointReplayCursor,
+  ConcordiaCheckpointResumeState,
+  ConcordiaCheckpointRuntimeCursor,
+  ConcordiaCheckpointSceneCursor,
+  ConcordiaCheckpointSessionMapping,
+  ConcordiaCheckpointStatus,
+  ConcordiaCheckpointSubsystem,
+  ConcordiaCheckpointSubsystemRestore,
+  ConcordiaCheckpointSummary,
+  ConcordiaCheckpointWorldStateRefs,
+  ConcordiaReplayCursorState,
+  ConcordiaRuntimeCursorState,
+  ConcordiaSceneCursorState,
+  ConcordiaWorldStateRefs,
+} from "./checkpoint-manifest.js";
+
 // ============================================================================
 // Bridge HTTP request/response types
 // ============================================================================
@@ -79,17 +105,21 @@ export interface GenerateAgentsRequest {
   readonly worldId?: string;
 }
 
-export interface CheckpointRequest {
+export interface CheckpointRequest
+  extends Omit<Partial<ConcordiaCheckpointManifest>, "checkpoint_path"> {
   readonly world_id: string;
   readonly workspace_id: string;
   readonly simulation_id: string;
+  readonly step: number;
   readonly lineage_id?: string | null;
   readonly parent_simulation_id?: string | null;
-  readonly step: number;
+  readonly checkpoint_id?: string;
+  readonly checkpoint_path?: string | null;
+  readonly checkpoint_manifest?: ConcordiaCheckpointManifest | null;
 }
 
 export interface ResumeRequest {
-  readonly checkpoint: Record<string, unknown>;
+  readonly checkpoint: ConcordiaCheckpointManifest;
   readonly simulation_id?: string;
   readonly lineage_id?: string | null;
   readonly parent_simulation_id?: string | null;
@@ -97,6 +127,7 @@ export interface ResumeRequest {
 }
 
 export interface GeneratedAgent {
+
   readonly id: string;
   readonly name: string;
   readonly personality: string;
@@ -168,6 +199,7 @@ export interface SimulationSummary {
   readonly last_completed_step: number;
   readonly last_step_outcome: string | null;
   readonly replay_event_count: number;
+  readonly checkpoint: ConcordiaCheckpointStatus | null;
 }
 
 export interface SimulationRecord extends SimulationSummary {
@@ -228,6 +260,7 @@ export interface SimulationStatusResponse {
   readonly updated_at: number;
   readonly last_step_outcome: string | null;
   readonly terminal_reason: string | null;
+  readonly checkpoint: ConcordiaCheckpointStatus | null;
 }
 
 export interface SimulationReplayEvent extends EventNotification {

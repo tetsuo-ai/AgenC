@@ -3,6 +3,7 @@ import type {
   ResumeRequest,
   SetupRequest,
 } from "./types.js";
+import type { ConcordiaCheckpointManifest } from "./checkpoint-manifest.js";
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -34,7 +35,7 @@ export interface ResumeHandleStateInput {
   readonly lineageId: string;
   readonly parentSimulationId: string | null;
   readonly request: ResumeRequest;
-  readonly checkpoint: Record<string, unknown>;
+  readonly checkpoint: ConcordiaCheckpointManifest;
   readonly config: Record<string, unknown>;
   readonly agents: SetupRequest["agents"];
   readonly premise: string;
