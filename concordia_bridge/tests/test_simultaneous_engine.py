@@ -152,3 +152,26 @@ class TestSimultaneousEngine:
 
         action_events = [e for e in events if e.type == "action"]
         assert len(action_events) <= 3
+
+    def test_accepts_scene_configs(self):
+        events = []
+        engine = InstrumentedSimultaneousEngine(
+            event_callback=events.append,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        scene1 = type("Scene", (), {"num_rounds": 1, "scene_type": {"name": "intro"}})()
+        scene2 = type("Scene", (), {"num_rounds": 1, "scene_type": {"name": "market"}})()
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[make_mock_entity("A")],
+                max_steps=2,
+                scenes=[scene1, scene2],
+            )
+
+        scene_events = [e for e in events if e.type == "scene_change"]
+        assert len(scene_events) == 2
+        assert scene_events[0].scene == "intro"
+        assert scene_events[1].step == 2

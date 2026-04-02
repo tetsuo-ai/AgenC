@@ -58,6 +58,7 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
         checkpoint_callback: Optional[Callable[[int], None]] = None,
         step_controller: object = None,
         step_callback: Optional[Callable] = None,
+        scenes: Optional[list] = None,
         start_step: int = 1,
     ) -> None:
         """Run simulation with simultaneous agent actions per step."""
@@ -73,6 +74,20 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                 metadata={"phase": "premise"},
             ))
 
+        scene_index = 0
+        scene_round = 0
+        current_scene = scenes[0] if scenes else None
+        if current_scene:
+            self._event_callback(SimulationEvent(
+                type="scene_change",
+                step=0,
+                timestamp=time.time(),
+                scene=getattr(current_scene, "scene_type", {}).get("name", "scene_0")
+                    if isinstance(getattr(current_scene, "scene_type", None), dict)
+                    else str(scene_index),
+                content=f"Scene started: {scene_index}",
+            ))
+
         for step in range(start_step, max_steps + 1):
             self._current_step = step
 
@@ -81,6 +96,24 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
 
             if self.terminate(gm):
                 break
+
+            if scenes and current_scene:
+                scene_round += 1
+                num_rounds = getattr(current_scene, "num_rounds", None) or 999
+                if scene_round > num_rounds:
+                    scene_index += 1
+                    scene_round = 0
+                    if scene_index < len(scenes):
+                        current_scene = scenes[scene_index]
+                        self._event_callback(SimulationEvent(
+                            type="scene_change",
+                            step=step,
+                            timestamp=time.time(),
+                            scene=str(scene_index),
+                            content=f"Scene transition to scene {scene_index}",
+                        ))
+                    else:
+                        current_scene = None
 
             if len(game_masters) > 1:
                 gm = self.next_game_master(gm, game_masters)
