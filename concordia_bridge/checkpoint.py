@@ -68,6 +68,7 @@ def save_checkpoint(
         "version": 1,
         "world_id": config.world_id,
         "workspace_id": config.workspace_id,
+        "user_id": config.user_id,
         "step": step,
         "max_steps": config.max_steps,
         "timestamp": time.time(),
@@ -86,15 +87,14 @@ def save_checkpoint(
 
     logger.info("Checkpoint saved: %s", filepath)
 
-    # Notify bridge to trigger memory consolidation
+    # Notify bridge to trigger memory consolidation / summary capture
     try:
         requests.post(
-            f"{config.bridge_url}/event",
+            f"{config.bridge_url}/checkpoint",
             json={
-                "type": "checkpoint",
-                "step": step,
-                "content": f"Checkpoint saved at step {step}",
                 "world_id": config.world_id,
+                "workspace_id": config.workspace_id,
+                "step": step,
             },
             timeout=5,
         )
@@ -193,6 +193,7 @@ def simulation_config_from_checkpoint(checkpoint: dict) -> SimulationConfig:
         workspace_id=raw.get("workspace_id", "concordia-sim"),
         premise=raw.get("premise", ""),
         agents=agents,
+        user_id=raw.get("user_id"),
         max_steps=raw.get("max_steps", checkpoint.get("step", 0)),
         gm_instructions=raw.get("gm_instructions", ""),
         gm_model=raw.get("gm_model", "grok-3-mini"),

@@ -180,30 +180,3 @@ function sanitizeFreeformSimulationResponse(
 ): string {
   return response.trim();
 }
-
-function looksLikeInstructionEcho(response: string): boolean {
-  const normalized = response.trim().toLowerCase();
-  const strongEchoPhrases = [
-    "reply exactly",
-    "respond exactly",
-    "plain-text description of your immediate next action",
-    "be specific and concrete",
-    "do not include your name",
-    "do not include quotation marks",
-    "only the words you would say next",
-    "stage directions",
-    "single number",
-  ];
-  const matchCount = strongEchoPhrases.reduce(
-    (count, phrase) => count + (normalized.includes(phrase) ? 1 : 0),
-    0,
-  );
-
-  return (
-    matchCount >= 2 ||
-    (/\b(?:respond|reply)\s+exactly\b/i.test(response) &&
-      /\b(?:only|name prefix|quotation marks|what you would say|single number|action)\b/i.test(
-        response,
-      ))
-  );
-}

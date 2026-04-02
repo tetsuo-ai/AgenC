@@ -6,6 +6,7 @@ import type {
   MemoryBackendLike,
   MemoryGraphLike,
   MemoryIngestionEngineLike,
+  MemoryLifecycleLike,
   MemoryRetrieverLike,
   MemoryWiringContext,
   ProceduralMemoryLike,
@@ -25,6 +26,7 @@ interface ConcordiaMemoryWorldServices {
   readonly dailyLogManager?: DailyLogManagerLike;
   readonly ingestionEngine?: MemoryIngestionEngineLike;
   readonly retriever?: MemoryRetrieverLike;
+  readonly lifecycle?: MemoryLifecycleLike;
   readonly vectorDbPath?: string;
 }
 
@@ -120,6 +122,7 @@ export async function resolveConcordiaMemoryContext(
       dailyLogManager: resolved.dailyLogManager,
       ingestionEngine: resolved.ingestionEngine,
       retriever: resolved.retriever,
+      lifecycle: resolved.lifecycle,
       encryptionKey: context.config.encryption_key,
       vectorDbPath: resolved.vectorDbPath,
     };
@@ -145,6 +148,7 @@ export async function resolveConcordiaMemoryContext(
     dailyLogManager: services.dailyLogManager,
     ingestionEngine: services.ingestionEngine,
     retriever: services.retriever,
+    lifecycle: services.lifecycle,
     encryptionKey: context.config.encryption_key,
     vectorDbPath: services.vectorDbPath,
   };

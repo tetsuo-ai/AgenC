@@ -44,7 +44,7 @@ class TestSimulationConfig:
         assert config.max_steps == 50
         assert config.gm_model == "grok-3-mini"
         assert config.gm_provider == "ollama"
-        assert config.engine_type == "sequential"
+        assert config.engine_type == "simultaneous"
         assert config.bridge_url == "http://localhost:3200"
         assert config.event_port == 3201
         assert config.control_port == 3202

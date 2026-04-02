@@ -155,6 +155,7 @@ def cmd_run_json(args: argparse.Namespace) -> None:
         workspace_id=raw.get("workspace_id", "concordia-sim"),
         premise=raw.get("premise", ""),
         agents=agents,
+        user_id=raw.get("user_id"),
         max_steps=raw.get("max_steps", 50),
         gm_instructions=raw.get("gm_instructions", ""),
         gm_model=raw.get("gm_model", "grok-3-mini"),

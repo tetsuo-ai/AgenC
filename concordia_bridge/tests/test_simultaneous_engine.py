@@ -38,6 +38,17 @@ def make_mock_gm(terminate_after: int = 999):
             return "Yes" if call_count[0] > terminate_after else "No"
         if action_spec.output_type == OutputType.MAKE_OBSERVATION:
             return "You observe the world."
+        if action_spec.output_type == OutputType.NEXT_ACTION_SPEC:
+            name = "someone"
+            prompt = getattr(action_spec, "call_to_action", "")
+            marker = "In what action spec format should "
+            if prompt.startswith(marker):
+              name = prompt.removeprefix(marker).split(" respond?", 1)[0]
+            return (
+                '{"call_to_action": "What would '
+                f'{name}'
+                ' do next?", "output_type": "free", "options": [], "tag": "action"}'
+            )
         if action_spec.output_type == OutputType.RESOLVE:
             return "Events resolved."
         return "No"

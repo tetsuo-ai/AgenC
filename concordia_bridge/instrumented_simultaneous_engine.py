@@ -91,9 +91,16 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
 
             # ALL agents act simultaneously
             actions: dict[str, str] = {}
+            action_specs = {
+                entity.name: self.build_entity_action_spec_from_game_master(
+                    gm,
+                    entity.name,
+                )
+                for entity in entities
+            }
             with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
                 futures = {
-                    pool.submit(entity.act, self.build_entity_action_spec(entity)): entity
+                    pool.submit(entity.act, action_specs[entity.name]): entity
                     for entity in entities
                 }
                 for future in as_completed(futures):
