@@ -88,8 +88,7 @@ class InstrumentedSequentialEngine(Engine):
         call_to_make_observation: str = (
             "What is the current situation faced by {name}? "
             "What do they now observe? Only include information of which "
-            "they are aware. Do not mention turn order, whose turn is next, "
-            "prompt instructions, or control-plane narration."
+            "they are aware."
         ),
         call_to_next_acting: str = "Who is next to act?",
         call_to_next_action_spec: str = _DEFAULT_CALL_TO_NEXT_ACTION_SPEC,
