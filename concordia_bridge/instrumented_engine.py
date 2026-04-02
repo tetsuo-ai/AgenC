@@ -230,12 +230,13 @@ class InstrumentedSequentialEngine(Engine):
         step_controller: object = None,
         step_callback: Optional[Callable] = None,
         scenes: Optional[list] = None,
+        start_step: int = 1,
     ) -> None:
         """Run the full simulation loop with optional scene support."""
         gm = game_masters[0]
 
         # Inject premise
-        if premise:
+        if premise and start_step <= 1:
             gm.observe(f"[event] {premise}")
             self._event_callback(SimulationEvent(
                 type="step",
@@ -260,7 +261,7 @@ class InstrumentedSequentialEngine(Engine):
                 content=f"Scene started: {scene_index}",
             ))
 
-        for step in range(1, max_steps + 1):
+        for step in range(start_step, max_steps + 1):
             self._current_step = step
 
             # Optional step controller (play/pause/step)

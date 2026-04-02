@@ -5,6 +5,8 @@ import type {
   IdentityManagerLike,
   MemoryBackendLike,
   MemoryGraphLike,
+  MemoryIngestionEngineLike,
+  MemoryRetrieverLike,
   MemoryWiringContext,
   ProceduralMemoryLike,
   SharedMemoryLike,
@@ -12,7 +14,7 @@ import type {
   TraceLoggerLike,
 } from "./memory-wiring.js";
 
-interface ConcordiaMemoryHostServices {
+interface ConcordiaMemoryWorldServices {
   readonly memoryBackend: MemoryBackendLike;
   readonly identityManager: IdentityManagerLike;
   readonly socialMemory: SocialMemoryLike;
@@ -21,6 +23,16 @@ interface ConcordiaMemoryHostServices {
   readonly sharedMemory?: SharedMemoryLike;
   readonly traceLogger?: TraceLoggerLike;
   readonly dailyLogManager?: DailyLogManagerLike;
+  readonly ingestionEngine?: MemoryIngestionEngineLike;
+  readonly retriever?: MemoryRetrieverLike;
+  readonly vectorDbPath?: string;
+}
+
+interface ConcordiaMemoryResolverHostServices {
+  readonly resolveWorldContext: (input: {
+    worldId: string;
+    workspaceId: string;
+  }) => Promise<ConcordiaMemoryWorldServices>;
 }
 
 interface ConcordiaRuntimeHostServices {
@@ -38,9 +50,9 @@ interface ConcordiaRuntimeHostServices {
   };
 }
 
-function isConcordiaMemoryHostServices(
+function isConcordiaMemoryWorldServices(
   value: unknown,
-): value is ConcordiaMemoryHostServices {
+): value is ConcordiaMemoryWorldServices {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -53,6 +65,16 @@ function isConcordiaMemoryHostServices(
     typeof candidate.socialMemory === "object" &&
     candidate.socialMemory !== null
   );
+}
+
+function isConcordiaMemoryResolverHostServices(
+  value: unknown,
+): value is ConcordiaMemoryResolverHostServices {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.resolveWorldContext === "function";
 }
 
 function isConcordiaRuntimeHostServices(
@@ -74,13 +96,36 @@ function isConcordiaRuntimeHostServices(
   return true;
 }
 
-export function resolveConcordiaMemoryContext(
+export async function resolveConcordiaMemoryContext(
   context: ChannelAdapterContext<ConcordiaChannelConfig>,
   worldId: string,
   workspaceId: string,
-): MemoryWiringContext | null {
+): Promise<MemoryWiringContext | null> {
   const services = context.host_services?.concordia_memory;
-  if (!isConcordiaMemoryHostServices(services)) {
+  if (isConcordiaMemoryResolverHostServices(services)) {
+    const resolved = await services.resolveWorldContext({
+      worldId,
+      workspaceId,
+    });
+    return {
+      worldId,
+      workspaceId,
+      memoryBackend: resolved.memoryBackend,
+      identityManager: resolved.identityManager,
+      socialMemory: resolved.socialMemory,
+      proceduralMemory: resolved.proceduralMemory,
+      graph: resolved.graph,
+      sharedMemory: resolved.sharedMemory,
+      traceLogger: resolved.traceLogger,
+      dailyLogManager: resolved.dailyLogManager,
+      ingestionEngine: resolved.ingestionEngine,
+      retriever: resolved.retriever,
+      encryptionKey: context.config.encryption_key,
+      vectorDbPath: resolved.vectorDbPath,
+    };
+  }
+
+  if (!isConcordiaMemoryWorldServices(services)) {
     context.logger.debug?.(
       "[concordia] Host concordia_memory services unavailable — memory wiring disabled",
     );
@@ -98,7 +143,10 @@ export function resolveConcordiaMemoryContext(
     sharedMemory: services.sharedMemory,
     traceLogger: services.traceLogger,
     dailyLogManager: services.dailyLogManager,
+    ingestionEngine: services.ingestionEngine,
+    retriever: services.retriever,
     encryptionKey: context.config.encryption_key,
+    vectorDbPath: services.vectorDbPath,
   };
 }
 

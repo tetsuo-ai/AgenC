@@ -232,3 +232,19 @@ class ProxyEntityWithLogging(ProxyEntity, EntityWithLogging):
 
     def get_last_log(self) -> dict[str, Any]:
         return self._last_log
+
+    def get_state(self) -> dict[str, Any]:
+        return {
+            "agent_id": self._agent_id,
+            "agent_name": self._name,
+            "world_id": self._world_id,
+            "workspace_id": self._workspace_id,
+            "turn_count": self._turn_count,
+            "last_log": self._last_log,
+        }
+
+    def set_state(self, state: dict[str, Any]) -> None:
+        self._turn_count = int(state.get("turn_count", self._turn_count))
+        last_log = state.get("last_log")
+        if isinstance(last_log, dict):
+            self._last_log = last_log

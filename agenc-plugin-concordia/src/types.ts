@@ -65,6 +65,16 @@ export interface GenerateAgentsRequest {
   readonly worldId?: string;
 }
 
+export interface CheckpointRequest {
+  readonly world_id: string;
+  readonly workspace_id: string;
+  readonly step: number;
+}
+
+export interface ResumeRequest {
+  readonly checkpoint: Record<string, unknown>;
+}
+
 export interface GeneratedAgent {
   readonly id: string;
   readonly name: string;

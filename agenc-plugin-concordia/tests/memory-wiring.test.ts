@@ -24,6 +24,8 @@ import {
   type SharedMemoryLike,
   type TraceLoggerLike,
   type DailyLogManagerLike,
+  type MemoryIngestionEngineLike,
+  type MemoryRetrieverLike,
 } from "../src/memory-wiring.js";
 
 function createMockBackend(): MemoryBackendLike {
@@ -118,6 +120,28 @@ function createMockDailyLogManager(): DailyLogManagerLike {
   };
 }
 
+function createMockIngestionEngine(): MemoryIngestionEngineLike {
+  return {
+    ingestTurn: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createMockRetriever(): MemoryRetrieverLike {
+  return {
+    retrieve: vi.fn().mockResolvedValue("<memory>Relevant fact</memory>"),
+    retrieveDetailed: vi.fn().mockResolvedValue({
+      content: "<memory>Relevant fact</memory>",
+      estimatedTokens: 24,
+      entries: [
+        {
+          entry: { id: "entry-7", role: "assistant" },
+          role: "semantic",
+        },
+      ],
+    }),
+  };
+}
+
 function createContext(overrides?: Partial<MemoryWiringContext>): MemoryWiringContext {
   return {
     worldId: "test-world",
@@ -148,6 +172,24 @@ describe("ingestObservation", () => {
           trustSource: "system",
           confidence: 0.9,
         }),
+      }),
+    );
+  });
+
+  it("indexes observations through the semantic ingestion engine when available", async () => {
+    const ingestionEngine = createMockIngestionEngine();
+    const ctx = createContext({ ingestionEngine });
+
+    await ingestObservation(ctx, "alice", "session-1", "You see Marcus approaching.");
+
+    expect(ingestionEngine.ingestTurn).toHaveBeenCalledWith(
+      "session-1",
+      "You see Marcus approaching.",
+      "[Observation recorded for future simulation turns.]",
+      expect.objectContaining({
+        workspaceId: "test-ws",
+        agentId: "alice",
+        worldId: "test-world",
       }),
     );
   });
@@ -304,6 +346,36 @@ describe("retrieveProcedures", () => {
     const ctx = createContext();
     const result = await retrieveProcedures(ctx, "test");
     expect(result).toBe("");
+  });
+});
+
+describe("buildFullActContext", () => {
+  it("includes semantic retrieval context and updates activation scores", async () => {
+    const retriever = createMockRetriever();
+    const traceLogger = createMockTraceLogger();
+    const ctx = createContext({
+      proceduralMemory: createMockProceduralMemory(),
+      retriever,
+      traceLogger,
+      memoryBackend: {
+        ...createMockBackend(),
+        set: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    const result = await buildFullActContext(
+      ctx,
+      "alice",
+      "session-1",
+      "Negotiate with Marcus about iron prices",
+    );
+
+    expect(result).toContain("Relevant fact");
+    expect(ctx.memoryBackend.set).toHaveBeenCalledWith(
+      "test-ws:activation:entry-7",
+      expect.objectContaining({ accessCount: 1 }),
+    );
+    expect(traceLogger.traceRetrieval).toHaveBeenCalled();
   });
 });
 

@@ -16,6 +16,10 @@ const setupCalls: unknown[] = [];
 const eventCalls: unknown[] = [];
 const launchCalls: unknown[] = [];
 const generateCalls: unknown[] = [];
+const checkpointCalls: unknown[] = [];
+const resumeCalls: unknown[] = [];
+const actRequestIds: string[] = [];
+const generateRequestIds: string[] = [];
 
 beforeAll(async () => {
   sessionManager = new SessionManager();
@@ -26,8 +30,9 @@ beforeAll(async () => {
     host: "127.0.0.1",
     logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     sessionManager,
-    onAct: async (agentId, sessionId, message) => {
+    onAct: async (agentId, sessionId, message, requestId) => {
       actCalls.push(message);
+      actRequestIds.push(requestId);
       return `response for ${agentId}`;
     },
     onObserve: async (agentId, sessionId, observation) => {
@@ -51,8 +56,17 @@ beforeAll(async () => {
       launchCalls.push(request);
       return { pid: 4242, world_id: request.world_id };
     },
-    onGenerateAgents: async (request) => {
+    onCheckpoint: async (request) => {
+      checkpointCalls.push(request);
+      return { world_id: request.world_id, step: request.step, sessions: [] };
+    },
+    onResume: async (request) => {
+      resumeCalls.push(request);
+      return { world_id: "test-world", resumed_from_step: 5, sessions: {} };
+    },
+    onGenerateAgents: async (request, requestId) => {
       generateCalls.push(request);
+      generateRequestIds.push(requestId);
       return {
         agents: [
           {
@@ -169,6 +183,51 @@ describe("Bridge HTTP Server", () => {
     });
   });
 
+  describe("POST /checkpoint", () => {
+    it("delegates checkpoint generation", async () => {
+      const resp = await fetch(url("/checkpoint"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          world_id: "checkpoint-world",
+          workspace_id: "test-ws",
+          step: 7,
+        }),
+      });
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.status).toBe("ok");
+      expect(data.step).toBe(7);
+      expect(checkpointCalls).toHaveLength(1);
+    });
+  });
+
+  describe("POST /resume", () => {
+    it("delegates resume handling", async () => {
+      const resp = await fetch(url("/resume"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkpoint: {
+            world_id: "test-world",
+            step: 5,
+            config: {
+              world_id: "test-world",
+              workspace_id: "test-ws",
+              premise: "Resume premise",
+              agents: [],
+            },
+          },
+        }),
+      });
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.status).toBe("ok");
+      expect(data.resumed_from_step).toBe(5);
+      expect(resumeCalls).toHaveLength(1);
+    });
+  });
+
   describe("POST /generate-agents", () => {
     it("returns generated agents", async () => {
       const resp = await fetch(url("/generate-agents"), {
@@ -185,6 +244,9 @@ describe("Bridge HTTP Server", () => {
       expect(Array.isArray(data.agents)).toBe(true);
       expect(data.agents[0].id).toBe("alex");
       expect(generateCalls).toHaveLength(1);
+      expect(generateRequestIds[0]).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      );
     });
   });
 
@@ -217,6 +279,9 @@ describe("Bridge HTTP Server", () => {
       const data = await resp.json();
       expect(resp.status).toBe(200);
       expect(data.action).toBe("response for alice");
+      expect(actRequestIds[0]).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      );
     });
   });
 

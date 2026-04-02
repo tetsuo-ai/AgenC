@@ -58,11 +58,12 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
         checkpoint_callback: Optional[Callable[[int], None]] = None,
         step_controller: object = None,
         step_callback: Optional[Callable] = None,
+        start_step: int = 1,
     ) -> None:
         """Run simulation with simultaneous agent actions per step."""
         gm = game_masters[0]
 
-        if premise:
+        if premise and start_step <= 1:
             gm.observe(f"[event] {premise}")
             self._event_callback(SimulationEvent(
                 type="step",
@@ -72,7 +73,7 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                 metadata={"phase": "premise"},
             ))
 
-        for step in range(1, max_steps + 1):
+        for step in range(start_step, max_steps + 1):
             self._current_step = step
 
             if step_controller and hasattr(step_controller, "wait_for_step_permission"):

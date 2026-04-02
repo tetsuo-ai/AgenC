@@ -13,6 +13,7 @@ from concordia_bridge.checkpoint import (
     save_checkpoint,
     load_checkpoint,
     list_checkpoints,
+    simulation_config_from_checkpoint,
 )
 
 
@@ -27,6 +28,9 @@ class MockEntity:
 
     def get_last_log(self):
         return self._last_log
+
+    def get_state(self):
+        return {"turn_count": 3, "last_log": self._last_log}
 
 
 @pytest.fixture
@@ -74,6 +78,7 @@ class TestCheckpoint:
         assert data["step"] == 3
         assert "Alice" in data["entity_logs"]
         assert data["entity_logs"]["Alice"]["action"] == "test action"
+        assert data["entity_states"]["Alice"]["turn_count"] == 3
 
     def test_load_returns_checkpoint(self, tmp_checkpoint_dir, sample_config) -> None:
         entities = [MockEntity("Alice")]
@@ -104,3 +109,17 @@ class TestCheckpoint:
     def test_list_checkpoints_empty_dir(self, tmp_checkpoint_dir) -> None:
         cps = list_checkpoints("nonexistent", tmp_checkpoint_dir)
         assert cps == []
+
+    def test_simulation_config_from_checkpoint(self, tmp_checkpoint_dir, sample_config) -> None:
+        entities = [MockEntity("Alice")]
+        filepath = save_checkpoint(
+            sample_config, step=4, game_master=object(),
+            entities=entities, checkpoint_dir=tmp_checkpoint_dir,
+        )
+        checkpoint = load_checkpoint(filepath)
+        assert checkpoint is not None
+
+        config = simulation_config_from_checkpoint(checkpoint)
+        assert config.world_id == "test-world"
+        assert config.workspace_id == "test-ws"
+        assert len(config.agents) == 2
