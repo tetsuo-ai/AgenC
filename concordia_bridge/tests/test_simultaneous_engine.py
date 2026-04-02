@@ -118,8 +118,11 @@ class TestSimultaneousEngine:
             )
 
         action_events = [e for e in events if e.type == "action"]
-        # Both agents should have events (bad gets fallback)
-        assert len(action_events) == 2
+        error_events = [e for e in events if e.type == "error"]
+        assert len(action_events) == 1
+        assert action_events[0].agent_name == "Good"
+        assert len(error_events) == 1
+        assert error_events[0].agent_name == "Bad"
 
     def test_terminates_correctly(self):
         events = []

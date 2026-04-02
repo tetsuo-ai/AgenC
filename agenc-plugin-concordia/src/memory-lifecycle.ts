@@ -144,6 +144,13 @@ async function runRetention(ctx: MemoryWiringContext): Promise<void> {
   );
 }
 
+export async function runCheckpointMaintenance(
+  ctx: MemoryWiringContext,
+): Promise<void> {
+  await runConsolidation(ctx);
+  await runRetention(ctx);
+}
+
 // ============================================================================
 // Post-simulation operations
 // ============================================================================

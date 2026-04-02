@@ -4,6 +4,7 @@ CLI entry point for agenc-concordia.
 Commands:
   bridge   — Start the bridge server (requires daemon running)
   run      — Run a simulation from a config module
+  resume   — Resume a simulation from a checkpoint
   examples — List available example configs
   status   — Check simulation status
 
@@ -52,6 +53,15 @@ def main() -> None:
         help="Path to a JSON file matching SimulationConfig fields",
     )
 
+    # --- resume ---
+    resume_parser = subparsers.add_parser(
+        "resume", help="Resume a simulation from a checkpoint",
+    )
+    resume_parser.add_argument(
+        "--checkpoint", required=True,
+        help="Path to a checkpoint JSON file",
+    )
+
     # --- examples ---
     subparsers.add_parser("examples", help="List available example configs")
 
@@ -70,6 +80,8 @@ def main() -> None:
         cmd_run(args)
     elif args.command == "run-json":
         cmd_run_json(args)
+    elif args.command == "resume":
+        cmd_resume(args)
     elif args.command == "examples":
         cmd_examples()
     elif args.command == "status":
@@ -185,6 +197,41 @@ def _run_config(config) -> None:
         print(f"\nSimulation failed: {exc}")
         if logger.isEnabledFor(logging.DEBUG):
             logger.exception("Simulation error")
+        sys.exit(1)
+
+
+def cmd_resume(args: argparse.Namespace) -> None:
+    """Resume a simulation from a saved checkpoint."""
+    from concordia_bridge.checkpoint import (
+        load_checkpoint,
+        simulation_config_from_checkpoint,
+    )
+    from concordia_bridge.runner import run_simulation
+
+    checkpoint = load_checkpoint(args.checkpoint)
+    if checkpoint is None:
+        print(f"Error: Could not load checkpoint: {args.checkpoint}")
+        sys.exit(1)
+
+    config = simulation_config_from_checkpoint(checkpoint)
+
+    print(f"Resuming simulation: {config.world_id}")
+    print(f"  Checkpoint: {args.checkpoint}")
+    print(f"  Resume from step: {checkpoint.get('step', 0) + 1}")
+    print(f"  Max steps: {config.max_steps}")
+    print()
+
+    try:
+        summary = run_simulation(config, verbose=True, checkpoint=checkpoint)
+        print(f"\nSimulation complete:")
+        print(f"  Steps: {summary['steps_completed']}/{summary['max_steps']}")
+        print(f"  Events: {summary['event_count']}")
+    except KeyboardInterrupt:
+        print("\nSimulation interrupted.")
+    except Exception as exc:
+        print(f"\nSimulation resume failed: {exc}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.exception("Simulation resume error")
         sys.exit(1)
 
 

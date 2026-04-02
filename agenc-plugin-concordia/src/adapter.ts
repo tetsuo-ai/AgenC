@@ -38,6 +38,8 @@ import type {
   GenerateAgentsRequest,
   GeneratedAgent,
   AgentStateResponse,
+  CheckpointRequest,
+  ResumeRequest,
 } from "./types.js";
 import { SessionManager } from "./session-manager.js";
 import { createBridgeServer } from "./bridge-http.js";
@@ -53,7 +55,11 @@ import {
   storePremise,
   getAgentState as loadAgentState,
 } from "./memory-wiring.js";
-import { runPeriodicTasks, postSimulationCleanup } from "./memory-lifecycle.js";
+import {
+  runPeriodicTasks,
+  postSimulationCleanup,
+  runCheckpointMaintenance,
+} from "./memory-lifecycle.js";
 import {
   resolveConcordiaLaunchDefaults,
   resolveConcordiaMemoryContext,
@@ -72,8 +78,20 @@ const MAX_GENERATED_AGENTS = 25;
 // ============================================================================
 
 interface PendingResponseRequest {
+  readonly agentId?: string;
+  readonly sessionId: string;
   resolve: (content: string) => void;
   timeout: ReturnType<typeof setTimeout>;
+}
+
+function extractRequestId(
+  metadata: ChannelOutboundMessage["metadata"],
+): string | null {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const value = (metadata as Record<string, unknown>).request_id;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 // ============================================================================
@@ -112,13 +130,17 @@ export class ConcordiaChannelAdapter
       host,
       logger: this.context.logger,
       sessionManager: this.sessionManager,
-      onAct: (agentId, sessionId, message) =>
-        this.handleAct(agentId, sessionId, message),
+      onAct: (agentId, sessionId, message, requestId) =>
+        this.handleAct(agentId, sessionId, message, requestId),
       onObserve: (agentId, sessionId, observation) =>
         this.handleObserve(agentId, sessionId, observation),
       onSetup: (request) => this.handleSetup(request),
+      onReset: () => this.handleReset(),
+      onCheckpoint: (request) => this.handleCheckpoint(request),
+      onResume: (request) => this.handleResume(request),
       onLaunch: (request) => this.handleLaunch(request),
-      onGenerateAgents: (request) => this.handleGenerateAgents(request),
+      onGenerateAgents: (request, requestId) =>
+        this.handleGenerateAgents(request, requestId),
       onEvent: (event) => this.handleEvent(event),
       getAgentState: (agentId) => this.handleGetAgentState(agentId),
     });
@@ -181,20 +203,32 @@ export class ConcordiaChannelAdapter
     // Skip partial streaming chunks — wait for the complete response
     if (message.is_partial) return;
 
-    const session = this.sessionManager.findBySessionId(message.session_id);
-    if (!session) {
+    const requestId = extractRequestId(message.metadata);
+    if (!requestId) {
       this.context.logger.warn?.(
-        `[concordia] send() for unknown session: ${message.session_id}`,
+        `[concordia] send() missing request_id for session: ${message.session_id}`,
       );
       return;
     }
 
-    const pending = this.pendingResponses.get(message.session_id);
-    if (pending) {
-      clearTimeout(pending.timeout);
-      pending.resolve(message.content);
-      this.pendingResponses.delete(message.session_id);
+    const pending = this.pendingResponses.get(requestId);
+    if (!pending) {
+      this.context.logger.warn?.(
+        `[concordia] send() for unknown request_id: ${requestId}`,
+      );
+      return;
     }
+
+    if (pending.sessionId !== message.session_id) {
+      this.context.logger.warn?.(
+        `[concordia] send() session mismatch for request ${requestId}: expected ${pending.sessionId}, got ${message.session_id}`,
+      );
+      return;
+    }
+
+    clearTimeout(pending.timeout);
+    pending.resolve(message.content);
+    this.pendingResponses.delete(requestId);
   }
 
   isHealthy(): boolean {
@@ -214,7 +248,7 @@ export class ConcordiaChannelAdapter
     this.clearPendingResponses("");
 
     // Resolve memory wiring context for this simulation
-    this.memoryCtx = resolveConcordiaMemoryContext(
+    this.memoryCtx = await resolveConcordiaMemoryContext(
       this.context,
       request.world_id,
       request.workspace_id,
@@ -268,12 +302,136 @@ export class ConcordiaChannelAdapter
     return sessions;
   }
 
+  private async handleReset(): Promise<void> {
+    this.sessionManager.clear();
+    this.clearPendingResponses("");
+    await stopSimulationRunner(this.simulationRunner);
+    this.simulationRunner = null;
+    this.memoryCtx = null;
+    this.simulationStep = 0;
+    this.simulationPremise = "";
+  }
+
+  private async handleCheckpoint(
+    request: CheckpointRequest,
+  ): Promise<Record<string, unknown>> {
+    if (
+      !this.memoryCtx ||
+      this.memoryCtx.worldId !== request.world_id ||
+      this.memoryCtx.workspaceId !== request.workspace_id
+    ) {
+      this.memoryCtx = await resolveConcordiaMemoryContext(
+        this.context,
+        request.world_id,
+        request.workspace_id,
+      );
+    }
+
+    if (this.memoryCtx) {
+      await runCheckpointMaintenance(this.memoryCtx);
+    }
+
+    const sessions = this.sessionManager
+      .getAll()
+      .filter((session) => session.worldId === request.world_id)
+      .map((session) => ({
+        agent_id: session.agentId,
+        agent_name: session.agentName,
+        session_id: session.sessionId,
+        turn_count: session.turnCount,
+        last_action: session.lastAction,
+      }));
+
+    const agent_states = await Promise.all(
+      sessions.map(async (session) => ({
+        agent_id: session.agent_id,
+        state: await this.handleGetAgentState(session.agent_id),
+      })),
+    );
+
+    return {
+      world_id: request.world_id,
+      workspace_id: request.workspace_id,
+      step: request.step,
+      sessions,
+      agent_states,
+    };
+  }
+
+  private async handleResume(
+    request: ResumeRequest,
+  ): Promise<Record<string, unknown>> {
+    const checkpoint = request.checkpoint;
+    const config = asRecord(checkpoint.config);
+    const worldId = asString(checkpoint.world_id) ?? asString(config.world_id) ?? "default";
+    const workspaceId =
+      asString(checkpoint.workspace_id) ??
+      asString(config.workspace_id) ??
+      "concordia-sim";
+    const premise = asString(config.premise) ?? "";
+    const agents = Array.isArray(config.agents) ? config.agents : [];
+    const entityStates = asRecord(checkpoint.entity_states);
+
+    await this.handleReset();
+
+    this.memoryCtx = await resolveConcordiaMemoryContext(
+      this.context,
+      worldId,
+      workspaceId,
+    );
+    this.simulationPremise = premise;
+    this.simulationStep = asNumber(checkpoint.step) ?? 0;
+
+    const sessions: Record<string, string> = {};
+    for (const rawAgent of agents) {
+      const agent = asRecord(rawAgent);
+      const agentId = asString(agent.id);
+      const agentName = asString(agent.name);
+      if (!agentId || !agentName) {
+        continue;
+      }
+
+      const session = this.sessionManager.getOrCreate({
+        agentId,
+        agentName,
+        worldId,
+        workspaceId,
+      });
+      sessions[agentId] = session.sessionId;
+
+      if (this.memoryCtx) {
+        await setupAgentIdentity(
+          this.memoryCtx,
+          agentId,
+          agentName,
+          asString(agent.personality) ?? "",
+          asString(agent.goal) ?? "",
+        );
+      }
+
+      const entityState = asRecord(entityStates[agentName]);
+      const turnCount = asNumber(entityState.turn_count);
+      session.turnCount = turnCount ?? session.turnCount;
+      const lastLog = asRecord(entityState.last_log);
+      const lastAction = asString(lastLog.action);
+      session.lastAction = lastAction ?? session.lastAction;
+    }
+
+    return {
+      world_id: worldId,
+      workspace_id: workspaceId,
+      resumed_from_step: this.simulationStep,
+      sessions,
+    };
+  }
+
   private async handleAct(
     agentId: string,
     sessionId: string,
     message: string,
+    requestId: string,
   ): Promise<string> {
-    const session = this.sessionManager.get(agentId);
+    const session = this.sessionManager.findBySessionId(sessionId);
     if (!session) {
       return "Agent not found — cannot act.";
     }
@@ -320,6 +478,7 @@ export class ConcordiaChannelAdapter
         type: "concordia_agent_turn",
         turn_contract: "concordia_simulation_turn",
         concordia_turn_contract: "concordia_simulation_turn",
+        request_id: requestId,
         world_id: session.worldId,
         workspace_id: session.workspaceId,
         concordia_turn: session.turnCount,
@@ -328,7 +487,9 @@ export class ConcordiaChannelAdapter
 
     // Create a promise that resolves when send() is called
     const actionPromise = this.createPendingResponse(
+      requestId,
       sessionId,
+      agentId,
       "",
       120_000,
       `[concordia] /act timeout for ${session.agentName} after 120000ms`,
@@ -371,6 +532,8 @@ export class ConcordiaChannelAdapter
     sessionId: string,
     observation: string,
   ): Promise<void> {
+    const session = this.sessionManager.findBySessionId(sessionId);
+
     // Wire: ingest observation into persistent memory
     if (this.memoryCtx) {
       try {
@@ -398,7 +561,7 @@ export class ConcordiaChannelAdapter
         provenance: "concordia:gm_observation",
         concordia_tag: "observation",
         ingest_only: true,
-        world_id: this.sessionManager.get(agentId)?.worldId,
+        world_id: session?.worldId,
         agent_id: agentId,
         is_observation: true,
       },
@@ -510,6 +673,7 @@ export class ConcordiaChannelAdapter
 
   private async handleGenerateAgents(
     request: GenerateAgentsRequest,
+    requestId: string,
   ): Promise<{ agents: readonly GeneratedAgent[] }> {
     const count = Math.max(
       2,
@@ -527,7 +691,9 @@ export class ConcordiaChannelAdapter
     ].join("\n");
 
     const responsePromise = this.createPendingResponse(
+      requestId,
       sessionId,
+      "concordia-agent-generator",
       "",
       60_000,
       "[concordia] /generate-agents timed out after 60000ms",
@@ -544,6 +710,7 @@ export class ConcordiaChannelAdapter
       timestamp: Date.now(),
       metadata: {
         type: "concordia_generate_agents",
+        request_id: requestId,
         world_id: request.worldId ?? "generated-world",
       },
     };
@@ -594,19 +761,26 @@ export class ConcordiaChannelAdapter
   }
 
   private createPendingResponse(
+    requestId: string,
     sessionId: string,
+    agentId: string | undefined,
     fallback: string,
     timeoutMs: number,
     timeoutLog: string,
   ): Promise<string> {
     return new Promise<string>((resolve) => {
       const timeout = setTimeout(() => {
-        this.pendingResponses.delete(sessionId);
+        this.pendingResponses.delete(requestId);
         resolve(fallback);
         this.context.logger.warn?.(timeoutLog);
       }, timeoutMs);
 
-      this.pendingResponses.set(sessionId, { resolve, timeout });
+      this.pendingResponses.set(requestId, {
+        agentId,
+        sessionId,
+        resolve,
+        timeout,
+      });
     });
   }
 
@@ -651,4 +825,18 @@ export class ConcordiaChannelAdapter
 
     return agents;
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

@@ -143,7 +143,8 @@ class TestNextActing:
         assert observation_spec.call_to_action == (
             "What is the current situation faced by Alice? "
             "What do they now observe? Only include information of which "
-            "they are aware."
+            "they are aware. Do not mention turn order, whose turn is next, "
+            "prompt instructions, or control-plane narration."
         )
 
 
