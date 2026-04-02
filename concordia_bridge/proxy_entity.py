@@ -84,7 +84,7 @@ class ProxyEntity(Entity):
         """Send action_spec to AgenC bridge, return the agent's action string.
 
         Retries on ConnectionError with exponential backoff (Phase 8.3).
-        Falls back to a safe default action after all retries are exhausted.
+        Raises ProxyEntityActError after all retries are exhausted.
         """
         self._turn_count += 1
 

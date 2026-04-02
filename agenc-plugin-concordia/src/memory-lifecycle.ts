@@ -14,6 +14,7 @@
  */
 
 import type { MemoryBackendLike, MemoryWiringContext } from "./memory-wiring.js";
+import { deriveSessionId } from "./session-manager.js";
 
 // ============================================================================
 // Periodic task scheduling
@@ -93,6 +94,15 @@ async function runReflectionForAgent(
   ctx: MemoryWiringContext,
   agentId: string,
 ): Promise<void> {
+  if (ctx.lifecycle) {
+    await ctx.lifecycle.reflectAgent({
+      agentId,
+      sessionId: deriveSessionId(ctx.worldId, agentId),
+      workspaceId: ctx.workspaceId,
+    });
+    return;
+  }
+
   // Load the agent's identity
   const identity = await ctx.identityManager.load(agentId, ctx.workspaceId);
   if (!identity) return;
@@ -117,6 +127,11 @@ async function runReflectionForAgent(
  *   import { runConsolidation } from "@tetsuo-ai/runtime/memory/consolidation";
  */
 async function runConsolidation(ctx: MemoryWiringContext): Promise<void> {
+  if (ctx.lifecycle) {
+    await ctx.lifecycle.consolidate({ workspaceId: ctx.workspaceId });
+    return;
+  }
+
   await ctx.memoryBackend.set(
     `${ctx.workspaceId}:consolidation:${ctx.worldId}:latest`,
     {
@@ -134,6 +149,11 @@ async function runConsolidation(ctx: MemoryWiringContext): Promise<void> {
  *   import { runRetention } from "@tetsuo-ai/runtime/memory/consolidation";
  */
 async function runRetention(ctx: MemoryWiringContext): Promise<void> {
+  if (ctx.lifecycle) {
+    await ctx.lifecycle.retain();
+    return;
+  }
+
   await ctx.memoryBackend.set(
     `${ctx.workspaceId}:retention:${ctx.worldId}:latest`,
     {

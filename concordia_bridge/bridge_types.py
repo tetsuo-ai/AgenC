@@ -58,6 +58,7 @@ class SimulationConfig:
     workspace_id: str
     premise: str
     agents: list[AgentConfig]
+    user_id: Optional[str] = None
     max_steps: int = 50
     gm_instructions: str = ""
     gm_model: str = "grok-3-mini"

@@ -39,6 +39,19 @@ def make_mock_gm(
             return observation
         elif action_spec.output_type == OutputType.NEXT_ACTING:
             return next_actor
+        elif action_spec.output_type == OutputType.NEXT_ACTION_SPEC:
+            requested_name = "Alice"
+            if isinstance(action_spec.call_to_action, str):
+                marker = "should "
+                start = action_spec.call_to_action.find(marker)
+                end = action_spec.call_to_action.find(" respond", start)
+                if start != -1 and end != -1:
+                    requested_name = action_spec.call_to_action[start + len(marker):end]
+            return (
+                '{"call_to_action": "What would '
+                f'{requested_name}'
+                ' do next?", "output_type": "free", "options": [], "tag": "action"}'
+            )
         elif action_spec.output_type == OutputType.RESOLVE:
             return resolution
         elif action_spec.output_type == OutputType.TERMINATE:
@@ -120,6 +133,7 @@ class TestNextActing:
         assert spec.output_type == OutputType.FREE
         assert spec.tag == "action"
         assert "Bob" in spec.call_to_action
+        assert gm.act.call_args_list[1].args[0].output_type == OutputType.NEXT_ACTION_SPEC
 
     def test_falls_back_to_first_entity(self):
         engine = InstrumentedSequentialEngine(event_callback=lambda e: None)
@@ -129,7 +143,10 @@ class TestNextActing:
         entity, spec = engine.next_acting(gm, [alice])
 
         assert entity.name == "Alice"
+        assert spec.output_type == OutputType.FREE
+        assert spec.tag == "action"
         assert "Alice" in spec.call_to_action
+        assert gm.act.call_args_list[1].args[0].output_type == OutputType.NEXT_ACTION_SPEC
 
     def test_builds_observation_prompt_with_required_engine_contract(self):
         engine = InstrumentedSequentialEngine(event_callback=lambda e: None)

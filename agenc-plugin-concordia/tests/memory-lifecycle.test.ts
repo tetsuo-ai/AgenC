@@ -9,8 +9,11 @@ import {
   TRUST_SOURCE_EXTERNAL,
 } from "../src/memory-lifecycle.js";
 import type { MemoryWiringContext } from "../src/memory-wiring.js";
+import { deriveSessionId } from "../src/session-manager.js";
 
-function createMockContext(): MemoryWiringContext {
+function createMockContext(
+  overrides?: Partial<MemoryWiringContext>,
+): MemoryWiringContext {
   return {
     worldId: "test-world",
     workspaceId: "test-ws",
@@ -38,6 +41,7 @@ function createMockContext(): MemoryWiringContext {
       addWorldFact: vi.fn().mockResolvedValue({}),
       getWorldFacts: vi.fn().mockResolvedValue([]),
     },
+    ...overrides,
   };
 }
 
@@ -88,6 +92,40 @@ describe("runPeriodicTasks", () => {
     );
     // Should not throw
     await runPeriodicTasks(ctx, 5, ["alice"], { reflectionInterval: 5 });
+  });
+
+  it("prefers runtime lifecycle hooks when available", async () => {
+    const ctx = createMockContext({
+      lifecycle: {
+      reflectAgent: vi.fn().mockResolvedValue(true),
+      consolidate: vi.fn().mockResolvedValue({
+        processed: 5,
+        consolidated: 2,
+        skippedDuplicates: 0,
+        durationMs: 10,
+      }),
+      retain: vi.fn().mockResolvedValue({
+        expiredDeleted: 0,
+        logsDeleted: 0,
+      }),
+      },
+    });
+
+    await runPeriodicTasks(ctx, 20, ["alice"], {
+      reflectionInterval: 5,
+      consolidationInterval: 20,
+      retentionInterval: 20,
+    });
+
+    expect(ctx.lifecycle.reflectAgent).toHaveBeenCalledWith({
+      agentId: "alice",
+      sessionId: deriveSessionId("test-world", "alice"),
+      workspaceId: "test-ws",
+    });
+    expect(ctx.lifecycle.consolidate).toHaveBeenCalledWith({
+      workspaceId: "test-ws",
+    });
+    expect(ctx.lifecycle.retain).toHaveBeenCalled();
   });
 });
 

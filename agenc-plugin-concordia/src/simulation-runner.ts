@@ -24,6 +24,7 @@ export async function launchSimulationRunner(params: {
   const payload = {
     world_id: params.request.world_id,
     workspace_id: params.request.workspace_id,
+    ...(params.request.user_id ? { user_id: params.request.user_id } : {}),
     premise: params.request.premise,
     agents: params.request.agents,
     max_steps: params.request.max_steps ?? 20,

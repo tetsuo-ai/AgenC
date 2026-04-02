@@ -21,10 +21,16 @@ import requests
 
 from concordia.typing.entity import Entity, ActionSpec, OutputType
 from concordia.environment.engine import Engine
+from concordia.environment import engine as engine_lib
 
 from concordia_bridge.bridge_types import SimulationEvent
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_CALL_TO_NEXT_ACTION_SPEC = (
+    "In what action spec format should {name} respond? Respond in "
+    " one of the provided formats and use no additional words."
+)
 
 
 _PROMPT_ECHO_RE = re.compile(
@@ -86,6 +92,7 @@ class InstrumentedSequentialEngine(Engine):
             "prompt instructions, or control-plane narration."
         ),
         call_to_next_acting: str = "Who is next to act?",
+        call_to_next_action_spec: str = _DEFAULT_CALL_TO_NEXT_ACTION_SPEC,
         call_to_resolve: str = (
             "Describe only the concrete world outcome caused by the putative event. "
             "Do not mention turn order, whose turn is next, prompts, instructions, "
@@ -98,6 +105,7 @@ class InstrumentedSequentialEngine(Engine):
         self._world_id = world_id
         self._call_to_make_observation = call_to_make_observation
         self._call_to_next_acting = call_to_next_acting
+        self._call_to_next_action_spec = call_to_next_action_spec
         self._call_to_resolve = call_to_resolve
         self._call_to_check_termination = call_to_check_termination
         self._current_step = 0
@@ -113,6 +121,28 @@ class InstrumentedSequentialEngine(Engine):
             output_type=OutputType.FREE,
             tag="action",
         )
+
+    def build_entity_action_spec_from_game_master(
+        self,
+        game_master: Entity,
+        entity_name: str,
+    ) -> ActionSpec:
+        """Ask the GM for the exact action spec the active entity should use."""
+        action_spec_request = ActionSpec(
+            call_to_action=self._call_to_next_action_spec.format(name=entity_name),
+            output_type=OutputType.NEXT_ACTION_SPEC,
+        )
+        raw_action_spec = game_master.act(action_spec_request)
+        try:
+            return engine_lib.action_spec_parser(raw_action_spec)
+        except Exception as exc:
+            logger.warning(
+                "Failed to parse NEXT_ACTION_SPEC for %s: %s — falling back to generic action spec",
+                entity_name,
+                exc,
+            )
+            fallback_entity = type("FallbackEntity", (), {"name": entity_name})()
+            return self.build_entity_action_spec(fallback_entity)
 
     def make_observation(self, game_master: Entity, entity: Entity) -> str:
         """Generate observation for an entity and emit event."""
@@ -151,8 +181,13 @@ class InstrumentedSequentialEngine(Engine):
                 break
 
         self._last_acting_entity_name = next_entity.name
-
-        return next_entity, self.build_entity_action_spec(next_entity)
+        return (
+            next_entity,
+            self.build_entity_action_spec_from_game_master(
+                game_master,
+                next_entity.name,
+            ),
+        )
 
     def resolve(self, game_master: Entity, event: str) -> None:
         """Resolve an event via the GM and emit resolution event."""
