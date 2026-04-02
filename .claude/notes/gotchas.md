@@ -180,6 +180,10 @@ Last updated: 2026-03-25
   being routed through the full chat executor. Otherwise passive world-state
   updates burn planner/provider budget and make simulation turns look much
   slower than they are.
+- `agenc-plugin-concordia` is loaded by the runtime through dynamic
+  `import()`, so its packaging contract is ESM-first. Do not keep a fake CJS
+  bundle around if it depends on `import.meta.url`; either make the package
+  ESM-only or add a genuinely dual-format-safe path resolver.
 ## 2026-04-02
 
 - Concordia isolation must be keyed by world as well as agent. If the daemon session layer keys only by channel and sender, observations and history bleed across simulations with the same agent ID.
