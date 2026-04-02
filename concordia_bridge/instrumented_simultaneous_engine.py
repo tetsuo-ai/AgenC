@@ -15,8 +15,6 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Callable, Optional, Sequence
 
-import requests
-
 from concordia.typing.entity import Entity, ActionSpec, OutputType
 
 from concordia_bridge.bridge_types import SimulationEvent

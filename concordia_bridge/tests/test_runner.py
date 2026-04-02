@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import builtins
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
+from concordia_bridge.bridge_types import AgentConfig, SimulationConfig, SimulationEvent
 from concordia_bridge.observation_component import FreshObservationComponent
 from concordia_bridge.runner import (
+    _post_bridge_event,
     _configure_observation_override,
     _resolve_gm_api_key,
     create_embedder,
@@ -204,3 +206,33 @@ class TestObservationOverride:
         )
 
         assert prefab.params == {"name": "conversation rules"}
+
+
+class TestBridgeEventPosting:
+    def test_posts_runner_events_to_bridge(self) -> None:
+        config = SimulationConfig(
+            world_id="test-world",
+            workspace_id="test-ws",
+            premise="Test premise",
+            agents=[],
+            simulation_id="sim-bridge",
+            bridge_url="http://127.0.0.1:3200",
+        )
+
+        with patch("concordia_bridge.runner.requests.post") as mock_post:
+            _post_bridge_event(
+                config,
+                SimulationEvent(
+                    type="step",
+                    step=4,
+                    simulation_id="sim-bridge",
+                    world_id="test-world",
+                    workspace_id="test-ws",
+                    timestamp=123.0,
+                ),
+            )
+
+        mock_post.assert_called_once()
+        _, kwargs = mock_post.call_args
+        assert kwargs["json"]["simulation_id"] == "sim-bridge"
+        assert kwargs["json"]["type"] == "step"

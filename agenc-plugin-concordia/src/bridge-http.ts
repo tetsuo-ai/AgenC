@@ -15,6 +15,7 @@ import type { ChannelAdapterLogger } from "@tetsuo-ai/plugin-kit";
 import type {
   ActRequest,
   ActResponse,
+  SimulationCommand,
   ObserveRequest,
   SetupRequest,
   LaunchRequest,
@@ -24,7 +25,10 @@ import type {
   EventNotification,
   AgentStateResponse,
   BridgeMetrics,
+  SimulationEventsResponse,
   SimulationRecord,
+  SimulationReplayEvent,
+  SimulationStatusResponse,
   SimulationSummary,
 } from "./types.js";
 import { createEmptyMetrics } from "./types.js";
@@ -60,8 +64,26 @@ export interface BridgeServerConfig {
   ) => Promise<{ agents: readonly { id: string; name: string; personality: string; goal: string }[] }>;
   readonly onEvent: (event: EventNotification) => Promise<void>;
   readonly getAgentState?: (agentId: string, simulationId?: string | null) => Promise<AgentStateResponse | null>;
+  readonly getCurrentSimulationId?: () => Promise<string | null> | string | null;
   readonly listSimulations?: () => Promise<readonly SimulationSummary[]>;
   readonly getSimulation?: (simulationId: string) => Promise<SimulationRecord | null>;
+  readonly getSimulationStatus?: (simulationId: string) => Promise<SimulationStatusResponse | null>;
+  readonly controlSimulation?: (
+    simulationId: string,
+    command: SimulationCommand,
+  ) => Promise<SimulationStatusResponse | null>;
+  readonly listSimulationEvents?: (
+    simulationId: string,
+    cursor?: string | null,
+  ) => Promise<SimulationEventsResponse | null>;
+  readonly openSimulationEventStream?: (
+    simulationId: string,
+    cursor: string | null,
+    subscriber: (event: SimulationReplayEvent) => void,
+  ) => Promise<{
+    history: readonly SimulationReplayEvent[];
+    unsubscribe: () => void;
+  } | null>;
 }
 
 // ============================================================================
@@ -151,6 +173,52 @@ async function handleGet(
     return;
   }
 
+  const simulationEventsStreamMatch = path.match(/^\/simulations\/([^/]+)\/events\/stream$/);
+  if (simulationEventsStreamMatch && config.openSimulationEventStream) {
+    const simulationId = decodeURIComponent(simulationEventsStreamMatch[1]);
+    const cursor = getReplayCursor(url, req);
+    await handleSimulationEventStream(req, res, config, simulationId, cursor);
+    return;
+  }
+
+  const simulationEventsMatch = path.match(/^\/simulations\/([^/]+)\/events$/);
+  if (simulationEventsMatch && config.listSimulationEvents) {
+    const simulationId = decodeURIComponent(simulationEventsMatch[1]);
+    const cursor = getReplayCursor(url, req);
+    const events = await config.listSimulationEvents(simulationId, cursor);
+    if (!events) {
+      sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
+    } else {
+      sendJson(res, 200, events);
+    }
+    return;
+  }
+
+  const simulationStatusMatch = path.match(/^\/simulations\/([^/]+)\/status$/);
+  if (simulationStatusMatch && config.getSimulationStatus) {
+    const simulationId = decodeURIComponent(simulationStatusMatch[1]);
+    const status = await config.getSimulationStatus(simulationId);
+    if (!status) {
+      sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
+    } else {
+      sendJson(res, 200, status);
+    }
+    return;
+  }
+
+  const scopedAgentStateMatch = path.match(/^\/simulations\/([^/]+)\/agents\/([^/]+)\/state$/);
+  if (scopedAgentStateMatch && config.getAgentState) {
+    const simulationId = decodeURIComponent(scopedAgentStateMatch[1]);
+    const agentId = decodeURIComponent(scopedAgentStateMatch[2]);
+    const state = await config.getAgentState(agentId, simulationId);
+    if (!state) {
+      sendJson(res, 404, { error: `Agent ${agentId} not found in simulation ${simulationId}` });
+    } else {
+      sendJson(res, 200, state);
+    }
+    return;
+  }
+
   const simulationMatch = path.match(/^\/simulations\/([^/]+)$/);
   if (simulationMatch && config.getSimulation) {
     const simulationId = decodeURIComponent(simulationMatch[1]);
@@ -163,11 +231,28 @@ async function handleGet(
     return;
   }
 
+  if (path === "/simulation/status" && config.getSimulationStatus) {
+    const simulationId = await resolveCurrentSimulationId(config);
+    if (!simulationId) {
+      sendJson(res, 404, { error: "No active simulation" });
+      return;
+    }
+    const status = await config.getSimulationStatus(simulationId);
+    if (!status) {
+      sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
+    } else {
+      sendJson(res, 200, status);
+    }
+    return;
+  }
+
   // GET /agent/:id/state
   const agentStateMatch = path.match(/^\/agent\/([^/]+)\/state$/);
   if (agentStateMatch && config.getAgentState) {
     const agentId = decodeURIComponent(agentStateMatch[1]);
-    const simulationId = url.searchParams.get("simulation_id");
+    const simulationId =
+      url.searchParams.get("simulation_id") ??
+      (await resolveCurrentSimulationId(config));
     const state = await config.getAgentState(agentId, simulationId);
     if (state) {
       sendJson(res, 200, state);
@@ -190,8 +275,39 @@ async function handlePost(
   config: BridgeServerConfig,
   metrics: BridgeMetrics,
 ): Promise<void> {
-  const path = req.url ?? "/";
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  const path = url.pathname;
   const body = await readJsonBody(req);
+
+  const simulationCommandMatch = path.match(/^\/simulations\/([^/]+)\/(play|pause|step|stop)$/);
+  if (simulationCommandMatch && config.controlSimulation) {
+    const simulationId = decodeURIComponent(simulationCommandMatch[1]);
+    const command = simulationCommandMatch[2] as SimulationCommand;
+    const status = await config.controlSimulation(simulationId, command);
+    if (!status) {
+      sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
+    } else {
+      sendJson(res, 200, { status: "ok", simulation: status });
+    }
+    return;
+  }
+
+  const legacySimulationCommandMatch = path.match(/^\/simulation\/(play|pause|step|stop)$/);
+  if (legacySimulationCommandMatch && config.controlSimulation) {
+    const simulationId = await resolveCurrentSimulationId(config);
+    if (!simulationId) {
+      sendJson(res, 404, { error: "No active simulation" });
+      return;
+    }
+    const command = legacySimulationCommandMatch[1] as SimulationCommand;
+    const status = await config.controlSimulation(simulationId, command);
+    if (!status) {
+      sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
+    } else {
+      sendJson(res, 200, { status: "ok", simulation: status });
+    }
+    return;
+  }
 
   switch (path) {
     case "/act":
@@ -203,6 +319,7 @@ async function handlePost(
     case "/setup":
       await handleSetup(body as SetupRequest, res, config, metrics);
       break;
+    case "/simulations":
     case "/launch":
       await handleLaunch(body as LaunchRequest, res, config);
       break;
@@ -356,7 +473,7 @@ async function handleEvent(
   await config.onEvent(event);
 
   config.logger.debug?.(
-    `[concordia] /event simulation=${event.simulation_id} step=${event.step} type=${event.type}: ${event.content.slice(0, 80)}`,
+    `[concordia] /event simulation=${event.simulation_id} step=${event.step} type=${event.type}: ${(event.resolved_event ?? event.content ?? "").slice(0, 80)}`,
   );
 
   sendJson(res, 200, { status: "ok" });
@@ -421,14 +538,101 @@ async function handleGenerateAgents(
   sendJson(res, 200, result);
 }
 
+async function handleSimulationEventStream(
+  req: IncomingMessage,
+  res: ServerResponse,
+  config: BridgeServerConfig,
+  simulationId: string,
+  cursor: string | null,
+): Promise<void> {
+  if (!config.openSimulationEventStream) {
+    sendJson(res, 404, { error: "Simulation event streaming not supported" });
+    return;
+  }
+
+  const stream = await config.openSimulationEventStream(
+    simulationId,
+    cursor,
+    (event) => {
+      if (!res.writableEnded) {
+        writeSseEvent(res, event);
+      }
+    },
+  );
+  if (!stream) {
+    sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
+    return;
+  }
+
+  setCorsHeaders(res);
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  for (const event of stream.history) {
+    writeSseEvent(res, event);
+  }
+  res.write(`: ready ${simulationId}\n\n`);
+
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) {
+      res.write(`: keepalive ${Date.now()}\n\n`);
+    }
+  }, 15_000);
+
+  const cleanup = () => {
+    clearInterval(heartbeat);
+    stream.unsubscribe();
+  };
+
+  req.on("close", cleanup);
+  req.on("error", cleanup);
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
 
+function writeSseEvent(
+  res: ServerResponse,
+  event: SimulationReplayEvent,
+): void {
+  const payload = JSON.stringify(event);
+  res.write(`id: ${event.event_id}\ndata: ${payload}\n\n`);
+}
+
+function getReplayCursor(
+  url: URL,
+  req: IncomingMessage,
+): string | null {
+  const fromQuery = url.searchParams.get("cursor");
+  if (fromQuery) {
+    return fromQuery;
+  }
+  const fromHeader = req.headers["last-event-id"];
+  if (Array.isArray(fromHeader)) {
+    return fromHeader[0] ?? null;
+  }
+  return typeof fromHeader === "string" && fromHeader.length > 0
+    ? fromHeader
+    : null;
+}
+
+async function resolveCurrentSimulationId(
+  config: BridgeServerConfig,
+): Promise<string | null> {
+  if (!config.getCurrentSimulationId) {
+    return null;
+  }
+  return await config.getCurrentSimulationId();
+}
+
 function setCorsHeaders(res: ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Last-Event-ID");
 }
 
 function sendEmpty(res: ServerResponse, status: number): void {

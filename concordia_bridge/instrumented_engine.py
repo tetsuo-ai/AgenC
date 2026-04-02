@@ -28,7 +28,6 @@ from concordia_bridge.bridge_types import SimulationEvent
 from concordia_bridge.simulation_identity import (
     SimulationIdentity,
     apply_identity_to_event,
-    with_identity_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -117,7 +116,7 @@ class InstrumentedSequentialEngine(Engine):
         call_to_check_termination: str = "Is the game/simulation finished?",
     ) -> None:
         self._raw_event_callback = event_callback
-        self._bridge_url = bridge_url.rstrip("/")
+        del bridge_url
         self._world_id = world_id
         self._identity = SimulationIdentity(
             simulation_id=simulation_id,
@@ -306,9 +305,6 @@ class InstrumentedSequentialEngine(Engine):
             content=event,
             resolved_event=resolved,
         ))
-
-        # Notify bridge for social memory recording
-        self._notify_bridge_event(event, resolved)
 
     def terminate(self, game_master: Entity) -> bool:
         """Check if the simulation should end."""
@@ -530,21 +526,3 @@ class InstrumentedSequentialEngine(Engine):
         except Exception as exc:
             logger.warning("Pre-step validation error: %s", exc)
             return False
-
-    def _notify_bridge_event(self, putative: str, resolved: str) -> None:
-        """Notify the AgenC bridge about a resolved event for social memory."""
-        try:
-            requests.post(
-                f"{self._bridge_url}/event",
-                json=with_identity_payload({
-                    "type": "resolution",
-                    "step": self._current_step,
-                    "acting_agent": self._last_acting_entity_name,
-                    "content": resolved or putative,
-                    "world_id": self._world_id,
-                    "workspace_id": self._workspace_id,
-                }, self._identity),
-                timeout=15,
-            )
-        except Exception as exc:
-            logger.warning("Bridge event notification failed (step=%d): %s", self._current_step, exc)

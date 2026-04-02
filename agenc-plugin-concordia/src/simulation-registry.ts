@@ -2,11 +2,20 @@ import { createServer } from "node:net";
 import type { ChannelAdapterLogger } from "@tetsuo-ai/plugin-kit";
 import type {
   AgentSetupConfig,
+  EventNotification,
   LaunchRequest,
   SimulationLifecycleStatus,
+  SimulationReplayEvent,
   SimulationRecord,
   SimulationSummary,
 } from "./types.js";
+
+type ReplaySubscriber = (event: SimulationReplayEvent) => void;
+
+interface ReplayStreamHandle {
+  readonly history: readonly SimulationReplayEvent[];
+  readonly unsubscribe: () => void;
+}
 
 export interface NormalizedLaunchRequest
   extends Omit<LaunchRequest, "simulation_id" | "lineage_id" | "parent_simulation_id"> {
@@ -48,13 +57,17 @@ export interface SimulationHandle<TRunner = unknown, TMemoryContext = unknown, T
   controlPort: number | null;
   eventPort: number | null;
   lastCompletedStep: number;
+  lastProcessedResolutionStep: number;
   lastStepOutcome: string | null;
   replayEventCount: number;
+  replayCursor: number;
   currentAlias: boolean;
   launchRequest: MutableNormalizedLaunchRequest;
   runner: TRunner | null;
   memoryCtx: TMemoryContext | null;
   readonly pendingResponses: Map<string, TPending>;
+  readonly replayEvents: SimulationReplayEvent[];
+  readonly replaySubscribers: Set<ReplaySubscriber>;
 }
 
 const ACTIVE_STATUS_ORDER: ReadonlyArray<SimulationLifecycleStatus> = [
@@ -117,7 +130,10 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
   private readonly requestIndex = new Map<string, string>();
   private currentAlias: string | null = null;
 
-  constructor(private readonly logger?: ChannelAdapterLogger) {}
+  constructor(
+    private readonly logger?: ChannelAdapterLogger,
+    private readonly replayBufferLimit = 1000,
+  ) {}
 
   has(simulationId: string): boolean {
     return this.handles.has(simulationId);
@@ -230,8 +246,10 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       controlPort: params.controlPort ?? params.request.control_port ?? null,
       eventPort: params.eventPort ?? params.request.event_port ?? null,
       lastCompletedStep: 0,
+      lastProcessedResolutionStep: 0,
       lastStepOutcome: null,
       replayEventCount: 0,
+      replayCursor: 0,
       currentAlias: false,
       launchRequest: {
         ...params.request,
@@ -239,6 +257,8 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       runner: null,
       memoryCtx: null,
       pendingResponses: new Map(),
+      replayEvents: [],
+      replaySubscribers: new Set(),
     };
     this.handles.set(handle.simulationId, handle);
     if (params.currentAlias ?? true) {
@@ -256,6 +276,7 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
     for (const requestId of handle.pendingResponses.keys()) {
       this.requestIndex.delete(requestId);
     }
+    handle.replaySubscribers.clear();
     this.handles.delete(simulationId);
     if (this.currentAlias === simulationId) {
       this.setCurrentAlias(this.listHandles()[0]?.simulationId ?? null);
@@ -444,6 +465,67 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
     });
   }
 
+  appendReplayEvent(
+    simulationId: string,
+    event: EventNotification,
+  ): SimulationReplayEvent {
+    const record = this.requireMutated(simulationId, (handle) => {
+      handle.replayCursor += 1;
+      const replayEvent: SimulationReplayEvent = {
+        ...event,
+        event_id: String(handle.replayCursor),
+      };
+      handle.replayEvents.push(replayEvent);
+      if (handle.replayEvents.length > this.replayBufferLimit) {
+        handle.replayEvents.splice(0, handle.replayEvents.length - this.replayBufferLimit);
+      }
+      handle.replayEventCount = handle.replayEvents.length;
+      for (const subscriber of handle.replaySubscribers) {
+        try {
+          subscriber(replayEvent);
+        } catch (error) {
+          this.logger?.warn?.(
+            `[concordia] replay subscriber failed for ${simulationId}: ${String(error)}`,
+          );
+        }
+      }
+    });
+
+    return record.replayEvents[record.replayEvents.length - 1]!;
+  }
+
+  listReplayEvents(
+    simulationId: string,
+    afterCursor?: string | null,
+  ): readonly SimulationReplayEvent[] {
+    const handle = this.handles.get(simulationId);
+    if (!handle) {
+      return [];
+    }
+    const cursor = parseReplayCursor(afterCursor);
+    return cursor === null
+      ? [...handle.replayEvents]
+      : handle.replayEvents.filter((event) => parseReplayCursor(event.event_id) !== null && parseReplayCursor(event.event_id)! > cursor);
+  }
+
+  openReplayStream(
+    simulationId: string,
+    afterCursor: string | null | undefined,
+    subscriber: ReplaySubscriber,
+  ): ReplayStreamHandle | null {
+    const handle = this.handles.get(simulationId);
+    if (!handle) {
+      return null;
+    }
+    handle.replaySubscribers.add(subscriber);
+    return {
+      history: this.listReplayEvents(simulationId, afterCursor),
+      unsubscribe: () => {
+        handle.replaySubscribers.delete(subscriber);
+      },
+    };
+  }
+
   registerPendingResponse(
     simulationId: string,
     requestId: string,
@@ -527,8 +609,6 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       agent_ids: [...handle.agentIds],
       current_alias: handle.currentAlias,
       pid: handle.pid,
-      control_port: handle.controlPort,
-      event_port: handle.eventPort,
       last_completed_step: handle.lastCompletedStep,
       last_step_outcome: handle.lastStepOutcome,
       replay_event_count: handle.replayEventCount,
@@ -581,4 +661,12 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
     }
     return handle;
   }
+}
+
+function parseReplayCursor(value: string | null | undefined): number | null {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }

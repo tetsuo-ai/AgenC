@@ -15,6 +15,10 @@ const generateCalls: unknown[] = [];
 const checkpointCalls: unknown[] = [];
 const resumeCalls: unknown[] = [];
 const agentStateCalls: Array<{ agentId: string; simulationId: string | null | undefined }> = [];
+const simulationStatusCalls: string[] = [];
+const controlCalls: Array<{ simulationId: string; command: string }> = [];
+const simulationEventCalls: Array<{ simulationId: string; cursor: string | null | undefined }> = [];
+const streamSubscribers = new Map<string, Set<(event: Record<string, unknown>) => void>>();
 const actRequestIds: string[] = [];
 const generateRequestIds: string[] = [];
 const simulationSummaries = [
@@ -34,8 +38,6 @@ const simulationSummaries = [
     agent_ids: ["alice"],
     current_alias: true,
     pid: 1111,
-    control_port: 3202,
-    event_port: 3201,
     last_completed_step: 3,
     last_step_outcome: "resolved",
     replay_event_count: 7,
@@ -56,13 +58,85 @@ const simulationSummaries = [
     agent_ids: ["bob"],
     current_alias: false,
     pid: 2222,
-    control_port: 3302,
-    event_port: 3301,
     last_completed_step: 5,
     last_step_outcome: "paused",
     replay_event_count: 9,
   },
 ] as const;
+const simulationStatuses = new Map([
+  [
+    "sim-running",
+    {
+      simulation_id: "sim-running",
+      world_id: "world-alpha",
+      workspace_id: "ws-alpha",
+      status: "running",
+      reason: null,
+      error: null,
+      step: 3,
+      max_steps: 12,
+      running: true,
+      paused: false,
+      agent_count: 1,
+      started_at: 2,
+      ended_at: null,
+      updated_at: 5,
+      last_step_outcome: "resolved",
+      terminal_reason: null,
+    },
+  ],
+  [
+    "sim-paused",
+    {
+      simulation_id: "sim-paused",
+      world_id: "world-beta",
+      workspace_id: "ws-beta",
+      status: "paused",
+      reason: null,
+      error: null,
+      step: 5,
+      max_steps: 20,
+      running: true,
+      paused: true,
+      agent_count: 1,
+      started_at: 4,
+      ended_at: null,
+      updated_at: 6,
+      last_step_outcome: "paused",
+      terminal_reason: null,
+    },
+  ],
+]);
+const simulationEvents = new Map([
+  [
+    "sim-running",
+    [
+      {
+        event_id: "1",
+        type: "observation",
+        step: 1,
+        simulation_id: "sim-running",
+        world_id: "world-alpha",
+        workspace_id: "ws-alpha",
+        agent_name: "alice",
+        content: "Alice sees the forge.",
+        timestamp: 1,
+      },
+      {
+        event_id: "2",
+        type: "resolution",
+        step: 2,
+        simulation_id: "sim-running",
+        world_id: "world-alpha",
+        workspace_id: "ws-alpha",
+        agent_name: "alice",
+        content: "Alice bargains with the smith.",
+        resolved_event: "Alice secures a better price.",
+        timestamp: 2,
+      },
+    ],
+  ],
+]);
 const simulationRecords = new Map([
   [
     "sim-running",
@@ -156,8 +230,46 @@ beforeAll(async () => {
     onEvent: async (event) => {
       eventCalls.push(event);
     },
+    getCurrentSimulationId: async () => "sim-running",
     listSimulations: async () => simulationSummaries,
     getSimulation: async (simulationId) => simulationRecords.get(simulationId) ?? null,
+    getSimulationStatus: async (simulationId) => {
+      simulationStatusCalls.push(simulationId);
+      return simulationStatuses.get(simulationId) ?? null;
+    },
+    controlSimulation: async (simulationId, command) => {
+      controlCalls.push({ simulationId, command });
+      return simulationStatuses.get(simulationId) ?? null;
+    },
+    listSimulationEvents: async (simulationId, cursor) => {
+      simulationEventCalls.push({ simulationId, cursor });
+      const events = simulationEvents.get(simulationId);
+      if (!events) return null;
+      const filtered = cursor
+        ? events.filter((event) => Number(event.event_id) > Number(cursor))
+        : events;
+      return {
+        simulation_id: simulationId,
+        events: filtered,
+        next_cursor: filtered.at(-1)?.event_id ?? cursor ?? null,
+      };
+    },
+    openSimulationEventStream: async (simulationId, cursor, subscriber) => {
+      const events = simulationEvents.get(simulationId);
+      if (!events) return null;
+      const subscribers = streamSubscribers.get(simulationId) ?? new Set();
+      subscribers.add(subscriber as (event: Record<string, unknown>) => void);
+      streamSubscribers.set(simulationId, subscribers);
+      const filtered = cursor
+        ? events.filter((event) => Number(event.event_id) > Number(cursor))
+        : events;
+      return {
+        history: filtered,
+        unsubscribe: () => {
+          subscribers.delete(subscriber as (event: Record<string, unknown>) => void);
+        },
+      };
+    },
     getAgentState: async (agentId, simulationId) => {
       agentStateCalls.push({ agentId, simulationId });
       if (agentId === "unknown") return null;
@@ -237,6 +349,69 @@ describe("Bridge HTTP Server", () => {
     });
   });
 
+  describe("GET /simulations/:id/status", () => {
+    it("returns the simulation lifecycle status", async () => {
+      const resp = await fetch(url("/simulations/sim-running/status"));
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.simulation_id).toBe("sim-running");
+      expect(data.status).toBe("running");
+      expect(simulationStatusCalls.at(-1)).toBe("sim-running");
+    });
+  });
+
+  describe("GET /simulation/status", () => {
+    it("uses the current simulation alias", async () => {
+      const resp = await fetch(url("/simulation/status"));
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.simulation_id).toBe("sim-running");
+    });
+  });
+
+  describe("GET /simulations/:id/events", () => {
+    it("returns replay events and cursor state", async () => {
+      const resp = await fetch(url("/simulations/sim-running/events"));
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.events).toHaveLength(2);
+      expect(data.next_cursor).toBe("2");
+      expect(simulationEventCalls.at(-1)).toEqual({
+        simulationId: "sim-running",
+        cursor: null,
+      });
+    });
+
+    it("passes through replay cursors", async () => {
+      const resp = await fetch(url("/simulations/sim-running/events?cursor=1"));
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.events).toHaveLength(1);
+      expect(data.events[0].event_id).toBe("2");
+      expect(simulationEventCalls.at(-1)).toEqual({
+        simulationId: "sim-running",
+        cursor: "1",
+      });
+    });
+  });
+
+  describe("GET /simulations/:id/events/stream", () => {
+    it("streams replay history from the bridge-owned event feed", async () => {
+      const controller = new AbortController();
+      const resp = await fetch(url("/simulations/sim-running/events/stream"), {
+        signal: controller.signal,
+      });
+      expect(resp.status).toBe(200);
+      const reader = resp.body?.getReader();
+      expect(reader).toBeTruthy();
+      const firstChunk = await reader!.read();
+      const text = new TextDecoder().decode(firstChunk.value);
+      controller.abort();
+      expect(text).toContain("id: 1");
+      expect(text).toContain('"simulation_id":"sim-running"');
+    });
+  });
+
   describe("POST /setup", () => {
     it("creates sessions for agents and echoes simulation identity", async () => {
       const resp = await fetch(url("/setup"), {
@@ -289,6 +464,35 @@ describe("Bridge HTTP Server", () => {
       expect(data.pid).toBe(4242);
       expect(data.simulation_id).toBe("sim-launch");
       expect(launchCalls).toHaveLength(1);
+    });
+  });
+
+  describe("POST /simulations/:id/play", () => {
+    it("routes lifecycle commands through the bridge", async () => {
+      const resp = await fetch(url("/simulations/sim-running/play"), {
+        method: "POST",
+      });
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.status).toBe("ok");
+      expect(data.simulation.simulation_id).toBe("sim-running");
+      expect(controlCalls.at(-1)).toEqual({
+        simulationId: "sim-running",
+        command: "play",
+      });
+    });
+  });
+
+  describe("POST /simulation/pause", () => {
+    it("routes legacy lifecycle commands via the current simulation alias", async () => {
+      const resp = await fetch(url("/simulation/pause"), {
+        method: "POST",
+      });
+      expect(resp.status).toBe(200);
+      expect(controlCalls.at(-1)).toEqual({
+        simulationId: "sim-running",
+        command: "pause",
+      });
     });
   });
 
@@ -481,7 +685,7 @@ describe("Bridge HTTP Server", () => {
       expect(data.simulationId).toBe("sim-agent-state");
       expect(agentStateCalls.at(-1)).toEqual({
         agentId: "alice",
-        simulationId: null,
+        simulationId: "sim-running",
       });
     });
 
@@ -497,6 +701,17 @@ describe("Bridge HTTP Server", () => {
     it("returns 404 for unknown agent", async () => {
       const resp = await fetch(url("/agent/unknown/state"));
       expect(resp.status).toBe(404);
+    });
+  });
+
+  describe("GET /simulations/:id/agents/:agentId/state", () => {
+    it("uses simulation-scoped agent state endpoints", async () => {
+      const resp = await fetch(url("/simulations/sim-running/agents/alice/state"));
+      expect(resp.status).toBe(200);
+      expect(agentStateCalls.at(-1)).toEqual({
+        agentId: "alice",
+        simulationId: "sim-running",
+      });
     });
   });
 

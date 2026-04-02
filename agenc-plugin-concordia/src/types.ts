@@ -111,17 +111,32 @@ export interface AgentSetupConfig {
 }
 
 export interface EventNotification {
-  readonly type: "resolution" | "observation" | "scene_change";
+  readonly type:
+    | "step"
+    | "observation"
+    | "action"
+    | "resolution"
+    | "scene_change"
+    | "terminate"
+    | "error";
   readonly step: number;
   readonly acting_agent?: string;
+  readonly agent_name?: string;
   readonly target_agents?: readonly string[];
-  readonly content: string;
+  readonly content?: string;
   readonly world_id: string;
   readonly workspace_id: string;
   readonly simulation_id: string;
   readonly lineage_id?: string | null;
   readonly parent_simulation_id?: string | null;
+  readonly timestamp?: number;
+  readonly action_spec?: Record<string, unknown> | null;
+  readonly resolved_event?: string | null;
+  readonly scene?: string | null;
+  readonly metadata?: Record<string, unknown> | null;
 }
+
+export type SimulationCommand = "play" | "pause" | "step" | "stop";
 
 export type SimulationLifecycleStatus =
   | "launching"
@@ -150,8 +165,6 @@ export interface SimulationSummary {
   readonly agent_ids: readonly string[];
   readonly current_alias: boolean;
   readonly pid: number | null;
-  readonly control_port: number | null;
-  readonly event_port: number | null;
   readonly last_completed_step: number;
   readonly last_step_outcome: string | null;
   readonly replay_event_count: number;
@@ -196,6 +209,35 @@ export interface WorldFactSummary {
   readonly content: string;
   readonly observedBy: string;
   readonly confirmations: number;
+}
+
+export interface SimulationStatusResponse {
+  readonly simulation_id: string;
+  readonly world_id: string;
+  readonly workspace_id: string;
+  readonly status: SimulationLifecycleStatus;
+  readonly reason: string | null;
+  readonly error: string | null;
+  readonly step: number;
+  readonly max_steps: number | null;
+  readonly running: boolean;
+  readonly paused: boolean;
+  readonly agent_count: number;
+  readonly started_at: number | null;
+  readonly ended_at: number | null;
+  readonly updated_at: number;
+  readonly last_step_outcome: string | null;
+  readonly terminal_reason: string | null;
+}
+
+export interface SimulationReplayEvent extends EventNotification {
+  readonly event_id: string;
+}
+
+export interface SimulationEventsResponse {
+  readonly simulation_id: string;
+  readonly events: readonly SimulationReplayEvent[];
+  readonly next_cursor: string | null;
 }
 
 // ============================================================================

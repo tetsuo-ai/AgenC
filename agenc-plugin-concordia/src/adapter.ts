@@ -41,8 +41,12 @@ import type {
   CheckpointRequest,
   ResumeRequest,
   SimulationRecord,
+  SimulationReplayEvent,
+  SimulationEventsResponse,
   SimulationSummary,
   SimulationLifecycleStatus,
+  SimulationCommand,
+  SimulationStatusResponse,
 } from "./types.js";
 import { SessionManager, type AgentSession } from "./session-manager.js";
 import {
@@ -494,31 +498,13 @@ export class ConcordiaChannelAdapter
       observation,
     );
 
-    const inbound: ChannelInboundMessage = {
-      id: randomUUID(),
-      channel: "concordia",
-      sender_id: "concordia-gm",
-      sender_name: "Game Master",
-      session_id: sessionId,
-      scope: "dm",
-      content: `[Observation] ${observation}`,
-      timestamp: Date.now(),
-      metadata: {
-        type: "concordia_observation",
-        provenance: "concordia:gm_observation",
-        concordia_tag: "observation",
-        ingest_only: true,
-        history_role: "system",
-        world_id: session?.worldId,
-        workspace_id: session?.workspaceId,
-        agent_id: agentId,
-        is_observation: true,
-        ...withSimulationIdentity(
-          {},
-          session ? this.sessionIdentity(session) : this.handleIdentity(handle),
-        ),
-      },
-    };
+    const inbound = this.buildObservationInboundMessage({
+      agentId,
+      sessionId,
+      observation,
+      session: session ?? null,
+      handle,
+    });
 
     try {
       await this.context.on_message(inbound);
@@ -530,11 +516,50 @@ export class ConcordiaChannelAdapter
     }
   }
 
-  private async handleEvent(event: EventNotification): Promise<void> {
-    this.context.logger.debug?.(
-      `[concordia] Event: simulation=${event.simulation_id} step=${event.step} type=${event.type} agent=${event.acting_agent ?? "gm"}`,
-    );
+  private buildObservationInboundMessage(params: {
+    agentId: string;
+    sessionId: string;
+    observation: string;
+    session: AgentSession | null;
+    handle: ConcordiaSimulationHandle | null;
+  }): ChannelInboundMessage {
+    const identity = params.session
+      ? this.sessionIdentity(params.session)
+      : this.handleIdentity(params.handle);
 
+    return {
+      id: randomUUID(),
+      channel: "concordia",
+      sender_id: "concordia-gm",
+      sender_name: "Game Master",
+      session_id: params.sessionId,
+      scope: "dm",
+      content: `[Observation] ${params.observation}`,
+      timestamp: Date.now(),
+      metadata: this.buildObservationMetadata(params.agentId, params.session, identity),
+    };
+  }
+
+  private buildObservationMetadata(
+    agentId: string,
+    session: AgentSession | null,
+    identity: SimulationIdentity,
+  ): Record<string, unknown> {
+    return {
+      type: "concordia_observation",
+      provenance: "concordia:gm_observation",
+      concordia_tag: "observation",
+      ingest_only: true,
+      history_role: "system",
+      world_id: session?.worldId,
+      workspace_id: session?.workspaceId,
+      agent_id: agentId,
+      is_observation: true,
+      ...withSimulationIdentity({}, identity),
+    };
+  }
+
+  private async handleEvent(event: EventNotification): Promise<void> {
     const handle = this.registry.get(event.simulation_id) ?? null;
     if (!handle) {
       this.context.logger.warn?.(
@@ -543,20 +568,62 @@ export class ConcordiaChannelAdapter
       return;
     }
 
-    this.registry.incrementReplayEventCount(handle.simulationId);
-    this.registry.updateLifecycle(handle.simulationId, {
-      lastStepOutcome:
-        event.type === "resolution"
-          ? event.content.slice(0, 240)
-          : handle.lastStepOutcome,
-    });
+    const replayEvent = this.registry.appendReplayEvent(handle.simulationId, event);
+    this.context.logger.debug?.(
+      this.buildEventDebugLog(event, replayEvent.event_id),
+    );
+
+    this.registry.updateLifecycle(
+      handle.simulationId,
+      this.buildEventLifecycleUpdate(handle, event),
+    );
 
     if (!handle.memoryCtx) {
       return;
     }
 
-    await this.maybeRunResolutionPeriodicTasks(handle, event);
-    await this.recordSimulationEventSideEffects(handle, event);
+    const memoryEvent = this.normalizeMemoryEvent(event);
+    await this.maybeRunResolutionPeriodicTasks(handle, memoryEvent);
+    await this.recordSimulationEventSideEffects(handle, memoryEvent);
+  }
+
+  private buildEventDebugLog(
+    event: EventNotification,
+    replayEventId: string,
+  ): string {
+    const actingAgent = event.acting_agent ?? event.agent_name ?? "gm";
+    const contentPreview = (event.resolved_event ?? event.content ?? "").slice(0, 80);
+    return [
+      "[concordia] Event:",
+      `simulation=${event.simulation_id}`,
+      `step=${event.step}`,
+      `type=${event.type}`,
+      `event_id=${replayEventId}`,
+      `agent=${actingAgent}`,
+      contentPreview,
+    ].join(" ");
+  }
+
+  private buildEventLifecycleUpdate(
+    handle: ConcordiaSimulationHandle,
+    event: EventNotification,
+  ): {
+    lastCompletedStep: number;
+    lastStepOutcome: string | null;
+  } {
+    const lastCompletedStep =
+      event.type === "step"
+        ? Math.max(handle.lastCompletedStep, event.step)
+        : handle.lastCompletedStep;
+    const lastStepOutcome =
+      event.type === "resolution"
+        ? (event.resolved_event ?? event.content ?? "").slice(0, 240)
+        : handle.lastStepOutcome;
+
+    return {
+      lastCompletedStep,
+      lastStepOutcome,
+    };
   }
 
   private async handleGetAgentState(
@@ -838,8 +905,6 @@ export class ConcordiaChannelAdapter
       lineage_id: handle.lineageId,
       parent_simulation_id: handle.parentSimulationId,
       pid: handle.pid,
-      control_port: handle.controlPort,
-      event_port: handle.eventPort,
     };
   }
 
@@ -1416,8 +1481,17 @@ export class ConcordiaChannelAdapter
       onEvent: (event) => this.handleEvent(event),
       getAgentState: (agentId, simulationId) =>
         this.handleGetAgentState(agentId, simulationId),
+      getCurrentSimulationId: () => this.handleGetCurrentSimulationId(),
       listSimulations: () => this.handleListSimulations(),
       getSimulation: (simulationId) => this.handleGetSimulation(simulationId),
+      getSimulationStatus: (simulationId) =>
+        this.handleGetSimulationStatus(simulationId),
+      controlSimulation: (simulationId, command) =>
+        this.handleControlSimulation(simulationId, command),
+      listSimulationEvents: (simulationId, cursor) =>
+        this.handleListSimulationEvents(simulationId, cursor),
+      openSimulationEventStream: (simulationId, cursor, subscriber) =>
+        this.handleOpenSimulationEventStream(simulationId, cursor, subscriber),
     };
   }
 
@@ -1479,6 +1553,10 @@ export class ConcordiaChannelAdapter
 
   private currentSimulationIdentity(): SimulationIdentity {
     return this.handleIdentity(this.registry.getCurrentHandle() ?? null);
+  }
+
+  private handleGetCurrentSimulationId(): string | null {
+    return this.registry.getCurrentAlias();
   }
 
   private handleIdentity(
@@ -1652,6 +1730,105 @@ export class ConcordiaChannelAdapter
     return this.registry.getRecord(simulationId);
   }
 
+  private async handleGetSimulationStatus(
+    simulationId: string,
+  ): Promise<SimulationStatusResponse | null> {
+    const handle = this.registry.get(simulationId);
+    if (!handle) {
+      return null;
+    }
+    const refreshed = await this.refreshSimulationStatus(handle);
+    return this.toSimulationStatus(refreshed);
+  }
+
+  private async handleControlSimulation(
+    simulationId: string,
+    command: SimulationCommand,
+  ): Promise<SimulationStatusResponse | null> {
+    const handle = this.registry.get(simulationId);
+    if (!handle) {
+      return null;
+    }
+    if (!handle.controlPort) {
+      return this.toSimulationStatus(handle);
+    }
+
+    const response = await fetch(
+      `http://127.0.0.1:${handle.controlPort}/simulation/${command}`,
+      { method: "POST" },
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Simulation control command failed: ${command} ${response.status}`,
+      );
+    }
+
+    if (command === "stop") {
+      this.registry.updateLifecycle(simulationId, {
+        status: "stopping",
+        reason: "stop_requested",
+      });
+    }
+
+    const refreshed = await this.refreshSimulationStatus(
+      this.registry.get(simulationId) ?? handle,
+    );
+    return this.toSimulationStatus(refreshed);
+  }
+
+  private async handleListSimulationEvents(
+    simulationId: string,
+    cursor: string | null = null,
+  ): Promise<SimulationEventsResponse | null> {
+    if (!this.registry.has(simulationId)) {
+      return null;
+    }
+
+    const events = this.registry.listReplayEvents(simulationId, cursor);
+    return {
+      simulation_id: simulationId,
+      events,
+      next_cursor: events.at(-1)?.event_id ?? cursor ?? null,
+    };
+  }
+
+  private async handleOpenSimulationEventStream(
+    simulationId: string,
+    cursor: string | null,
+    subscriber: (event: SimulationReplayEvent) => void,
+  ): Promise<{
+    history: readonly SimulationReplayEvent[];
+    unsubscribe: () => void;
+  } | null> {
+    return this.registry.openReplayStream(simulationId, cursor, subscriber);
+  }
+
+  private toSimulationStatus(
+    handle: ConcordiaSimulationHandle,
+  ): SimulationStatusResponse {
+    const active = handle.status === "running" || handle.status === "paused";
+    return {
+      simulation_id: handle.simulationId,
+      world_id: handle.worldId,
+      workspace_id: handle.workspaceId,
+      status: handle.status,
+      reason: handle.reason,
+      error: handle.error,
+      step: handle.lastCompletedStep,
+      max_steps: handle.maxSteps,
+      running: active,
+      paused: handle.status === "paused",
+      agent_count: handle.agentIds.length,
+      started_at: handle.startedAt,
+      ended_at: handle.endedAt,
+      updated_at: handle.updatedAt,
+      last_step_outcome: handle.lastStepOutcome,
+      terminal_reason: isTerminalSimulationStatus(handle.status)
+        ? handle.reason
+        : null,
+    };
+  }
+
   private resolvePendingSendTarget(
     message: ChannelOutboundMessage,
   ): PendingSendTarget | null {
@@ -1793,13 +1970,14 @@ export class ConcordiaChannelAdapter
     if (
       !handle.memoryCtx ||
       event.type !== "resolution" ||
-      event.step <= handle.lastCompletedStep
+      event.step <= handle.lastProcessedResolutionStep ||
+      !event.content
     ) {
       return;
     }
 
-    this.registry.updateLifecycle(handle.simulationId, {
-      lastCompletedStep: event.step,
+    this.registry.mutateHandle(handle.simulationId, (currentHandle) => {
+      currentHandle.lastProcessedResolutionStep = event.step;
     });
     try {
       const agentIds = this.sessionManager
@@ -1840,7 +2018,7 @@ export class ConcordiaChannelAdapter
     handle: ConcordiaSimulationHandle,
     event: EventNotification,
   ): Promise<void> {
-    if (!handle.memoryCtx) {
+    if (!handle.memoryCtx || !event.content) {
       return;
     }
 
@@ -1917,6 +2095,14 @@ export class ConcordiaChannelAdapter
           handle.workspaceId,
           event.simulation_id,
         )[0];
+  }
+
+  private normalizeMemoryEvent(event: EventNotification): EventNotification {
+    return {
+      ...event,
+      acting_agent: event.acting_agent ?? event.agent_name,
+      content: event.resolved_event ?? event.content ?? "",
+    };
   }
 
   private createPendingResponse(

@@ -676,7 +676,7 @@ export async function recordSocialEvent(
   event: EventNotification,
   knownAgents: readonly KnownAgentReference[],
 ): Promise<void> {
-  const normalizedContent = normalizeSimulationContent(event.content);
+  const normalizedContent = normalizeSimulationContent(event.content ?? "");
   if (!normalizedContent) return;
 
   const actingAgent = event.acting_agent

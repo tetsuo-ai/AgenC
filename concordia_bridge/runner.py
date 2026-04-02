@@ -13,6 +13,7 @@ import logging
 import os
 import time
 from collections.abc import Collection, Sequence
+from dataclasses import asdict
 from typing import Optional
 
 import requests
@@ -249,6 +250,10 @@ def run_simulation(
 
     identity = identity_from_config(config)
 
+    def emit_event(event: SimulationEvent) -> None:
+        event_server.broadcast(event)
+        _post_bridge_event(config, event)
+
     # 1. Start event server
     event_server = EventServer(port=config.event_port)
     event_server.start()
@@ -305,7 +310,7 @@ def run_simulation(
         # 7. Create instrumented engine
         if config.engine_type == "simultaneous":
             engine = InstrumentedSimultaneousEngine(
-                event_callback=event_server.broadcast,
+                event_callback=emit_event,
                 bridge_url=config.bridge_url,
                 world_id=config.world_id,
                 simulation_id=identity.simulation_id,
@@ -315,7 +320,7 @@ def run_simulation(
             )
         else:
             engine = InstrumentedSequentialEngine(
-                event_callback=event_server.broadcast,
+                event_callback=emit_event,
                 bridge_url=config.bridge_url,
                 world_id=config.world_id,
                 simulation_id=identity.simulation_id,
@@ -331,7 +336,7 @@ def run_simulation(
                 running=not controller.is_stopped,
                 last_step_outcome=outcome,
             )
-            event_server.broadcast(apply_identity_to_event(
+            emit_event(apply_identity_to_event(
                 SimulationEvent(
                     type="step",
                     step=step,
@@ -428,6 +433,24 @@ def _setup_agents(config: SimulationConfig) -> None:
         logger.info("Agent setup complete: %s", response.json())
     except Exception as exc:
         logger.warning("Agent setup via bridge failed: %s", exc)
+
+
+def _post_bridge_event(config: SimulationConfig, event: SimulationEvent) -> None:
+    """Send a simulation event to the bridge replay/control layer."""
+    try:
+        requests.post(
+            f"{config.bridge_url}/event",
+            json=asdict(event),
+            timeout=10,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Bridge event notification failed (simulation=%s step=%s type=%s): %s",
+            config.simulation_id,
+            event.step,
+            event.type,
+            exc,
+        )
 
 
 def _restore_checkpoint_state(
