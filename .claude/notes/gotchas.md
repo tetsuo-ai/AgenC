@@ -205,3 +205,5 @@ Last updated: 2026-03-25
 - Concordia bridge state must stay keyed by `simulationId` all the way through runner handles, pending responses, and session lookup. Keeping even one fallback singleton path in the adapter is enough to make concurrent sims bleed back together.
 - Concordia request-id recovery fallback must stay simulation-scoped. If a send path ever searches pending requests outside the matched simulation handle, one sim can resolve or reject another sim's `/act` promise.
 - Concordia browser refresh recovery should read the bridge registry (`GET /simulations`, `GET /simulations/:id`), not React-local launch state. The bridge is now the source of truth for active/recent sim summaries while it stays alive.
+- Concordia config reconstruction must use the shared `build_simulation_config(...)` helper. If CLI JSON launch and checkpoint resume rebuild `SimulationConfig` separately, defaults and identity fields drift and break parity between fresh runs and resumed runs.
+

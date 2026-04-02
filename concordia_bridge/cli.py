@@ -19,7 +19,6 @@ import importlib
 import json
 import logging
 import sys
-from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +121,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 def cmd_run_json(args: argparse.Namespace) -> None:
     """Run a simulation from a JSON config file."""
-    from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
+    from concordia_bridge.bridge_types import AgentConfig, build_simulation_config
 
     try:
         with open(args.config_file, "r", encoding="utf-8") as f:
@@ -151,33 +150,7 @@ def cmd_run_json(args: argparse.Namespace) -> None:
             )
         )
 
-    config = SimulationConfig(
-        world_id=raw.get("world_id", "default"),
-        workspace_id=raw.get("workspace_id", "concordia-sim"),
-        premise=raw.get("premise", ""),
-        agents=agents,
-        simulation_id=raw.get("simulation_id", str(uuid4())),
-        lineage_id=raw.get("lineage_id"),
-        parent_simulation_id=raw.get("parent_simulation_id"),
-        user_id=raw.get("user_id"),
-        max_steps=raw.get("max_steps", 50),
-        gm_instructions=raw.get("gm_instructions", ""),
-        gm_model=raw.get("gm_model", "grok-3-mini"),
-        gm_provider=raw.get("gm_provider", "ollama"),
-        gm_api_key=raw.get("gm_api_key", ""),
-        gm_base_url=raw.get("gm_base_url", ""),
-        engine_type=raw.get("engine_type", "simultaneous"),
-        gm_prefab=raw.get("gm_prefab", "generic"),
-        bridge_url=raw.get("bridge_url", "http://localhost:3200"),
-        event_port=raw.get("event_port", 3201),
-        control_port=raw.get("control_port", 3202),
-        embedding_model=raw.get("embedding_model", "all-MiniLM-L6-v2"),
-        reflection_interval=raw.get("reflection_interval", 5),
-        consolidation_interval=raw.get("consolidation_interval", 20),
-        retention_interval=raw.get("retention_interval", 20),
-        encryption_key=raw.get("encryption_key", ""),
-        scenes=raw.get("scenes"),
-    )
+    config = build_simulation_config(raw, agents)
 
     _run_config(config)
 

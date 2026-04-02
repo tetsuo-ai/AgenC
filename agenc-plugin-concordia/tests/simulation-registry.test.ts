@@ -1,32 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { SimulationRegistry } from "../src/simulation-registry.js";
 
+function buildHandleRequest(
+  simulationId: string,
+  worldId: string,
+  workspaceId: string,
+) {
+  return {
+    world_id: worldId,
+    workspace_id: workspaceId,
+    simulation_id: simulationId,
+    lineage_id: null,
+    parent_simulation_id: null,
+    premise: `${simulationId}-premise`,
+    agents: [],
+  };
+}
+
 describe("SimulationRegistry", () => {
   it("stores multiple handles without overwriting prior simulations", async () => {
     const registry = new SimulationRegistry();
 
     await registry.createHandle({
-      request: {
-        world_id: "world-a",
-        workspace_id: "ws-a",
-        simulation_id: "sim-a",
-        lineage_id: null,
-        parent_simulation_id: null,
-        premise: "premise-a",
-        agents: [],
-      },
+      request: buildHandleRequest("sim-a", "world-a", "ws-a"),
       status: "running",
       currentAlias: false,
     });
     await registry.createHandle({
       request: {
-        world_id: "world-b",
-        workspace_id: "ws-b",
-        simulation_id: "sim-b",
+        ...buildHandleRequest("sim-b", "world-b", "ws-b"),
         lineage_id: "lineage-b",
         parent_simulation_id: "sim-old",
-        premise: "premise-b",
-        agents: [],
       },
       status: "paused",
       currentAlias: true,
@@ -43,28 +47,12 @@ describe("SimulationRegistry", () => {
   it("indexes pending responses by simulation and request id", async () => {
     const registry = new SimulationRegistry<unknown, unknown, { sessionId: string }>();
     registry.createHandle({
-      request: {
-        world_id: "world-a",
-        workspace_id: "ws-a",
-        simulation_id: "sim-a",
-        lineage_id: null,
-        parent_simulation_id: null,
-        premise: "premise-a",
-        agents: [],
-      },
+      request: buildHandleRequest("sim-a", "world-a", "ws-a"),
       status: "running",
       currentAlias: false,
     });
     registry.createHandle({
-      request: {
-        world_id: "world-b",
-        workspace_id: "ws-b",
-        simulation_id: "sim-b",
-        lineage_id: null,
-        parent_simulation_id: null,
-        premise: "premise-b",
-        agents: [],
-      },
+      request: buildHandleRequest("sim-b", "world-b", "ws-b"),
       status: "running",
       currentAlias: false,
     });

@@ -23,7 +23,11 @@ import requests
 
 from concordia.typing.entity import EntityWithLogging
 
-from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
+from concordia_bridge.bridge_types import (
+    AgentConfig,
+    SimulationConfig,
+    build_simulation_config,
+)
 from concordia_bridge.simulation_identity import (
     identity_from_config,
     with_identity_payload,
@@ -242,33 +246,12 @@ def simulation_config_from_checkpoint(checkpoint: dict) -> SimulationConfig:
             )
         )
 
-    return SimulationConfig(
-        world_id=raw.get("world_id", migrated.get("world_id", "default")),
-        workspace_id=raw.get("workspace_id", "concordia-sim"),
-        premise=raw.get("premise", ""),
-        agents=agents,
-        simulation_id=raw.get("simulation_id", migrated.get("simulation_id", "")),
-        lineage_id=raw.get("lineage_id", migrated.get("lineage_id")),
-        parent_simulation_id=raw.get(
-            "parent_simulation_id",
-            migrated.get("parent_simulation_id"),
-        ),
-        user_id=raw.get("user_id"),
-        max_steps=raw.get("max_steps", migrated.get("step", 0)),
-        gm_instructions=raw.get("gm_instructions", ""),
-        gm_model=raw.get("gm_model", "grok-3-mini"),
-        gm_provider=raw.get("gm_provider", "ollama"),
-        gm_api_key=raw.get("gm_api_key", ""),
-        gm_base_url=raw.get("gm_base_url", ""),
-        engine_type=raw.get("engine_type", "simultaneous"),
-        gm_prefab=raw.get("gm_prefab", "generic"),
-        bridge_url=raw.get("bridge_url", "http://localhost:3200"),
-        event_port=raw.get("event_port", 3201),
-        control_port=raw.get("control_port", 3202),
-        embedding_model=raw.get("embedding_model", "all-MiniLM-L6-v2"),
-        reflection_interval=raw.get("reflection_interval", 5),
-        consolidation_interval=raw.get("consolidation_interval", 20),
-        retention_interval=raw.get("retention_interval", 20),
-        encryption_key=raw.get("encryption_key", ""),
-        scenes=raw.get("scenes"),
+    return build_simulation_config(
+        raw,
+        agents,
+        default_world_id=migrated.get("world_id", "default"),
+        default_simulation_id=migrated.get("simulation_id", ""),
+        default_lineage_id=migrated.get("lineage_id"),
+        default_parent_simulation_id=migrated.get("parent_simulation_id"),
+        default_max_steps=migrated.get("step", 0),
     )
