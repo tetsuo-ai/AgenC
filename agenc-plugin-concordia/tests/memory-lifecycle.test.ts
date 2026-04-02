@@ -9,17 +9,38 @@ import {
   TRUST_SOURCE_EXTERNAL,
 } from "../src/memory-lifecycle.js";
 import type { MemoryWiringContext } from "../src/memory-wiring.js";
+import { buildConcordiaMemoryNamespaces } from "../src/memory-namespaces.js";
 import { deriveSessionId } from "../src/session-manager.js";
 
 function createMockContext(
   overrides?: Partial<MemoryWiringContext>,
 ): MemoryWiringContext {
+  const worldId = overrides?.worldId ?? "test-world";
+  const workspaceId = overrides?.workspaceId ?? "test-ws";
+  const simulationId = overrides?.simulationId ?? "sim-test";
+  const lineageId = overrides?.lineageId ?? "lineage-test";
+  const parentSimulationId = overrides?.parentSimulationId ?? null;
+  const namespaceResolution = buildConcordiaMemoryNamespaces({
+    worldId,
+    workspaceId,
+    simulationId,
+    lineageId,
+    parentSimulationId,
+    continuityMode: overrides?.continuityMode,
+    effectiveStorageKey: overrides?.effectiveStorageKey,
+    checkpointMetadata: overrides?.checkpointMetadata ?? null,
+  });
   return {
-    worldId: "test-world",
-    workspaceId: "test-ws",
-    simulationId: "sim-test",
-    lineageId: "lineage-test",
-    parentSimulationId: null,
+    worldId,
+    workspaceId,
+    simulationId,
+    lineageId,
+    parentSimulationId,
+    effectiveStorageKey: overrides?.effectiveStorageKey ?? namespaceResolution.namespaces.effectiveStorageKey,
+    continuityMode: overrides?.continuityMode ?? namespaceResolution.continuityMode,
+    carryOverPolicy: overrides?.carryOverPolicy ?? namespaceResolution.carryOverPolicy,
+    namespaces: overrides?.namespaces ?? namespaceResolution.namespaces,
+    checkpointMetadata: overrides?.checkpointMetadata ?? null,
     memoryBackend: {
       addEntry: vi.fn().mockResolvedValue({ id: "e1", timestamp: Date.now() }),
       getThread: vi.fn().mockResolvedValue([]),
@@ -42,7 +63,9 @@ function createMockContext(
       getRelationship: vi.fn().mockResolvedValue(null),
       listKnownAgents: vi.fn().mockResolvedValue([]),
       addWorldFact: vi.fn().mockResolvedValue({}),
+      confirmWorldFact: vi.fn().mockResolvedValue(null),
       getWorldFacts: vi.fn().mockResolvedValue([]),
+      checkCollectiveEmergence: vi.fn().mockResolvedValue([]),
     },
     ...overrides,
   };
@@ -121,10 +144,10 @@ describe("runPeriodicTasks", () => {
     expect(ctx.lifecycle.reflectAgent).toHaveBeenCalledWith({
       agentId: "alice",
       sessionId: deriveSessionId("sim-test", "alice"),
-      workspaceId: "test-ws",
+      workspaceId: ctx.namespaces.identityWorkspaceId,
     });
     expect(ctx.lifecycle.consolidate).toHaveBeenCalledWith({
-      workspaceId: "test-ws",
+      workspaceId: ctx.namespaces.memoryWorkspaceId,
     });
     expect(ctx.lifecycle.retain).toHaveBeenCalled();
   });

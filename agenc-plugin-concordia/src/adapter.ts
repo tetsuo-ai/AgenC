@@ -556,13 +556,22 @@ export class ConcordiaChannelAdapter
       premise,
     );
     const resumeHandleRequest = this.resolveResumeHandleRequest(resumeState);
+    const resumedFromStep = asNumber(checkpoint.step) ?? 0;
 
     const { handle, memoryCtx } = await this.createResumedHandleWithMemory(
       resumeHandleRequest,
       worldId,
       workspaceId,
+      {
+        checkpointSimulationId: checkpointSimulationId ?? null,
+        checkpointLineageId: checkpointLineageId ?? null,
+        checkpointParentSimulationId:
+          asString(checkpoint.parent_simulation_id) ?? null,
+        checkpointWorldId: worldId,
+        checkpointWorkspaceId: workspaceId,
+        resumedFromStep,
+      },
     );
-    const resumedFromStep = asNumber(checkpoint.step) ?? 0;
     const sessions = await this.resumeSimulationSessions(
       handle,
       agents,
@@ -588,6 +597,7 @@ export class ConcordiaChannelAdapter
     resumeHandleRequest: NormalizedLaunchRequest,
     worldId: string,
     workspaceId: string,
+    checkpointMetadata: Record<string, unknown>,
   ): Promise<{
     handle: ConcordiaSimulationHandle;
     memoryCtx: MemoryWiringContext | null;
@@ -600,6 +610,10 @@ export class ConcordiaChannelAdapter
       handle,
       worldId,
       workspaceId,
+      {
+        continuityMode: "lineage_resume",
+        checkpointMetadata,
+      },
     );
     return {
       handle: resolvedMemory.handle,
@@ -2015,6 +2029,10 @@ export class ConcordiaChannelAdapter
     handle: ConcordiaSimulationHandle,
     worldId: string,
     workspaceId: string,
+    options: {
+      continuityMode?: "isolated" | "lineage_resume";
+      checkpointMetadata?: Record<string, unknown> | null;
+    } = {},
   ): Promise<{
     handle: ConcordiaSimulationHandle;
     memoryCtx: MemoryWiringContext | null;
@@ -2024,7 +2042,8 @@ export class ConcordiaChannelAdapter
       existingMemory &&
       existingMemory.worldId === worldId &&
       existingMemory.workspaceId === workspaceId &&
-      existingMemory.simulationId === handle.simulationId
+      existingMemory.simulationId === handle.simulationId &&
+      (!options.continuityMode || existingMemory.continuityMode === options.continuityMode)
     ) {
       return { handle, memoryCtx: existingMemory };
     }
@@ -2037,6 +2056,10 @@ export class ConcordiaChannelAdapter
         simulationId: handle.simulationId,
         lineageId: handle.lineageId,
         parentSimulationId: handle.parentSimulationId,
+      },
+      {
+        continuityMode: options.continuityMode,
+        checkpointMetadata: options.checkpointMetadata ?? null,
       },
     );
     return {

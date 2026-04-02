@@ -1,5 +1,11 @@
 import type { ChannelAdapterContext } from "@tetsuo-ai/plugin-kit";
 import type { ConcordiaChannelConfig } from "./types.js";
+import {
+  buildConcordiaMemoryNamespaces,
+  type ConcordiaCarryOverPolicy,
+  type ConcordiaCheckpointMetadata,
+  type ConcordiaMemoryContinuityMode,
+} from "./memory-namespaces.js";
 import type {
   DailyLogManagerLike,
   IdentityManagerLike,
@@ -37,6 +43,11 @@ interface ConcordiaMemoryResolverHostServices {
     simulationId?: string;
     lineageId?: string | null;
     parentSimulationId?: string | null;
+    effectiveStorageKey?: string;
+    logStorageKey?: string;
+    scopedWorkspaceId?: string;
+    continuityMode?: ConcordiaMemoryContinuityMode;
+    checkpointMetadata?: ConcordiaCheckpointMetadata | null;
   }) => Promise<ConcordiaMemoryWorldServices>;
 }
 
@@ -52,6 +63,49 @@ interface ConcordiaRuntimeHostServices {
     readonly apiKey?: string;
     readonly model?: string;
     readonly baseUrl?: string;
+  };
+}
+
+function buildMemoryWiringContext(
+  context: ChannelAdapterContext<ConcordiaChannelConfig>,
+  resolved: ConcordiaMemoryWorldServices,
+  base: {
+    worldId: string;
+    workspaceId: string;
+    simulationId?: string;
+    lineageId?: string | null;
+    parentSimulationId?: string | null;
+    effectiveStorageKey: string;
+    continuityMode: ConcordiaMemoryContinuityMode;
+    carryOverPolicy: ConcordiaCarryOverPolicy;
+    namespaces: ReturnType<typeof buildConcordiaMemoryNamespaces>["namespaces"];
+    checkpointMetadata?: ConcordiaCheckpointMetadata | null;
+  },
+): MemoryWiringContext {
+  return {
+    worldId: base.worldId,
+    workspaceId: base.workspaceId,
+    simulationId: base.simulationId,
+    lineageId: base.lineageId ?? null,
+    parentSimulationId: base.parentSimulationId ?? null,
+    effectiveStorageKey: base.effectiveStorageKey,
+    continuityMode: base.continuityMode,
+    carryOverPolicy: base.carryOverPolicy,
+    namespaces: base.namespaces,
+    checkpointMetadata: base.checkpointMetadata ?? null,
+    memoryBackend: resolved.memoryBackend,
+    identityManager: resolved.identityManager,
+    socialMemory: resolved.socialMemory,
+    proceduralMemory: resolved.proceduralMemory,
+    graph: resolved.graph,
+    sharedMemory: resolved.sharedMemory,
+    traceLogger: resolved.traceLogger,
+    dailyLogManager: resolved.dailyLogManager,
+    ingestionEngine: resolved.ingestionEngine,
+    retriever: resolved.retriever,
+    lifecycle: resolved.lifecycle,
+    encryptionKey: context.config.encryption_key,
+    vectorDbPath: resolved.vectorDbPath,
   };
 }
 
@@ -110,8 +164,34 @@ export async function resolveConcordiaMemoryContext(
     lineageId?: string | null;
     parentSimulationId?: string | null;
   } = {},
+  options: {
+    continuityMode?: ConcordiaMemoryContinuityMode;
+    checkpointMetadata?: ConcordiaCheckpointMetadata | null;
+  } = {},
 ): Promise<MemoryWiringContext | null> {
   const services = context.host_services?.concordia_memory;
+  const namespaceResolution = buildConcordiaMemoryNamespaces({
+    worldId,
+    workspaceId,
+    simulationId: identity.simulationId,
+    lineageId: identity.lineageId ?? null,
+    parentSimulationId: identity.parentSimulationId ?? null,
+    continuityMode: options.continuityMode,
+    checkpointMetadata: options.checkpointMetadata ?? null,
+  });
+  const { continuityMode, carryOverPolicy, namespaces } = namespaceResolution;
+  const wiringBase = {
+    worldId,
+    workspaceId,
+    simulationId: identity.simulationId,
+    lineageId: identity.lineageId ?? null,
+    parentSimulationId: identity.parentSimulationId ?? null,
+    effectiveStorageKey: namespaces.effectiveStorageKey,
+    continuityMode,
+    carryOverPolicy,
+    namespaces,
+    checkpointMetadata: options.checkpointMetadata ?? null,
+  };
   if (isConcordiaMemoryResolverHostServices(services)) {
     const resolved = await services.resolveWorldContext({
       worldId,
@@ -119,27 +199,13 @@ export async function resolveConcordiaMemoryContext(
       simulationId: identity.simulationId,
       lineageId: identity.lineageId,
       parentSimulationId: identity.parentSimulationId,
+      effectiveStorageKey: namespaces.effectiveStorageKey,
+      logStorageKey: namespaces.logStorageKey,
+      scopedWorkspaceId: namespaces.memoryWorkspaceId,
+      continuityMode,
+      checkpointMetadata: options.checkpointMetadata ?? null,
     });
-    return {
-      worldId,
-      workspaceId,
-      simulationId: identity.simulationId,
-      lineageId: identity.lineageId ?? null,
-      parentSimulationId: identity.parentSimulationId ?? null,
-      memoryBackend: resolved.memoryBackend,
-      identityManager: resolved.identityManager,
-      socialMemory: resolved.socialMemory,
-      proceduralMemory: resolved.proceduralMemory,
-      graph: resolved.graph,
-      sharedMemory: resolved.sharedMemory,
-      traceLogger: resolved.traceLogger,
-      dailyLogManager: resolved.dailyLogManager,
-      ingestionEngine: resolved.ingestionEngine,
-      retriever: resolved.retriever,
-      lifecycle: resolved.lifecycle,
-      encryptionKey: context.config.encryption_key,
-      vectorDbPath: resolved.vectorDbPath,
-    };
+    return buildMemoryWiringContext(context, resolved, wiringBase);
   }
 
   if (!isConcordiaMemoryWorldServices(services)) {
@@ -149,26 +215,7 @@ export async function resolveConcordiaMemoryContext(
     return null;
   }
 
-  return {
-    worldId,
-    workspaceId,
-    simulationId: identity.simulationId,
-    lineageId: identity.lineageId ?? null,
-    parentSimulationId: identity.parentSimulationId ?? null,
-    memoryBackend: services.memoryBackend,
-    identityManager: services.identityManager,
-    socialMemory: services.socialMemory,
-    proceduralMemory: services.proceduralMemory,
-    graph: services.graph,
-    sharedMemory: services.sharedMemory,
-    traceLogger: services.traceLogger,
-    dailyLogManager: services.dailyLogManager,
-    ingestionEngine: services.ingestionEngine,
-    retriever: services.retriever,
-    lifecycle: services.lifecycle,
-    encryptionKey: context.config.encryption_key,
-    vectorDbPath: services.vectorDbPath,
-  };
+  return buildMemoryWiringContext(context, services, wiringBase);
 }
 
 export function resolveConcordiaLaunchDefaults(

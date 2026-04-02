@@ -32,6 +32,7 @@ import {
   type MemoryIngestionEngineLike,
   type MemoryRetrieverLike,
 } from "../src/memory-wiring.js";
+import { buildConcordiaMemoryNamespaces } from "../src/memory-namespaces.js";
 
 function createMockBackend(): MemoryBackendLike {
   return {
@@ -180,9 +181,33 @@ function createMockRetriever(): MemoryRetrieverLike {
 }
 
 function createContext(overrides?: Partial<MemoryWiringContext>): MemoryWiringContext {
+  const worldId = overrides?.worldId ?? "test-world";
+  const workspaceId = overrides?.workspaceId ?? "test-ws";
+  const simulationId = overrides?.simulationId ?? "sim-test";
+  const lineageId = overrides?.lineageId ?? "lineage-test";
+  const parentSimulationId = overrides?.parentSimulationId ?? null;
+  const namespaceResolution = buildConcordiaMemoryNamespaces({
+    worldId,
+    workspaceId,
+    simulationId,
+    lineageId,
+    parentSimulationId,
+    continuityMode: overrides?.continuityMode,
+    effectiveStorageKey: overrides?.effectiveStorageKey,
+    checkpointMetadata: overrides?.checkpointMetadata ?? null,
+  });
+
   return {
-    worldId: "test-world",
-    workspaceId: "test-ws",
+    worldId,
+    workspaceId,
+    simulationId,
+    lineageId,
+    parentSimulationId,
+    effectiveStorageKey: overrides?.effectiveStorageKey ?? namespaceResolution.namespaces.effectiveStorageKey,
+    continuityMode: overrides?.continuityMode ?? namespaceResolution.continuityMode,
+    carryOverPolicy: overrides?.carryOverPolicy ?? namespaceResolution.carryOverPolicy,
+    namespaces: overrides?.namespaces ?? namespaceResolution.namespaces,
+    checkpointMetadata: overrides?.checkpointMetadata ?? null,
     memoryBackend: createMockBackend(),
     identityManager: createMockIdentityManager(),
     socialMemory: createMockSocialMemory(),
@@ -200,9 +225,9 @@ describe("ingestObservation", () => {
         sessionId: "session-1",
         role: "system",
         content: "[observation] You see Marcus approaching.",
-        workspaceId: "test-ws",
+        workspaceId: ctx.namespaces.memoryWorkspaceId,
         agentId: "alice",
-        worldId: "test-world",
+        worldId: ctx.namespaces.worldScopeId,
         channel: "concordia",
         metadata: expect.objectContaining({
           type: "concordia_observation",
@@ -224,9 +249,9 @@ describe("ingestObservation", () => {
       "You see Marcus approaching.",
       "[Observation recorded for future simulation turns.]",
       expect.objectContaining({
-        workspaceId: "test-ws",
+        workspaceId: ctx.namespaces.memoryWorkspaceId,
         agentId: "alice",
-        worldId: "test-world",
+        worldId: ctx.namespaces.worldScopeId,
       }),
     );
   });
@@ -243,7 +268,7 @@ describe("recordObservationWorldFact", () => {
     );
 
     expect(ctx.socialMemory.addWorldFact).toHaveBeenCalledWith(
-      "test-world",
+      ctx.namespaces.worldScopeId,
       "A red sell order flashes across the board.",
       "alice",
       "private",
@@ -273,7 +298,7 @@ describe("recordObservationWorldFact", () => {
 
     expect(ctx.socialMemory.confirmWorldFact).toHaveBeenCalledWith(
       "fact-1",
-      "test-world",
+      ctx.namespaces.worldScopeId,
       "bob",
     );
   });
@@ -290,9 +315,9 @@ describe("recordAgentAction", () => {
         sessionId: "session-1",
         role: "assistant",
         content: "places a bid for 10 contracts",
-        workspaceId: "test-ws",
+        workspaceId: ctx.namespaces.memoryWorkspaceId,
         agentId: "alice",
-        worldId: "test-world",
+        worldId: ctx.namespaces.worldScopeId,
         channel: "concordia",
         metadata: expect.objectContaining({
           type: "concordia_action",
@@ -313,7 +338,7 @@ describe("setupAgentIdentity", () => {
       agentId: "elena",
       name: "Elena",
       corePersonality: "Town blacksmith\n\nGoal: Forge a sword",
-      workspaceId: "test-ws",
+      workspaceId: ctx.namespaces.identityWorkspaceId,
     });
   });
 
@@ -325,7 +350,7 @@ describe("setupAgentIdentity", () => {
       agentId: "bob",
       name: "Bob",
       corePersonality: "Merchant",
-      workspaceId: "test-ws",
+      workspaceId: ctx.namespaces.identityWorkspaceId,
     });
   });
 });
@@ -352,7 +377,7 @@ describe("recordSocialEvent", () => {
     expect(ctx.socialMemory.recordInteraction).toHaveBeenCalledWith(
       "alice",
       "bob",
-      "test-world",
+      ctx.namespaces.worldScopeId,
       expect.objectContaining({
         summary: expect.stringContaining("Alice trades iron"),
         context: "step:5:resolution",
@@ -361,7 +386,7 @@ describe("recordSocialEvent", () => {
     expect(ctx.socialMemory.recordInteraction).toHaveBeenCalledWith(
       "bob",
       "alice",
-      "test-world",
+      ctx.namespaces.worldScopeId,
       expect.objectContaining({
         summary: expect.stringContaining("Alice trades iron"),
         context: "step:5:resolution",
@@ -430,10 +455,36 @@ describe("storePremise", () => {
     await storePremise(ctx, "It is morning in Thornfield.");
 
     expect(ctx.socialMemory.addWorldFact).toHaveBeenCalledWith(
-      "test-world",
+      ctx.namespaces.worldScopeId,
       "It is morning in Thornfield.",
-      "concordia:gm",
+      ctx.namespaces.sharedAuthor,
       "world",
+    );
+  });
+});
+
+
+describe("phase 4 isolation scopes", () => {
+  it("uses lineage-scoped world facts only for explicit resume continuity", async () => {
+    const ctx = createContext({
+      simulationId: "sim-child",
+      lineageId: "lineage-42",
+      parentSimulationId: "sim-parent",
+      continuityMode: "lineage_resume",
+      checkpointMetadata: {
+        checkpointSimulationId: "sim-parent",
+        resumedFromStep: 4,
+      },
+    });
+
+    await recordObservationWorldFact(ctx, "alice", "The forge fire has gone cold.");
+
+    expect(ctx.namespaces.worldScopeId).toBe("world:test-world::lineage:lineage-42");
+    expect(ctx.socialMemory.addWorldFact).toHaveBeenCalledWith(
+      "world:test-world::lineage:lineage-42",
+      "The forge fire has gone cold.",
+      "alice",
+      "private",
     );
   });
 });
@@ -476,7 +527,7 @@ describe("recordProcedure", () => {
     expect(proc.record).toHaveBeenCalledWith(expect.objectContaining({
       trigger: "negotiation with merchant",
       steps: ["greet", "offer", "close"],
-      workspaceId: "test-ws",
+      workspaceId: ctx.namespaces.proceduralWorkspaceId,
     }));
   });
 
@@ -523,7 +574,7 @@ describe("buildFullActContext", () => {
 
     expect(result).toContain("Relevant fact");
     expect(ctx.memoryBackend.set).toHaveBeenCalledWith(
-      "test-ws:activation:entry-7",
+      `${ctx.namespaces.activationKeyPrefix}:entry-7`,
       expect.objectContaining({ accessCount: 1 }),
     );
     expect(traceLogger.traceRetrieval).toHaveBeenCalled();
@@ -538,7 +589,7 @@ describe("updateActivationScores", () => {
     await updateActivationScores(ctx, "s1", ["entry-1", "entry-2"]);
     expect(ctx.memoryBackend.set).toHaveBeenCalledTimes(2);
     expect(ctx.memoryBackend.set).toHaveBeenCalledWith(
-      "test-ws:activation:entry-1",
+      `${ctx.namespaces.activationKeyPrefix}:entry-1`,
       expect.objectContaining({ accessCount: 1 }),
     );
   });
@@ -549,7 +600,7 @@ describe("updateActivationScores", () => {
     const ctx = createContext({ memoryBackend: backend });
     await updateActivationScores(ctx, "s1", ["entry-1"]);
     expect(backend.set).toHaveBeenCalledWith(
-      "test-ws:activation:entry-1",
+      `${ctx.namespaces.activationKeyPrefix}:entry-1`,
       expect.objectContaining({ accessCount: 6 }),
     );
   });
@@ -618,6 +669,7 @@ describe("promoteToSharedMemory", () => {
     expect(shared.writeFact).toHaveBeenCalledWith(expect.objectContaining({
       scope: "user",
       content: "User enjoys medieval sims",
+      author: ctx.namespaces.sharedAuthor,
       userId: "user-1",
     }));
   });
@@ -645,9 +697,9 @@ describe("promoteCollectiveEmergenceFacts", () => {
 
     expect(promoted).toHaveLength(1);
     expect(ctx.socialMemory.addWorldFact).toHaveBeenCalledWith(
-      "test-world",
+      ctx.namespaces.worldScopeId,
       "The market opens at dawn",
-      "concordia:collective-emergence",
+      ctx.namespaces.sharedAuthor,
       "world",
     );
   });

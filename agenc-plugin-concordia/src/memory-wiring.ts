@@ -6,13 +6,19 @@
  * agent identity, procedural memory, consolidation, reflection, and
  * shared memory.
  *
- * Phases 5 + 10 of the CONCORDIA_TODO.MD implementation plan.
+ * Phase 4 isolation/governance plus later Phases 5 + 10 of the CONCORDIA_TODO.MD implementation plan.
  *
  * @module
  */
 
 import { createHash } from "node:crypto";
 import type { ConcordiaChannelConfig, EventNotification } from "./types.js";
+import type {
+  ConcordiaCarryOverPolicy,
+  ConcordiaCheckpointMetadata,
+  ConcordiaMemoryContinuityMode,
+  ConcordiaMemoryNamespaceRefs,
+} from "./memory-namespaces.js";
 import { sanitizeContent } from "./response-processor.js";
 
 // ============================================================================
@@ -30,11 +36,18 @@ import { sanitizeContent } from "./response-processor.js";
  * are resolved at runtime from @tetsuo-ai/runtime peer dependency.
  */
 export interface MemoryWiringContext {
+  /** Scenario/world metadata shown to users and passed to Concordia. */
   readonly worldId: string;
   readonly workspaceId: string;
   readonly simulationId?: string;
   readonly lineageId?: string | null;
   readonly parentSimulationId?: string | null;
+  /** Effective storage namespace used by the runtime backend/vector layer. */
+  readonly effectiveStorageKey: string;
+  readonly continuityMode: ConcordiaMemoryContinuityMode;
+  readonly carryOverPolicy: ConcordiaCarryOverPolicy;
+  readonly namespaces: ConcordiaMemoryNamespaceRefs;
+  readonly checkpointMetadata?: ConcordiaCheckpointMetadata | null;
   readonly memoryBackend: MemoryBackendLike;
   readonly identityManager: IdentityManagerLike;
   readonly socialMemory: SocialMemoryLike;
@@ -410,16 +423,40 @@ function hashFactFingerprint(content: string): string {
     .digest("hex");
 }
 
-function resolveSimulationScopeId(ctx: MemoryWiringContext): string {
-  return ctx.simulationId ?? ctx.worldId;
+function resolveWorldScopeId(ctx: MemoryWiringContext): string {
+  return ctx.namespaces.worldScopeId;
+}
+
+function resolveScopedWorkspaceId(ctx: MemoryWiringContext): string {
+  return ctx.namespaces.memoryWorkspaceId;
 }
 
 function buildObservationFactIndexKey(ctx: MemoryWiringContext): string {
-  return `${ctx.workspaceId}:concordia:observation-facts:${resolveSimulationScopeId(ctx)}`;
+  return ctx.namespaces.observationFactIndexKey;
 }
 
 function buildCollectiveEmergenceKey(ctx: MemoryWiringContext): string {
-  return `${ctx.workspaceId}:concordia:collective-emergence:${resolveSimulationScopeId(ctx)}`;
+  return ctx.namespaces.collectiveEmergenceKey;
+}
+
+function buildScopedMetadata(
+  ctx: MemoryWiringContext,
+  metadata: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    ...metadata,
+    scenarioWorldId: ctx.worldId,
+    memoryScopeId: resolveWorldScopeId(ctx),
+    effectiveStorageKey: ctx.effectiveStorageKey,
+    sharedSourceScope: ctx.namespaces.sharedSourceScope,
+    simulationId: ctx.simulationId ?? null,
+    lineageId: ctx.lineageId ?? null,
+    parentSimulationId: ctx.parentSimulationId ?? null,
+    continuityMode: ctx.continuityMode,
+    checkpointSimulationId: ctx.checkpointMetadata?.checkpointSimulationId ?? null,
+    checkpointLineageId: ctx.checkpointMetadata?.checkpointLineageId ?? null,
+    resumedFromStep: ctx.checkpointMetadata?.resumedFromStep ?? null,
+  };
 }
 
 function listAgentAliases(agent: KnownAgentReference): string[] {
@@ -501,17 +538,17 @@ export async function ingestObservation(
     sessionId,
     role: "system",
     content: `[observation] ${normalizedObservation}`,
-    workspaceId: ctx.workspaceId,
+    workspaceId: resolveScopedWorkspaceId(ctx),
     agentId,
-    worldId: ctx.worldId,
+    worldId: resolveWorldScopeId(ctx),
     channel: "concordia",
-    metadata: {
+    metadata: buildScopedMetadata(ctx, {
       type: "concordia_observation",
       provenance: "concordia:gm_observation",
       concordia_tag: "observation",
       trustSource: "system", // GM observations are system-trusted
       confidence: 0.9,
-    },
+    }),
   });
 
   if (ctx.ingestionEngine) {
@@ -520,15 +557,15 @@ export async function ingestObservation(
       normalizedObservation,
       "[Observation recorded for future simulation turns.]",
       {
-        workspaceId: ctx.workspaceId,
+        workspaceId: resolveScopedWorkspaceId(ctx),
         agentId,
-        worldId: ctx.worldId,
+        worldId: resolveWorldScopeId(ctx),
         channel: "concordia",
-        agentResponseMetadata: {
+        agentResponseMetadata: buildScopedMetadata(ctx, {
           type: "concordia_observation",
           concordia_tag: "observation",
           provenance: "concordia:gm_observation",
-        },
+        }),
       },
     );
   }
@@ -539,6 +576,65 @@ export async function ingestObservation(
  * immediately to all agents. Matching confirmations can later promote these
  * facts into shared world knowledge.
  */
+async function loadObservationFactIndex(
+  ctx: MemoryWiringContext,
+): Promise<Record<string, ObservationFactIndexEntry>> {
+  return (await ctx.memoryBackend.get<Record<string, ObservationFactIndexEntry>>(
+    buildObservationFactIndexKey(ctx),
+  )) ?? {};
+}
+
+async function writeObservationFactIndex(
+  ctx: MemoryWiringContext,
+  index: Record<string, ObservationFactIndexEntry>,
+): Promise<void> {
+  await ctx.memoryBackend.set(buildObservationFactIndexKey(ctx), index);
+}
+
+async function createObservationWorldFact(
+  ctx: MemoryWiringContext,
+  fingerprint: string,
+  canonicalContent: string,
+  agentId: string,
+  factIndex: Record<string, ObservationFactIndexEntry>,
+): Promise<void> {
+  const fact = await ctx.socialMemory.addWorldFact(
+    resolveWorldScopeId(ctx),
+    canonicalContent,
+    agentId,
+    "private",
+  );
+  await writeObservationFactIndex(ctx, {
+    ...factIndex,
+    [fingerprint]: {
+      factId: fact.id,
+      canonicalContent,
+      confirmedBy: [agentId],
+    },
+  });
+}
+
+async function confirmObservationWorldFact(
+  ctx: MemoryWiringContext,
+  fingerprint: string,
+  agentId: string,
+  existing: ObservationFactIndexEntry,
+  factIndex: Record<string, ObservationFactIndexEntry>,
+): Promise<void> {
+  const confirmed = await ctx.socialMemory.confirmWorldFact(
+    existing.factId,
+    resolveWorldScopeId(ctx),
+    agentId,
+  );
+  await writeObservationFactIndex(ctx, {
+    ...factIndex,
+    [fingerprint]: {
+      ...existing,
+      confirmedBy: confirmed?.confirmedBy ?? [...existing.confirmedBy, agentId],
+    },
+  });
+}
+
 export async function recordObservationWorldFact(
   ctx: MemoryWiringContext,
   agentId: string,
@@ -552,26 +648,11 @@ export async function recordObservationWorldFact(
   }
 
   const fingerprint = hashFactFingerprint(canonicalContent);
-  const indexKey = buildObservationFactIndexKey(ctx);
-  const factIndex =
-    (await ctx.memoryBackend.get<Record<string, ObservationFactIndexEntry>>(indexKey)) ?? {};
+  const factIndex = await loadObservationFactIndex(ctx);
   const existing = factIndex[fingerprint];
 
   if (!existing) {
-    const fact = await ctx.socialMemory.addWorldFact(
-      ctx.worldId,
-      canonicalContent,
-      agentId,
-      "private",
-    );
-    await ctx.memoryBackend.set(indexKey, {
-      ...factIndex,
-      [fingerprint]: {
-        factId: fact.id,
-        canonicalContent,
-        confirmedBy: [agentId],
-      },
-    });
+    await createObservationWorldFact(ctx, fingerprint, canonicalContent, agentId, factIndex);
     return;
   }
 
@@ -579,19 +660,7 @@ export async function recordObservationWorldFact(
     return;
   }
 
-  const confirmed = await ctx.socialMemory.confirmWorldFact(
-    existing.factId,
-    ctx.worldId,
-    agentId,
-  );
-  await ctx.memoryBackend.set(indexKey, {
-    ...factIndex,
-    [fingerprint]: {
-      ...existing,
-      confirmedBy:
-        confirmed?.confirmedBy ?? [...existing.confirmedBy, agentId],
-    },
-  });
+  await confirmObservationWorldFact(ctx, fingerprint, agentId, existing, factIndex);
 }
 
 /**
@@ -615,17 +684,17 @@ export async function recordAgentAction(
     sessionId,
     role: "assistant",
     content: normalizedAction,
-    workspaceId: ctx.workspaceId,
+    workspaceId: resolveScopedWorkspaceId(ctx),
     agentId,
-    worldId: ctx.worldId,
+    worldId: resolveWorldScopeId(ctx),
     channel: "concordia",
-    metadata: {
+    metadata: buildScopedMetadata(ctx, {
       type: "concordia_action",
       provenance: "concordia:agent_action",
       concordia_tag: "action",
       trustSource: "agent",
       confidence: 0.7,
-    },
+    }),
   });
 
   if (ctx.ingestionEngine) {
@@ -634,17 +703,17 @@ export async function recordAgentAction(
       "[Concordia agent action]",
       normalizedAction,
       {
-        workspaceId: ctx.workspaceId,
+        workspaceId: resolveScopedWorkspaceId(ctx),
         agentId,
-        worldId: ctx.worldId,
+        worldId: resolveWorldScopeId(ctx),
         channel: "concordia",
-        agentResponseMetadata: {
+        agentResponseMetadata: buildScopedMetadata(ctx, {
           type: "concordia_action",
           concordia_tag: "action",
           provenance: "concordia:agent_action",
           trustSource: "agent",
           confidence: 0.7,
-        },
+        }),
       },
     );
   }
@@ -664,25 +733,19 @@ export async function setupAgentIdentity(
     agentId,
     name: agentName,
     corePersonality: personality + (goal ? `\n\nGoal: ${goal}` : ""),
-    workspaceId: ctx.workspaceId,
+    workspaceId: ctx.namespaces.identityWorkspaceId,
   });
 }
 
 /**
  * Record a social interaction between agents from a resolved event.
  */
-export async function recordSocialEvent(
-  ctx: MemoryWiringContext,
+function collectSocialEventParticipants(
   event: EventNotification,
+  normalizedContent: string,
   knownAgents: readonly KnownAgentReference[],
-): Promise<void> {
-  const normalizedContent = normalizeSimulationContent(event.content ?? "");
-  if (!normalizedContent) return;
-
-  const actingAgent = event.acting_agent
-    ? resolveAgentReference(event.acting_agent, knownAgents)
-    : null;
-
+  actingAgent: KnownAgentReference | null,
+): string[] {
   const participants = new Map<string, KnownAgentReference>();
   if (actingAgent) {
     participants.set(actingAgent.agentId, actingAgent);
@@ -702,50 +765,79 @@ export async function recordSocialEvent(
     }
   }
 
-  const participantIds = [...participants.keys()];
+  return [...participants.keys()];
+}
+
+async function recordBidirectionalSocialInteraction(
+  ctx: MemoryWiringContext,
+  leftAgentId: string,
+  rightAgentId: string,
+  interaction: { timestamp: number; summary: string; context: string },
+): Promise<void> {
+  const worldScopeId = resolveWorldScopeId(ctx);
+  await ctx.socialMemory.recordInteraction(leftAgentId, rightAgentId, worldScopeId, interaction);
+  await ctx.socialMemory.recordInteraction(rightAgentId, leftAgentId, worldScopeId, interaction);
+}
+
+async function recordActingAgentInteractions(
+  ctx: MemoryWiringContext,
+  actingAgentId: string,
+  participantIds: readonly string[],
+  interaction: { timestamp: number; summary: string; context: string },
+): Promise<void> {
+  for (const targetId of participantIds) {
+    if (targetId === actingAgentId) {
+      continue;
+    }
+    await recordBidirectionalSocialInteraction(ctx, actingAgentId, targetId, interaction);
+  }
+}
+
+async function recordParticipantPairInteractions(
+  ctx: MemoryWiringContext,
+  participantIds: readonly string[],
+  interaction: { timestamp: number; summary: string; context: string },
+): Promise<void> {
+  for (let i = 0; i < participantIds.length; i++) {
+    for (let j = i + 1; j < participantIds.length; j++) {
+      await recordBidirectionalSocialInteraction(ctx, participantIds[i], participantIds[j], interaction);
+    }
+  }
+}
+
+export async function recordSocialEvent(
+  ctx: MemoryWiringContext,
+  event: EventNotification,
+  knownAgents: readonly KnownAgentReference[],
+): Promise<void> {
+  const normalizedContent = normalizeSimulationContent(event.content ?? "");
+  if (!normalizedContent) return;
+
+  const actingAgent = event.acting_agent
+    ? resolveAgentReference(event.acting_agent, knownAgents)
+    : null;
+  const participantIds = collectSocialEventParticipants(
+    event,
+    normalizedContent,
+    knownAgents,
+    actingAgent,
+  );
   if (participantIds.length < 2) {
     return;
   }
 
-  const timestamp = Date.now();
-  const summary = normalizedContent.slice(0, 500);
-  const context = `step:${event.step}:${event.type}`;
+  const interaction = {
+    timestamp: Date.now(),
+    summary: normalizedContent.slice(0, 500),
+    context: `step:${event.step}:${event.type}`,
+  };
 
   if (actingAgent) {
-    for (const targetId of participantIds) {
-      if (targetId === actingAgent.agentId) continue;
-      await ctx.socialMemory.recordInteraction(
-        actingAgent.agentId,
-        targetId,
-        ctx.worldId,
-        { timestamp, summary, context },
-      );
-      await ctx.socialMemory.recordInteraction(
-        targetId,
-        actingAgent.agentId,
-        ctx.worldId,
-        { timestamp, summary, context },
-      );
-    }
+    await recordActingAgentInteractions(ctx, actingAgent.agentId, participantIds, interaction);
     return;
   }
 
-  for (let i = 0; i < participantIds.length; i++) {
-    for (let j = i + 1; j < participantIds.length; j++) {
-      const left = participantIds[i];
-      const right = participantIds[j];
-      await ctx.socialMemory.recordInteraction(left, right, ctx.worldId, {
-        timestamp,
-        summary,
-        context,
-      });
-      await ctx.socialMemory.recordInteraction(right, left, ctx.worldId, {
-        timestamp,
-        summary,
-        context,
-      });
-    }
-  }
+  await recordParticipantPairInteractions(ctx, participantIds, interaction);
 }
 
 /**
@@ -755,10 +847,14 @@ export async function storePremise(
   ctx: MemoryWiringContext,
   premise: string,
 ): Promise<void> {
+  const normalizedPremise = normalizeSimulationContent(premise);
+  if (!normalizedPremise) {
+    return;
+  }
   await ctx.socialMemory.addWorldFact(
-    ctx.worldId,
-    premise,
-    "concordia:gm",
+    resolveWorldScopeId(ctx),
+    normalizedPremise,
+    ctx.namespaces.sharedAuthor,
     "world",
   );
 }
@@ -773,14 +869,14 @@ export async function getAgentState(
   turnCount: number,
   lastAction: string | null,
 ): Promise<Record<string, unknown>> {
-  const identity = await ctx.identityManager.load(agentId, ctx.workspaceId);
+  const identity = await ctx.identityManager.load(agentId, ctx.namespaces.identityWorkspaceId);
   const recentMemories = await ctx.memoryBackend.getThread(sessionId, 10);
-  const knownAgents = await ctx.socialMemory.listKnownAgents(agentId, ctx.worldId);
-  const worldFacts = await ctx.socialMemory.getWorldFacts(ctx.worldId, agentId);
+  const knownAgents = await ctx.socialMemory.listKnownAgents(agentId, resolveWorldScopeId(ctx));
+  const worldFacts = await ctx.socialMemory.getWorldFacts(resolveWorldScopeId(ctx), agentId);
 
   const relationships: Array<Record<string, unknown>> = [];
   for (const otherId of knownAgents) {
-    const rel = await ctx.socialMemory.getRelationship(agentId, otherId, ctx.worldId);
+    const rel = await ctx.socialMemory.getRelationship(agentId, otherId, resolveWorldScopeId(ctx));
     if (rel) {
       relationships.push({
         otherAgentId: otherId,
@@ -874,7 +970,7 @@ export async function recordProcedure(
     name: `${agentId}:${trigger.slice(0, 30).replace(/\s+/g, "_")}`,
     trigger,
     steps,
-    workspaceId: ctx.workspaceId,
+    workspaceId: ctx.namespaces.proceduralWorkspaceId,
   });
 }
 
@@ -886,7 +982,7 @@ export async function retrieveProcedures(
   triggerText: string,
 ): Promise<string> {
   if (!ctx.proceduralMemory) return "";
-  const procedures = await ctx.proceduralMemory.retrieve(triggerText, ctx.workspaceId);
+  const procedures = await ctx.proceduralMemory.retrieve(triggerText, ctx.namespaces.proceduralWorkspaceId);
   if (procedures.length === 0) return "";
   return ctx.proceduralMemory.formatForPrompt(procedures);
 }
@@ -906,7 +1002,7 @@ export async function updateActivationScores(
 ): Promise<void> {
   for (const entryId of retrievedEntryIds) {
     // Read the existing entry's metadata via KV (since we can't update entries in place)
-    const key = `${ctx.workspaceId}:activation:${entryId}`;
+    const key = `${ctx.namespaces.activationKeyPrefix}:${entryId}`;
     const existing = await ctx.memoryBackend.get<{ accessCount: number; lastAccessTime: number }>(key);
     const accessCount = (existing?.accessCount ?? 0) + 1;
     await ctx.memoryBackend.set(key, {
@@ -924,6 +1020,70 @@ export async function updateActivationScores(
  * Update temporal edges when a resolved event contradicts existing graph facts.
  * Old facts get validUntil set, new facts get validFrom.
  */
+function extractTemporalCandidateEntities(
+  resolvedEvent: string,
+  actingAgent?: string,
+): string[] {
+  return Array.from(
+    new Set(
+      [
+        ...(actingAgent ? [actingAgent] : []),
+        ...(resolvedEvent.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) ?? []),
+      ],
+    ),
+  ).slice(0, GRAPH_ENTITY_SCAN_LIMIT);
+}
+
+function buildResolvedEventProvenance(
+  ctx: MemoryWiringContext,
+  timestamp: number,
+  actingAgent?: string,
+): {
+  type: string;
+  sourceId: string;
+  description: string;
+  metadata: Record<string, unknown>;
+} {
+  return {
+    type: "manual",
+    sourceId: `${ctx.namespaces.sharedAuthor}:${actingAgent ?? "world"}:${timestamp}`,
+    description: "Resolved Concordia simulation event",
+    metadata: buildScopedMetadata(ctx, {
+      worldId: resolveWorldScopeId(ctx),
+      ...(actingAgent ? { agentId: actingAgent } : {}),
+    }),
+  };
+}
+
+async function linkTemporalEntityEdges(
+  ctx: MemoryWiringContext,
+  eventNodeId: string,
+  candidateEntities: readonly string[],
+  normalizedEvent: string,
+  contradictionCue: boolean,
+  timestamp: number,
+): Promise<void> {
+  if (!ctx.graph) {
+    return;
+  }
+
+  for (const entityName of candidateEntities) {
+    const relatedNodes = await ctx.graph.findByEntity(entityName, ctx.namespaces.graphWorkspaceId);
+    for (const node of relatedNodes.slice(0, RELATION_EDGE_SCAN_LIMIT)) {
+      if (node.id === eventNodeId) {
+        continue;
+      }
+      await ctx.graph.addEdge({
+        sourceId: eventNodeId,
+        targetId: node.id,
+        type: contradictionCue ? "supersedes" : "relates_to",
+        content: normalizedEvent,
+        validFrom: timestamp,
+      });
+    }
+  }
+}
+
 export async function updateTemporalEdges(
   ctx: MemoryWiringContext,
   actingAgent: string | undefined,
@@ -937,48 +1097,23 @@ export async function updateTemporalEdges(
   const contradictionCue = CONTRADICTION_CUES.some((cue) =>
     normalizedEvent.toLowerCase().includes(cue),
   );
-
   const eventNode = await ctx.graph.upsertNode({
     content: normalizedEvent,
-    workspaceId: ctx.workspaceId,
+    workspaceId: ctx.namespaces.graphWorkspaceId,
     ...(actingAgent ? { entityName: actingAgent } : {}),
     entityType: "simulation_event",
     tags: ["concordia", "resolved-event"],
-    provenance: [
-      {
-        type: "manual",
-        sourceId: `concordia:${ctx.worldId}:${actingAgent ?? "world"}:${timestamp}`,
-        description: "Resolved Concordia simulation event",
-        metadata: {
-          worldId: ctx.worldId,
-          ...(actingAgent ? { agentId: actingAgent } : {}),
-        },
-      },
-    ],
+    provenance: [buildResolvedEventProvenance(ctx, timestamp, actingAgent)],
   });
 
-  const candidateEntities = Array.from(
-    new Set(
-      [
-        ...(actingAgent ? [actingAgent] : []),
-        ...normalizedEvent.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) ?? [],
-      ],
-    ),
-  ).slice(0, GRAPH_ENTITY_SCAN_LIMIT);
-
-  for (const entityName of candidateEntities) {
-    const relatedNodes = await ctx.graph.findByEntity(entityName, ctx.workspaceId);
-    for (const node of relatedNodes.slice(0, RELATION_EDGE_SCAN_LIMIT)) {
-      if (node.id === eventNode.id) continue;
-      await ctx.graph.addEdge({
-        sourceId: eventNode.id,
-        targetId: node.id,
-        type: contradictionCue ? "supersedes" : "relates_to",
-        content: normalizedEvent,
-        validFrom: timestamp,
-      });
-    }
-  }
+  await linkTemporalEntityEdges(
+    ctx,
+    eventNode.id,
+    extractTemporalCandidateEntities(normalizedEvent, actingAgent),
+    normalizedEvent,
+    contradictionCue,
+    timestamp,
+  );
 }
 
 // ============================================================================
@@ -989,6 +1124,28 @@ export async function updateTemporalEdges(
  * Build knowledge graph context for the /act prompt.
  * Uses BFS to pull related entities up to depth 2.
  */
+async function buildKnowledgeSectionForWord(
+  ctx: MemoryWiringContext,
+  word: string,
+): Promise<string | null> {
+  if (!ctx.graph) {
+    return null;
+  }
+
+  const nodes = await ctx.graph.findByEntity(word, ctx.namespaces.graphWorkspaceId);
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  const related = await ctx.graph.getRelatedEntities(nodes[0].id, 2);
+  if (related.length === 0) {
+    return null;
+  }
+
+  const facts = related.map((node) => node.content || node.entityName || "").filter(Boolean);
+  return facts.length > 0 ? `[Knowledge about ${word}]: ${facts.join('; ')}` : null;
+}
+
 export async function buildGraphContext(
   ctx: MemoryWiringContext,
   queryText: string,
@@ -996,24 +1153,11 @@ export async function buildGraphContext(
 ): Promise<string> {
   if (!ctx.graph) return "";
 
-  // Extract potential entity mentions from the query
   const words = queryText.split(/\s+/).filter((w) => w.length > 3);
-  const contextParts: string[] = [];
-
-  for (const word of words.slice(0, 5)) {
-    const nodes = await ctx.graph.findByEntity(word, ctx.workspaceId);
-    if (nodes.length > 0) {
-      const related = await ctx.graph.getRelatedEntities(nodes[0].id, 2);
-      if (related.length > 0) {
-        const facts = related.map((n) => n.content || n.entityName || "").filter(Boolean);
-        if (facts.length > 0) {
-          contextParts.push(`[Knowledge about ${word}]: ${facts.join("; ")}`);
-        }
-      }
-    }
-  }
-
-  return contextParts.join("\n");
+  const sections = await Promise.all(
+    words.slice(0, 5).map((word) => buildKnowledgeSectionForWord(ctx, word)),
+  );
+  return sections.filter((section): section is string => Boolean(section)).join("\n");
 }
 
 // ============================================================================
@@ -1032,7 +1176,11 @@ export async function getSharedContext(
   const userFacts = await ctx.sharedMemory.getFacts("user", userId);
   if (userFacts.length === 0) return "";
 
-  return "[Shared Knowledge]\n" + userFacts.map((f) => `- ${f.content}`).join("\n");
+  return "[Shared Knowledge]\n" + userFacts
+    .map((fact) => normalizeSimulationContent(fact.content))
+    .filter(Boolean)
+    .map((content) => `- ${content}`)
+    .join("\n");
 }
 
 /**
@@ -1044,10 +1192,12 @@ export async function promoteToSharedMemory(
   userId?: string,
 ): Promise<void> {
   if (!ctx.sharedMemory) return;
+  const normalizedContent = normalizeSimulationContent(content);
+  if (!normalizedContent) return;
   await ctx.sharedMemory.writeFact({
     scope: "user",
-    content,
-    author: `concordia:${ctx.worldId}`,
+    content: normalizedContent,
+    author: ctx.namespaces.sharedAuthor,
     userId,
   });
 }
@@ -1064,7 +1214,7 @@ export async function checkCollectiveEmergence(
   ctx: MemoryWiringContext,
   minConfirmations: number = 3,
 ): Promise<Array<{ content: string; confirmedBy: readonly string[] }>> {
-  return ctx.socialMemory.checkCollectiveEmergence(ctx.worldId, minConfirmations);
+  return ctx.socialMemory.checkCollectiveEmergence(resolveWorldScopeId(ctx), minConfirmations);
 }
 
 /**
@@ -1104,9 +1254,9 @@ export async function promoteCollectiveEmergenceFacts(
     }
 
     await ctx.socialMemory.addWorldFact(
-      ctx.worldId,
+      resolveWorldScopeId(ctx),
       canonicalContent,
-      "concordia:collective-emergence",
+      ctx.namespaces.sharedAuthor,
       "world",
     );
     updatedPromotions[fingerprint] = true;
@@ -1141,7 +1291,7 @@ export function traceMemoryRetrieval(
 ): void {
   ctx.traceLogger?.traceRetrieval({
     ...params,
-    workspaceId: ctx.workspaceId,
+    workspaceId: ctx.namespaces.memoryWorkspaceId,
   });
 }
 
@@ -1192,6 +1342,98 @@ export async function logSimulationEvent(
 // Task 5.5: Full prompt context builder with all memory sources
 // ============================================================================
 
+async function buildIdentityPromptSection(
+  ctx: MemoryWiringContext,
+  agentId: string,
+): Promise<string | null> {
+  const identity = await ctx.identityManager.load(agentId, ctx.namespaces.identityWorkspaceId);
+  return identity ? ctx.identityManager.formatForPrompt(identity) : null;
+}
+
+async function buildRelationshipPromptSection(
+  ctx: MemoryWiringContext,
+  agentId: string,
+): Promise<string | null> {
+  const worldScopeId = resolveWorldScopeId(ctx);
+  const knownAgents = await ctx.socialMemory.listKnownAgents(agentId, worldScopeId);
+  const relationshipLines: string[] = [];
+  for (const otherId of knownAgents.slice(0, SOCIAL_CONTEXT_AGENT_LIMIT)) {
+    const relationship = await ctx.socialMemory.getRelationship(agentId, otherId, worldScopeId);
+    if (!relationship) {
+      continue;
+    }
+    relationshipLines.push(
+      `- ${otherId}: ${summarizeRelationship(
+        relationship.interactions[relationship.interactions.length - 1],
+        relationship.sentiment,
+      )}`,
+    );
+  }
+  return relationshipLines.length > 0
+    ? ['[Current Relationships]', ...relationshipLines].join('\n')
+    : null;
+}
+
+async function buildWorldFactsPromptSection(
+  ctx: MemoryWiringContext,
+  agentId: string,
+): Promise<string | null> {
+  const worldFacts = await ctx.socialMemory.getWorldFacts(resolveWorldScopeId(ctx), agentId);
+  const worldFactLines = worldFacts
+    .slice(0, WORLD_FACT_LIMIT)
+    .map((fact) => `- ${normalizeSimulationContent(fact.content)}`);
+  return worldFactLines.length > 0
+    ? ['[Visible World Facts]', ...worldFactLines].join('\n')
+    : null;
+}
+
+async function buildSemanticPromptSection(
+  ctx: MemoryWiringContext,
+  sessionId: string,
+  query: string,
+): Promise<string | null> {
+  if (!ctx.retriever) {
+    return null;
+  }
+
+  const startedAt = Date.now();
+  const retrieval = ctx.retriever.retrieveDetailed
+    ? await ctx.retriever.retrieveDetailed(query, sessionId)
+    : {
+        content: await ctx.retriever.retrieve(query, sessionId),
+        entries: [],
+        estimatedTokens: 0,
+      };
+
+  const retrievedEntryIds = Array.from(
+    new Set((retrieval.entries ?? []).map((entry) => entry.entry.id).filter(Boolean)),
+  );
+  if (retrievedEntryIds.length > 0) {
+    await updateActivationScores(ctx, sessionId, retrievedEntryIds);
+  }
+
+  if (ctx.traceLogger) {
+    const roleCounts = (retrieval.entries ?? []).reduce<Record<string, number>>(
+      (counts, entry) => {
+        counts[entry.role] = (counts[entry.role] ?? 0) + 1;
+        return counts;
+      },
+      {},
+    );
+    traceMemoryRetrieval(ctx, {
+      sessionId,
+      query,
+      candidateCount: (retrieval.entries ?? []).length,
+      selectedCount: (retrieval.entries ?? []).length,
+      estimatedTokens: retrieval.estimatedTokens ?? 0,
+      roles: roleCounts,
+      durationMs: Date.now() - startedAt,
+    });
+  }
+
+  return retrieval.content || null;
+}
+
 /**
  * Build the complete memory-enriched prompt context for an /act call.
  * Combines: identity + procedural + semantic + graph + shared memory.
@@ -1203,102 +1445,15 @@ export async function buildFullActContext(
   actionCallToAction: string,
   userId?: string,
 ): Promise<string> {
-  const parts: string[] = [];
+  const parts = [
+    await buildIdentityPromptSection(ctx, agentId),
+    await buildRelationshipPromptSection(ctx, agentId),
+    await buildWorldFactsPromptSection(ctx, agentId),
+    await retrieveProcedures(ctx, actionCallToAction),
+    await buildSemanticPromptSection(ctx, sessionId, actionCallToAction),
+    await buildGraphContext(ctx, actionCallToAction, agentId),
+    await getSharedContext(ctx, userId),
+  ];
 
-  // 1. Agent identity (personality, beliefs, traits)
-  const identity = await ctx.identityManager.load(agentId, ctx.workspaceId);
-  if (identity) {
-    parts.push(ctx.identityManager.formatForPrompt(identity));
-  }
-
-  const knownAgents = await ctx.socialMemory.listKnownAgents(agentId, ctx.worldId);
-  const relationshipLines: string[] = [];
-  for (const otherId of knownAgents.slice(0, SOCIAL_CONTEXT_AGENT_LIMIT)) {
-    const relationship = await ctx.socialMemory.getRelationship(
-      agentId,
-      otherId,
-      ctx.worldId,
-    );
-    if (!relationship) continue;
-    relationshipLines.push(
-      `- ${otherId}: ${summarizeRelationship(
-        relationship.interactions[relationship.interactions.length - 1],
-        relationship.sentiment,
-      )}`,
-    );
-  }
-  if (relationshipLines.length > 0) {
-    parts.push(["[Current Relationships]", ...relationshipLines].join("\n"));
-  }
-
-  const worldFacts = await ctx.socialMemory.getWorldFacts(ctx.worldId, agentId);
-  const worldFactLines = worldFacts
-    .slice(0, WORLD_FACT_LIMIT)
-    .map((fact) => `- ${normalizeSimulationContent(fact.content)}`);
-  if (worldFactLines.length > 0) {
-    parts.push(["[Visible World Facts]", ...worldFactLines].join("\n"));
-  }
-
-  // 2. Procedural memory (successful strategies)
-  const proceduralContext = await retrieveProcedures(ctx, actionCallToAction);
-  if (proceduralContext) {
-    parts.push(proceduralContext);
-  }
-
-  // 3. Semantic memory retrieval (working + episodic + semantic)
-  if (ctx.retriever) {
-    const startedAt = Date.now();
-    const retrieval = ctx.retriever.retrieveDetailed
-      ? await ctx.retriever.retrieveDetailed(actionCallToAction, sessionId)
-      : {
-          content: await ctx.retriever.retrieve(actionCallToAction, sessionId),
-          entries: [],
-          estimatedTokens: 0,
-        };
-
-    if (retrieval.content) {
-      parts.push(retrieval.content);
-    }
-
-    const retrievedEntryIds = Array.from(
-      new Set(
-        (retrieval.entries ?? []).map((entry) => entry.entry.id).filter(Boolean),
-      ),
-    );
-    if (retrievedEntryIds.length > 0) {
-      await updateActivationScores(ctx, sessionId, retrievedEntryIds);
-    }
-    if (ctx.traceLogger) {
-      const roleCounts = (retrieval.entries ?? []).reduce<Record<string, number>>(
-        (counts, entry) => {
-          counts[entry.role] = (counts[entry.role] ?? 0) + 1;
-          return counts;
-        },
-        {},
-      );
-      traceMemoryRetrieval(ctx, {
-        sessionId,
-        query: actionCallToAction,
-        candidateCount: (retrieval.entries ?? []).length,
-        selectedCount: (retrieval.entries ?? []).length,
-        estimatedTokens: retrieval.estimatedTokens ?? 0,
-        roles: roleCounts,
-        durationMs: Date.now() - startedAt,
-      });
-    }
-  }
-
-  // 4. Knowledge graph context (BFS traversal)
-  const graphContext = await buildGraphContext(ctx, actionCallToAction, agentId);
-  if (graphContext) {
-    parts.push(graphContext);
-  }
-
-  // 5. Shared cross-simulation knowledge
-  const sharedContext = await getSharedContext(ctx, userId);
-  if (sharedContext) {
-    parts.push(sharedContext);
-  }
-
-  return parts.filter(Boolean).join("\n\n");
+  return parts.filter(Boolean).join('\n\n');
 }

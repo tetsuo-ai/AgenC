@@ -102,6 +102,19 @@ export {
   logSimulationEvent,
 } from "./memory-wiring.js";
 
+// Re-export simulation memory namespace policy helpers (Phase 4)
+export {
+  buildConcordiaCarryOverPolicy,
+  buildConcordiaMemoryNamespaces,
+  resolveConcordiaMemoryContinuityMode,
+} from "./memory-namespaces.js";
+export type {
+  ConcordiaCarryOverPolicy,
+  ConcordiaCheckpointMetadata,
+  ConcordiaMemoryContinuityMode,
+  ConcordiaMemoryNamespaceRefs,
+} from "./memory-namespaces.js";
+
 // Re-export memory lifecycle for consumers (Phase 10)
 export {
   runPeriodicTasks,
