@@ -71,6 +71,22 @@ describe("ConcordiaChannelAdapter pending response handling", () => {
     expect((adapter as any).pendingResponses.size).toBe(0);
   });
 
+  it("ignores out-of-band messages without request_id when nothing is pending", async () => {
+    const adapter = new ConcordiaChannelAdapter();
+    const context = makeContext();
+    await adapter.initialize(context as never);
+
+    await adapter.send({
+      session_id: "session-idle",
+      content: "approval prompt",
+      is_partial: false,
+      metadata: {},
+    } as never);
+
+    expect(context.logger.warn).not.toHaveBeenCalled();
+    expect(context.logger.debug).toHaveBeenCalled();
+  });
+
   it("cleans up a pending act when dispatch into the daemon pipeline fails", async () => {
     const onMessage = vi.fn().mockImplementation(async () => {
       throw new Error("dispatch exploded");

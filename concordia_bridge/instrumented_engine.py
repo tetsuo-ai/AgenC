@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
 import requests
@@ -77,6 +78,13 @@ def sanitize_story_text(text: str) -> str:
     return cleaned.strip()
 
 
+@dataclass
+class _SceneState:
+    index: int = 0
+    round: int = 0
+    current: object | None = None
+
+
 class InstrumentedSequentialEngine(Engine):
     """Sequential simulation engine with event hooks for real-time streaming.
 
@@ -125,6 +133,76 @@ class InstrumentedSequentialEngine(Engine):
         self._call_to_check_termination = call_to_check_termination
         self._current_step = 0
         self._last_acting_entity_name: Optional[str] = None
+
+    def _emit_premise(
+        self,
+        game_master: Entity,
+        premise: str,
+        start_step: int,
+    ) -> None:
+        if not premise or start_step > 1:
+            return
+        game_master.observe(f"[event] {premise}")
+        self._event_callback(SimulationEvent(
+            type="step",
+            step=0,
+            timestamp=time.time(),
+            content=premise,
+            metadata={"phase": "premise"},
+        ))
+
+    def _scene_name(self, scene: object, fallback_index: int) -> str:
+        scene_type = getattr(scene, "scene_type", None)
+        if isinstance(scene_type, dict):
+            name = scene_type.get("name")
+            if isinstance(name, str) and name:
+                return name
+        return str(fallback_index)
+
+    def _initialize_scene_state(
+        self,
+        scenes: Optional[Sequence[object]],
+    ) -> _SceneState:
+        current_scene = scenes[0] if scenes else None
+        state = _SceneState(current=current_scene)
+        if current_scene is not None:
+            self._event_callback(SimulationEvent(
+                type="scene_change",
+                step=0,
+                timestamp=time.time(),
+                scene=self._scene_name(current_scene, state.index),
+                content=f"Scene started: {state.index}",
+            ))
+        return state
+
+    def _advance_scene_state(
+        self,
+        step: int,
+        scenes: Optional[Sequence[object]],
+        state: _SceneState,
+    ) -> None:
+        if not scenes or state.current is None:
+            return
+
+        state.round += 1
+        num_rounds = getattr(state.current, "num_rounds", None) or 999
+        if state.round <= num_rounds:
+            return
+
+        state.index += 1
+        state.round = 0
+        if state.index < len(scenes):
+            state.current = scenes[state.index]
+            self._event_callback(SimulationEvent(
+                type="scene_change",
+                step=step,
+                timestamp=time.time(),
+                scene=self._scene_name(state.current, state.index),
+                content=f"Scene transition to scene {state.index}",
+            ))
+            return
+
+        state.current = None
 
     def build_entity_action_spec(self, entity: Entity) -> ActionSpec:
         """Build an explicit, per-entity action prompt for the next move."""
@@ -285,31 +363,8 @@ class InstrumentedSequentialEngine(Engine):
         """Run the full simulation loop with optional scene support."""
         gm = game_masters[0]
 
-        # Inject premise
-        if premise and start_step <= 1:
-            gm.observe(f"[event] {premise}")
-            self._event_callback(SimulationEvent(
-                type="step",
-                step=0,
-                timestamp=time.time(),
-                content=premise,
-                metadata={"phase": "premise"},
-            ))
-
-        # Scene tracking (Phase 7.2)
-        scene_index = 0
-        scene_round = 0
-        current_scene = scenes[0] if scenes else None
-        if current_scene:
-            self._event_callback(SimulationEvent(
-                type="scene_change",
-                step=0,
-                timestamp=time.time(),
-                scene=getattr(current_scene, "scene_type", {}).get("name", "scene_0")
-                    if isinstance(getattr(current_scene, "scene_type", None), dict)
-                    else str(scene_index),
-                content=f"Scene started: {scene_index}",
-            ))
+        self._emit_premise(gm, premise, start_step)
+        scene_state = self._initialize_scene_state(scenes)
 
         for step in range(start_step, max_steps + 1):
             self._current_step = step
@@ -328,23 +383,7 @@ class InstrumentedSequentialEngine(Engine):
             if self.terminate(gm):
                 break
 
-            if scenes and current_scene:
-                scene_round += 1
-                num_rounds = getattr(current_scene, "num_rounds", None) or 999
-                if scene_round > num_rounds:
-                    scene_index += 1
-                    scene_round = 0
-                    if scene_index < len(scenes):
-                        current_scene = scenes[scene_index]
-                        self._event_callback(SimulationEvent(
-                            type="scene_change",
-                            step=step,
-                            timestamp=time.time(),
-                            scene=str(scene_index),
-                            content=f"Scene transition to scene {scene_index}",
-                        ))
-                    else:
-                        current_scene = None
+            self._advance_scene_state(step, scenes, scene_state)
 
             if len(game_masters) > 1:
                 gm = self.next_game_master(gm, game_masters)

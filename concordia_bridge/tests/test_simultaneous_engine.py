@@ -174,6 +174,7 @@ class TestSimultaneousEngine:
         scene_events = [e for e in events if e.type == "scene_change"]
         assert len(scene_events) == 2
         assert scene_events[0].scene == "intro"
+        assert scene_events[1].scene == "market"
         assert scene_events[1].step == 2
 
 

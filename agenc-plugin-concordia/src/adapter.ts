@@ -916,6 +916,14 @@ export class ConcordiaChannelAdapter
         );
         return { requestId, pending, usedSessionFallback: true };
       }
+      if (matches.length === 0) {
+        this.context.logger.debug?.(
+          `[concordia] send() ignored outbound message without request_id ${JSON.stringify({
+            session_id: message.session_id,
+          })}`,
+        );
+        return null;
+      }
       this.context.logger.warn?.(
         `[concordia] send() missing request_id ${JSON.stringify({
           session_id: message.session_id,
