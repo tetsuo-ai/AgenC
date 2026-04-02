@@ -262,7 +262,7 @@ class InstrumentedSequentialEngine(Engine):
         log: bool = False,
         checkpoint_callback: Optional[Callable[[int], None]] = None,
         step_controller: object = None,
-        step_callback: Optional[Callable] = None,
+        step_callback: Optional[Callable[..., None]] = None,
         scenes: Optional[list] = None,
         start_step: int = 1,
     ) -> None:
@@ -298,20 +298,20 @@ class InstrumentedSequentialEngine(Engine):
         for step in range(start_step, max_steps + 1):
             self._current_step = step
 
-            # Optional step controller (play/pause/step)
             if step_controller and hasattr(step_controller, "wait_for_step_permission"):
                 step_controller.wait_for_step_permission()
 
-            # Pre-step validation (Phase 8.5)
+            if self._stop_requested(step_controller, "before_step"):
+                break
+
             if not self._validate_pre_step(gm, entities):
                 logger.warning("Pre-step validation failed at step %d — skipping", step)
+                self._finish_step(step, "skipped_pre_step_validation", step_callback)
                 continue
 
-            # Check termination
             if self.terminate(gm):
                 break
 
-            # Scene transition check (Phase 7.2)
             if scenes and current_scene:
                 scene_round += 1
                 num_rounds = getattr(current_scene, "num_rounds", None) or 999
@@ -328,20 +328,26 @@ class InstrumentedSequentialEngine(Engine):
                             content=f"Scene transition to scene {scene_index}",
                         ))
                     else:
-                        current_scene = None  # No more scenes
+                        current_scene = None
 
-            # Multi-GM selection
             if len(game_masters) > 1:
                 gm = self.next_game_master(gm, game_masters)
 
-            # Generate observations for all entities
+            stop_during_observation = False
             for entity in entities:
+                if self._stop_requested(step_controller, f"before_observation:{entity.name}"):
+                    stop_during_observation = True
+                    break
                 self.make_observation(gm, entity)
 
-            # Determine who acts
+            if stop_during_observation or self._stop_requested(step_controller, "before_next_acting"):
+                break
+
             acting_entity, action_spec = self.next_acting(gm, entities)
 
-            # Entity acts
+            if self._stop_requested(step_controller, f"before_action:{acting_entity.name}"):
+                break
+
             try:
                 raw_action = acting_entity.act(action_spec)
             except Exception as exc:
@@ -353,6 +359,7 @@ class InstrumentedSequentialEngine(Engine):
                     agent_name=acting_entity.name,
                     content=f"Agent action failed: {exc}",
                 ))
+                self._finish_step(step, "agent_action_failed", step_callback)
                 continue
 
             if is_invalid_agent_action(raw_action):
@@ -370,6 +377,7 @@ class InstrumentedSequentialEngine(Engine):
                     content="Dropped invalid action text before GM resolution.",
                     metadata={"raw_action": raw_action},
                 ))
+                self._finish_step(step, "invalid_action", step_callback)
                 continue
 
             event_text = f"{acting_entity.name}: {raw_action}"
@@ -383,20 +391,65 @@ class InstrumentedSequentialEngine(Engine):
                 action_spec=action_spec.to_dict() if hasattr(action_spec, "to_dict") else None,
             ))
 
-            # Resolve the event
+            if self._stop_requested(step_controller, f"before_resolution:{acting_entity.name}"):
+                break
+
             self.resolve(gm, event_text)
 
-            # Callbacks
-            if checkpoint_callback:
+            stop_before_checkpoint = self._stop_requested(
+                step_controller,
+                f"before_checkpoint:{acting_entity.name}",
+            )
+            if checkpoint_callback and not stop_before_checkpoint:
                 checkpoint_callback(step)
 
-            if step_callback:
-                try:
-                    step_callback(step)
-                except Exception as exc:
-                    logger.warning("step_callback error: %s", exc)
+            outcome = "resolved_stop_pending" if stop_before_checkpoint else "resolved"
+            self._finish_step(step, outcome, step_callback)
 
             logger.info("Step %d/%d complete: %s", step, max_steps, event_text[:100])
+
+            if stop_before_checkpoint:
+                break
+
+    def _finish_step(
+        self,
+        step: int,
+        outcome: str,
+        step_callback: Optional[Callable[..., None]],
+    ) -> None:
+        logger.info(
+            "Step %d outcome=%s world=%s",
+            step,
+            outcome,
+            self._world_id,
+        )
+        if not step_callback:
+            return
+        try:
+            step_callback(step, outcome)
+        except TypeError:
+            step_callback(step)
+        except Exception as exc:
+            logger.warning("step_callback error: %s", exc)
+
+    def _stop_requested(self, step_controller: object, phase: str) -> bool:
+        stopped = False
+        if step_controller is not None:
+            value = getattr(step_controller, "is_stopped", False)
+            if callable(value):
+                try:
+                    value = value()
+                except TypeError:
+                    pass
+            stopped = value is True
+        if stopped:
+            logger.info(
+                "Stopping sequential engine world=%s step=%d phase=%s",
+                self._world_id,
+                self._current_step,
+                phase,
+            )
+        return stopped
 
     def _validate_pre_step(self, gm: Entity, entities: Sequence[Entity]) -> bool:
         """Pre-step validation: check GM and entity health (Phase 8.5)."""

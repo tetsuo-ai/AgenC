@@ -84,6 +84,10 @@ const MAX_GENERATED_AGENTS = 25;
 interface PendingResponseRequest {
   readonly agentId?: string;
   readonly sessionId: string;
+  readonly worldId: string | null;
+  readonly simulationId: string | null;
+  readonly step: number;
+  readonly createdAt: number;
   resolve: (content: string) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
@@ -209,35 +213,67 @@ export class ConcordiaChannelAdapter
    * Routes the response to the pending /act request for the matching session.
    */
   async send(message: ChannelOutboundMessage): Promise<void> {
-    // Skip partial streaming chunks — wait for the complete response
     if (message.is_partial) return;
 
-    const requestId = extractRequestId(message.metadata);
+    let requestId = extractRequestId(message.metadata);
+    let pending: PendingResponseRequest | undefined;
+    let usedSessionFallback = false;
+
     if (!requestId) {
-      this.context.logger.warn?.(
-        `[concordia] send() missing request_id for session: ${message.session_id}`,
-      );
-      return;
+      const matches = this.findPendingResponsesBySession(message.session_id);
+      if (matches.length === 1) {
+        [requestId, pending] = matches[0];
+        usedSessionFallback = true;
+        this.logPendingResponse(
+          "missing_request_id_fallback",
+          requestId,
+          pending,
+          {},
+          "warn",
+        );
+      } else {
+        this.context.logger.warn?.(
+          `[concordia] send() missing request_id ${JSON.stringify({
+            session_id: message.session_id,
+            pending_matches: matches.length,
+          })}`,
+        );
+        return;
+      }
+    } else {
+      pending = this.pendingResponses.get(requestId);
+      if (!pending) {
+        this.context.logger.warn?.(
+          `[concordia] send() for unknown request_id ${JSON.stringify({
+            request_id: requestId,
+            session_id: message.session_id,
+          })}`,
+        );
+        return;
+      }
     }
 
-    const pending = this.pendingResponses.get(requestId);
     if (!pending) {
-      this.context.logger.warn?.(
-        `[concordia] send() for unknown request_id: ${requestId}`,
-      );
       return;
     }
 
     if (pending.sessionId !== message.session_id) {
-      this.context.logger.warn?.(
-        `[concordia] send() session mismatch for request ${requestId}: expected ${pending.sessionId}, got ${message.session_id}`,
+      this.rejectPendingResponse(
+        requestId,
+        new Error(
+          `[concordia] send() session mismatch for request ${requestId}: expected ${pending.sessionId}, got ${message.session_id}`,
+        ),
+        "session_mismatch",
       );
       return;
     }
 
-    clearTimeout(pending.timeout);
-    pending.resolve(message.content);
-    this.pendingResponses.delete(requestId);
+    this.resolvePendingResponse(
+      requestId,
+      pending,
+      message.content,
+      usedSessionFallback ? "resolved_session_fallback" : "resolved",
+    );
   }
 
   isHealthy(): boolean {
@@ -314,7 +350,7 @@ export class ConcordiaChannelAdapter
 
   private async handleReset(): Promise<void> {
     this.sessionManager.clear();
-    this.clearPendingResponses("");
+    this.clearPendingResponses("Concordia simulation reset");
     await stopSimulationRunner(this.simulationRunner);
     this.simulationRunner = null;
     this.memoryCtx = null;
@@ -513,12 +549,30 @@ export class ConcordiaChannelAdapter
       agentId,
       120_000,
       `[concordia] /act timeout for ${session.agentName} after 120000ms`,
+      session.worldId,
+      this.simulationStep,
     );
 
-    // Fire the message into the daemon pipeline
-    await this.context.on_message(inbound);
+    this.logPendingResponse(
+      "dispatch",
+      requestId,
+      this.pendingResponses.get(requestId),
+      { message_length: message.length },
+      "debug",
+    );
 
-    // Wait for the daemon to call send() with the response
+    try {
+      await this.context.on_message(inbound);
+    } catch (err) {
+      this.rejectPendingResponse(
+        requestId,
+        err instanceof Error ? err : new Error(String(err)),
+        "dispatch_failed",
+      );
+      await actionPromise.catch(() => undefined);
+      throw err;
+    }
+
     const action = await actionPromise;
     session.lastAction = action;
     session.turnCount += 1;
@@ -768,6 +822,8 @@ export class ConcordiaChannelAdapter
       "concordia-agent-generator",
       60_000,
       "[concordia] /generate-agents timed out after 60000ms",
+      request.worldId ?? "generated-world",
+      this.simulationStep,
     );
 
     const inbound: ChannelInboundMessage = {
@@ -786,7 +842,25 @@ export class ConcordiaChannelAdapter
       },
     };
 
-    await this.context.on_message(inbound);
+    this.logPendingResponse(
+      "dispatch",
+      requestId,
+      this.pendingResponses.get(requestId),
+      { message_length: prompt.length },
+      "debug",
+    );
+
+    try {
+      await this.context.on_message(inbound);
+    } catch (err) {
+      this.rejectPendingResponse(
+        requestId,
+        err instanceof Error ? err : new Error(String(err)),
+        "dispatch_failed",
+      );
+      await responsePromise.catch(() => undefined);
+      throw err;
+    }
     const rawResponse = await responsePromise;
     const agents = this.parseGeneratedAgents(rawResponse);
     return { agents };
@@ -816,11 +890,11 @@ export class ConcordiaChannelAdapter
 
     const launchedRunner = this.simulationRunner;
     launchedRunner.child.once("exit", (code, signal) => {
-      this.context.logger.info?.(
-        `[concordia] runner exited code=${String(code)} signal=${String(signal)}`,
-      );
+      const exitMessage = `[concordia] runner exited code=${String(code)} signal=${String(signal)}`;
+      this.context.logger.info?.(exitMessage);
       if (this.simulationRunner === launchedRunner) {
         this.simulationRunner = null;
+        this.clearPendingResponses(exitMessage);
       }
     });
 
@@ -838,30 +912,130 @@ export class ConcordiaChannelAdapter
     agentId: string | undefined,
     timeoutMs: number,
     timeoutLog: string,
+    worldId: string | null,
+    step: number,
+    simulationId: string | null = null,
   ): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.pendingResponses.delete(requestId);
-        this.context.logger.warn?.(timeoutLog);
-        reject(new Error(timeoutLog));
+        this.rejectPendingResponse(
+          requestId,
+          new Error(timeoutLog),
+          "timeout",
+        );
       }, timeoutMs);
 
-      this.pendingResponses.set(requestId, {
+      const pending: PendingResponseRequest = {
         agentId,
         sessionId,
+        worldId,
+        simulationId,
+        step,
+        createdAt: Date.now(),
         resolve,
         reject,
         timeout,
-      });
+      };
+      this.pendingResponses.set(requestId, pending);
+      this.logPendingResponse(
+        "created",
+        requestId,
+        pending,
+        { timeout_ms: timeoutMs },
+        "info",
+      );
     });
   }
 
+  private findPendingResponsesBySession(
+    sessionId: string,
+  ): Array<[string, PendingResponseRequest]> {
+    return Array.from(this.pendingResponses.entries()).filter(([, pending]) => (
+      pending.sessionId === sessionId
+    ));
+  }
+
+  private resolvePendingResponse(
+    requestId: string,
+    pending: PendingResponseRequest,
+    content: string,
+    event: string,
+  ): void {
+    clearTimeout(pending.timeout);
+    this.pendingResponses.delete(requestId);
+    this.logPendingResponse(
+      event,
+      requestId,
+      pending,
+      { content_length: content.length },
+      event === "resolved" ? "info" : "warn",
+    );
+    pending.resolve(content);
+  }
+
+  private rejectPendingResponse(
+    requestId: string,
+    error: Error,
+    event: string,
+  ): void {
+    const pending = this.pendingResponses.get(requestId);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeout);
+    this.pendingResponses.delete(requestId);
+    this.logPendingResponse(
+      event,
+      requestId,
+      pending,
+      { error: error.message },
+      "warn",
+    );
+    pending.reject(error);
+  }
+
   private clearPendingResponses(reason: string): void {
-    for (const [, pending] of this.pendingResponses) {
+    for (const [requestId, pending] of Array.from(this.pendingResponses.entries())) {
       clearTimeout(pending.timeout);
+      this.pendingResponses.delete(requestId);
+      this.logPendingResponse(
+        "cleared",
+        requestId,
+        pending,
+        { error: reason },
+        "warn",
+      );
       pending.reject(new Error(reason));
     }
-    this.pendingResponses.clear();
+  }
+
+  private logPendingResponse(
+    event: string,
+    requestId: string,
+    pending: PendingResponseRequest | undefined,
+    extras: Record<string, unknown> = {},
+    level: "debug" | "info" | "warn" = "debug",
+  ): void {
+    const payload = {
+      request_id: requestId,
+      session_id: pending?.sessionId ?? null,
+      agent_id: pending?.agentId ?? null,
+      world_id: pending?.worldId ?? null,
+      simulation_id: pending?.simulationId ?? null,
+      step: pending?.step ?? null,
+      ...extras,
+    };
+    const message = `[concordia] pending_response ${event} ${JSON.stringify(payload)}`;
+    const logger = this.context.logger;
+    if (level === "warn") {
+      logger.warn?.(message);
+      return;
+    }
+    if (level === "info") {
+      logger.info?.(message);
+      return;
+    }
+    logger.debug?.(message);
   }
 
   private parseGeneratedAgents(rawResponse: string): GeneratedAgent[] {

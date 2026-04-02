@@ -6,6 +6,7 @@ import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -231,6 +232,45 @@ class TestProxyEntity:
         assert len(MockBridgeHandler.act_called) == 2
         assert MockBridgeHandler.act_called[0]["agent_id"] == "alice"
         assert MockBridgeHandler.act_called[1]["agent_id"] == "bob"
+
+
+    def test_act_can_be_cancelled_by_stop_event(self) -> None:
+        stop_event = threading.Event()
+        release_event = threading.Event()
+
+        entity = ProxyEntity(
+            agent_name="Alice",
+            bridge_url="http://127.0.0.1:1",
+            stop_event=stop_event,
+            cancel_poll_seconds=0.01,
+        )
+
+        class DummyResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, str]:
+                return {"action": "ignored"}
+
+        def blocking_post(*args, **kwargs):
+            release_event.wait(5)
+            return DummyResponse()
+
+        def trigger_stop() -> None:
+            time.sleep(0.1)
+            stop_event.set()
+
+        stopper = threading.Thread(target=trigger_stop, daemon=True)
+        stopper.start()
+        started = time.time()
+        try:
+            with patch("concordia_bridge.proxy_entity.requests.post", side_effect=blocking_post):
+                with pytest.raises(ProxyEntityActError, match="cancelled"):
+                    entity.act()
+        finally:
+            release_event.set()
+
+        assert time.time() - started < 1.0
 
 
 # ============================================================================

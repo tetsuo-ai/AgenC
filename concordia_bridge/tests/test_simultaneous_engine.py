@@ -175,3 +175,68 @@ class TestSimultaneousEngine:
         assert len(scene_events) == 2
         assert scene_events[0].scene == "intro"
         assert scene_events[1].step == 2
+
+
+    def test_stopped_controller_breaks_before_observation(self):
+        events = []
+        engine = InstrumentedSimultaneousEngine(
+            event_callback=events.append,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        alice = make_mock_entity("Alice", "goes to market")
+
+        class StopAfterWaitController:
+            def __init__(self) -> None:
+                self.wait_calls = 0
+
+            def wait_for_step_permission(self) -> None:
+                self.wait_calls += 1
+
+            @property
+            def is_stopped(self) -> bool:
+                return True
+
+        controller = StopAfterWaitController()
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[alice],
+                max_steps=3,
+                step_controller=controller,
+            )
+
+        assert controller.wait_calls == 1
+        assert gm.act.call_count == 0
+        alice.observe.assert_not_called()
+        assert not [
+            event for event in events
+            if event.type in {"observation", "action", "resolution"}
+        ]
+
+    def test_no_valid_actions_still_advance_step_callback(self):
+        callback = MagicMock()
+        engine = InstrumentedSimultaneousEngine(
+            event_callback=lambda e: None,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        hesitant_agents = [
+            make_mock_entity("Alice", "hesitates."),
+            make_mock_entity("Bob", "hesitates."),
+        ]
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=hesitant_agents,
+                max_steps=2,
+                step_callback=callback,
+            )
+
+        assert callback.call_count == 2
+        assert [call.args for call in callback.call_args_list] == [
+            (1, "no_valid_actions"),
+            (2, "no_valid_actions"),
+        ]

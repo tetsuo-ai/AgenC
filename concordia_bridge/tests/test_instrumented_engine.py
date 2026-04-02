@@ -369,3 +369,65 @@ class TestRunLoop:
             )
 
         assert controller.wait_for_step_permission.call_count == 3
+
+
+    def test_stopped_controller_breaks_before_observation(self):
+        events = []
+        engine = InstrumentedSequentialEngine(
+            event_callback=events.append,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        alice = make_mock_entity("Alice", action="goes to market")
+
+        class StopAfterWaitController:
+            def __init__(self) -> None:
+                self.wait_calls = 0
+
+            def wait_for_step_permission(self) -> None:
+                self.wait_calls += 1
+
+            @property
+            def is_stopped(self) -> bool:
+                return True
+
+        controller = StopAfterWaitController()
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[alice],
+                max_steps=3,
+                step_controller=controller,
+            )
+
+        assert controller.wait_calls == 1
+        assert gm.act.call_count == 0
+        alice.observe.assert_not_called()
+        assert not [
+            event for event in events
+            if event.type in {"observation", "action", "resolution"}
+        ]
+
+    def test_invalid_actions_still_advance_step_callback(self):
+        callback = MagicMock()
+        engine = InstrumentedSequentialEngine(
+            event_callback=lambda e: None,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        hesitant = make_mock_entity("A", action="hesitates.")
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[hesitant],
+                max_steps=2,
+                step_callback=callback,
+            )
+
+        assert callback.call_count == 2
+        assert [record.args for record in callback.call_args_list] == [
+            (1, "invalid_action"),
+            (2, "invalid_action"),
+        ]

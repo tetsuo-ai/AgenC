@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Callable, Optional, Sequence
 
 import requests
@@ -57,7 +57,7 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
         log: bool = False,
         checkpoint_callback: Optional[Callable[[int], None]] = None,
         step_controller: object = None,
-        step_callback: Optional[Callable] = None,
+        step_callback: Optional[Callable[..., None]] = None,
         scenes: Optional[list] = None,
         start_step: int = 1,
     ) -> None:
@@ -94,6 +94,14 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
             if step_controller and hasattr(step_controller, "wait_for_step_permission"):
                 step_controller.wait_for_step_permission()
 
+            if self._stop_requested(step_controller, "before_step"):
+                break
+
+            if not self._validate_pre_step(gm, entities):
+                logger.warning("Pre-step validation failed at step %d — skipping", step)
+                self._finish_step(step, "skipped_pre_step_validation", step_callback)
+                continue
+
             if self.terminate(gm):
                 break
 
@@ -118,11 +126,16 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
             if len(game_masters) > 1:
                 gm = self.next_game_master(gm, game_masters)
 
-            # Generate observations for all entities
+            stop_during_observation = False
             for entity in entities:
+                if self._stop_requested(step_controller, f"before_observation:{entity.name}"):
+                    stop_during_observation = True
+                    break
                 self.make_observation(gm, entity)
 
-            # ALL agents act simultaneously
+            if stop_during_observation or self._stop_requested(step_controller, "before_action_collection"):
+                break
+
             actions: dict[str, str] = {}
             action_specs = {
                 entity.name: self.build_entity_action_spec_from_game_master(
@@ -131,45 +144,64 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                 )
                 for entity in entities
             }
-            with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
+
+            stop_during_actions = False
+            executor = ThreadPoolExecutor(max_workers=self._max_workers)
+            try:
                 futures = {
-                    pool.submit(entity.act, action_specs[entity.name]): entity
+                    executor.submit(entity.act, action_specs[entity.name]): entity
                     for entity in entities
                 }
-                for future in as_completed(futures):
-                    entity = futures[future]
-                    try:
-                        action = future.result(timeout=120)
-                        if is_invalid_agent_action(action):
+                pending = set(futures)
+                while pending:
+                    done, pending = wait(
+                        pending,
+                        timeout=0.1,
+                        return_when=FIRST_COMPLETED,
+                    )
+                    if self._stop_requested(step_controller, "during_action_collection"):
+                        stop_during_actions = True
+                        for future in pending:
+                            future.cancel()
+                        break
+                    for future in done:
+                        entity = futures[future]
+                        try:
+                            action = future.result()
+                            if is_invalid_agent_action(action):
+                                logger.warning(
+                                    "Dropping invalid action text for %s at step %d: %s",
+                                    entity.name,
+                                    step,
+                                    action[:200],
+                                )
+                                self._event_callback(SimulationEvent(
+                                    type="error",
+                                    step=step,
+                                    timestamp=time.time(),
+                                    agent_name=entity.name,
+                                    content="Dropped invalid action text before GM resolution.",
+                                    metadata={"raw_action": action},
+                                ))
+                                continue
+                            actions[entity.name] = action
+                        except Exception as exc:
                             logger.warning(
-                                "Dropping invalid action text for %s at step %d: %s",
-                                entity.name,
-                                step,
-                                action[:200],
+                                "Agent %s act() failed: %s", entity.name, exc,
                             )
                             self._event_callback(SimulationEvent(
                                 type="error",
                                 step=step,
                                 timestamp=time.time(),
                                 agent_name=entity.name,
-                                content="Dropped invalid action text before GM resolution.",
-                                metadata={"raw_action": action},
+                                content=f"Agent action failed: {exc}",
                             ))
-                            continue
-                        actions[entity.name] = action
-                    except Exception as exc:
-                        logger.warning(
-                            "Agent %s act() failed: %s", entity.name, exc,
-                        )
-                        self._event_callback(SimulationEvent(
-                            type="error",
-                            step=step,
-                            timestamp=time.time(),
-                            agent_name=entity.name,
-                            content=f"Agent action failed: {exc}",
-                        ))
+            finally:
+                executor.shutdown(wait=not stop_during_actions, cancel_futures=stop_during_actions)
 
-            # Emit action events
+            if stop_during_actions:
+                break
+
             for name, action in actions.items():
                 self._event_callback(SimulationEvent(
                     type="action",
@@ -179,24 +211,30 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                     content=action,
                 ))
 
-            # Combine all actions into one event for GM resolution
             if not actions:
                 logger.warning("No valid agent actions at step %d; skipping GM resolution", step)
+                self._finish_step(step, "no_valid_actions", step_callback)
                 continue
 
             combined = "\n".join(f"{name}: {action}" for name, action in actions.items())
-            self._last_acting_entity_name = None  # Multiple actors
+            self._last_acting_entity_name = None
+
+            if self._stop_requested(step_controller, "before_resolution"):
+                break
+
             self.resolve(gm, combined)
 
-            if checkpoint_callback:
+            stop_before_checkpoint = self._stop_requested(step_controller, "before_checkpoint")
+            if checkpoint_callback and not stop_before_checkpoint:
                 checkpoint_callback(step)
-            if step_callback:
-                try:
-                    step_callback(step)
-                except Exception as exc:
-                    logger.warning("step_callback error: %s", exc)
+
+            outcome = "resolved_stop_pending" if stop_before_checkpoint else "resolved"
+            self._finish_step(step, outcome, step_callback)
 
             logger.info(
                 "Step %d/%d complete: %d agents acted",
                 step, max_steps, len(actions),
             )
+
+            if stop_before_checkpoint:
+                break

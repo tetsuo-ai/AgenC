@@ -272,6 +272,7 @@ def run_simulation(
                 agent_id=agent.id,
                 world_id=config.world_id,
                 workspace_id=config.workspace_id,
+                stop_event=controller.stop_event,
             )
             for agent in config.agents
         ]
@@ -305,13 +306,20 @@ def run_simulation(
             )
 
         # 8. Run the simulation
-        def step_callback(step: int) -> None:
-            sim_state.update(step=step)
+        def step_callback(step: int, outcome: str = "resolved") -> None:
+            sim_state.update(
+                step=step,
+                running=not controller.is_stopped,
+                last_step_outcome=outcome,
+            )
             event_server.broadcast(SimulationEvent(
                 type="step",
                 step=step,
                 timestamp=time.time(),
-                metadata={"phase": "step_complete"},
+                metadata={
+                    "phase": "step_complete",
+                    "outcome": outcome,
+                },
             ))
 
         def checkpoint_callback(step: int) -> None:
@@ -322,19 +330,33 @@ def run_simulation(
                 entities=proxy_entities,
             )
 
-        engine.run_loop(
-            game_masters=[game_master],
-            entities=proxy_entities,
-            premise=config.premise,
-            max_steps=config.max_steps,
-            start_step=max(int(checkpoint.get("step", 0)), 0) + 1 if checkpoint else 1,
-            step_controller=controller,
-            step_callback=step_callback,
-            checkpoint_callback=checkpoint_callback,
-            scenes=config.scenes,
-        )
+        try:
+            engine.run_loop(
+                game_masters=[game_master],
+                entities=proxy_entities,
+                premise=config.premise,
+                max_steps=config.max_steps,
+                start_step=max(int(checkpoint.get("step", 0)), 0) + 1 if checkpoint else 1,
+                step_controller=controller,
+                step_callback=step_callback,
+                checkpoint_callback=checkpoint_callback,
+                scenes=config.scenes,
+            )
+        except Exception as exc:
+            sim_state.update(
+                running=False,
+                paused=False,
+                terminal_reason=f"error:{type(exc).__name__}",
+                last_step_outcome="failed",
+            )
+            logger.exception("Simulation run failed")
+            raise
 
-        sim_state.update(running=False)
+        sim_state.update(
+            running=False,
+            paused=False,
+            terminal_reason="stopped" if controller.is_stopped else "completed",
+        )
 
         summary = {
             "world_id": config.world_id,
@@ -347,8 +369,10 @@ def run_simulation(
         return summary
 
     finally:
+        controller.stop()
         event_server.stop()
         control_srv.shutdown()
+        control_srv.server_close()
 
 
 def _setup_agents(config: SimulationConfig) -> None:

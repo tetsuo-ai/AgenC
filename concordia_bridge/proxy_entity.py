@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import threading
 import time
 from typing import Any
 
@@ -52,6 +53,8 @@ class ProxyEntity(Entity):
         timeout_seconds: float = 120.0,
         max_retries: int = 2,
         retry_delay_seconds: float = 2.0,
+        stop_event: threading.Event | None = None,
+        cancel_poll_seconds: float = 0.1,
     ) -> None:
         self._name = agent_name
         self._bridge_url = bridge_url.rstrip("/")
@@ -61,6 +64,8 @@ class ProxyEntity(Entity):
         self._timeout = timeout_seconds
         self._max_retries = max_retries
         self._retry_delay = retry_delay_seconds
+        self._stop_event = stop_event
+        self._cancel_poll_seconds = cancel_poll_seconds
         self._turn_count = 0
         self._circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout_s=30.0)
 
@@ -80,14 +85,7 @@ class ProxyEntity(Entity):
     def turn_count(self) -> int:
         return self._turn_count
 
-    def act(self, action_spec: ActionSpec = DEFAULT_ACTION_SPEC) -> str:
-        """Send action_spec to AgenC bridge, return the agent's action string.
-
-        Retries on ConnectionError with exponential backoff (Phase 8.3).
-        Raises ProxyEntityActError after all retries are exhausted.
-        """
-        self._turn_count += 1
-
+    def _perform_act_request(self, action_spec: ActionSpec) -> str:
         if self._circuit_breaker.is_open:
             logger.warning(
                 "ProxyEntity %s act() circuit breaker open",
@@ -100,6 +98,10 @@ class ProxyEntity(Entity):
         last_exc: Exception | None = None
 
         for attempt in range(self._max_retries + 1):
+            if self._stop_event and self._stop_event.is_set():
+                raise ProxyEntityActError(
+                    f"{self._name} action cancelled because the simulation stopped",
+                )
             try:
                 response = requests.post(
                     f"{self._bridge_url}/act",
@@ -168,6 +170,56 @@ class ProxyEntity(Entity):
         raise ProxyEntityActError(
             f"{self._name} bridge unreachable after {self._max_retries + 1} attempts",
         ) from last_exc
+
+    def act(self, action_spec: ActionSpec = DEFAULT_ACTION_SPEC) -> str:
+        """Send action_spec to AgenC bridge, return the agent's action string.
+
+        Retries on ConnectionError with exponential backoff (Phase 8.3).
+        Raises ProxyEntityActError after all retries are exhausted.
+        """
+        self._turn_count += 1
+
+        if self._stop_event and self._stop_event.is_set():
+            raise ProxyEntityActError(
+                f"{self._name} action cancelled because the simulation stopped",
+            )
+
+        result: dict[str, str] = {}
+        errors: list[BaseException] = []
+        finished = threading.Event()
+
+        def _worker() -> None:
+            try:
+                result["action"] = self._perform_act_request(action_spec)
+            except BaseException as exc:  # pragma: no cover - exercised via act()
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        worker = threading.Thread(
+            target=_worker,
+            name=f"proxy-entity-act-{self._agent_id}",
+            daemon=True,
+        )
+        worker.start()
+
+        while not finished.wait(self._cancel_poll_seconds):
+            if self._stop_event and self._stop_event.is_set():
+                logger.info(
+                    "ProxyEntity %s act() cancelled because the simulation stopped",
+                    self._name,
+                )
+                raise ProxyEntityActError(
+                    f"{self._name} action cancelled because the simulation stopped",
+                )
+
+        if errors:
+            error = errors[0]
+            if isinstance(error, ProxyEntityActError):
+                raise error
+            raise ProxyEntityActError(str(error)) from error
+
+        return result.get("action", "")
 
     def observe(self, observation: str) -> None:
         """Send observation to AgenC bridge for memory ingestion.

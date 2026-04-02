@@ -42,21 +42,43 @@ export async function launchSimulationRunner(params: {
   await writeFile(configPath, JSON.stringify(payload, null, 2), "utf-8");
 
   const pythonCommand = params.config.python_command ?? "python3";
-  const child = spawn(
-    pythonCommand,
-    ["-m", "concordia_bridge.cli", "run-json", "--config-file", configPath],
-    {
-      cwd: repoRoot,
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  let child: ChildProcess | null = null;
+  try {
+    child = spawn(
+      pythonCommand,
+      ["-m", "concordia_bridge.cli", "run-json", "--config-file", configPath],
+      {
+        cwd: repoRoot,
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
 
-  attachRunnerStreamLogger(child.stdout, params.logger, "stdout");
-  attachRunnerStreamLogger(child.stderr, params.logger, "stderr");
+    attachRunnerStreamLogger(child.stdout, params.logger, "stdout");
+    attachRunnerStreamLogger(child.stderr, params.logger, "stderr");
 
-  await waitForControlServer(child, params.request.control_port ?? 3202, 30_000);
-  return { child, tempDir };
+    await waitForControlServer(child, params.request.control_port ?? 3202, 30_000);
+    return { child, tempDir };
+  } catch (error) {
+    if (child && child.exitCode === null) {
+      const spawnedChild = child;
+      spawnedChild.kill("SIGTERM");
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          if (spawnedChild.exitCode === null) {
+            spawnedChild.kill("SIGKILL");
+          }
+          resolve();
+        }, 2_000);
+        spawnedChild.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+    await rm(tempDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function attachRunnerStreamLogger(
