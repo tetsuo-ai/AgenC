@@ -85,6 +85,10 @@ class InstrumentedSequentialEngine(Engine):
         event_callback: Callable[[SimulationEvent], None],
         bridge_url: str = "http://localhost:3200",
         world_id: str = "default",
+        simulation_id: str = "",
+        workspace_id: str = "",
+        lineage_id: Optional[str] = None,
+        parent_simulation_id: Optional[str] = None,
         call_to_make_observation: str = (
             "What is the current situation faced by {name}? "
             "What do they now observe? Only include information of which "
@@ -99,9 +103,14 @@ class InstrumentedSequentialEngine(Engine):
         ),
         call_to_check_termination: str = "Is the game/simulation finished?",
     ) -> None:
-        self._event_callback = event_callback
+        self._raw_event_callback = event_callback
         self._bridge_url = bridge_url.rstrip("/")
         self._world_id = world_id
+        self._simulation_id = simulation_id
+        self._workspace_id = workspace_id
+        self._lineage_id = lineage_id
+        self._parent_simulation_id = parent_simulation_id
+        self._event_callback = lambda event: self._raw_event_callback(self._decorate_event(event))
         self._call_to_make_observation = call_to_make_observation
         self._call_to_next_acting = call_to_next_acting
         self._call_to_next_action_spec = call_to_next_action_spec
@@ -451,6 +460,19 @@ class InstrumentedSequentialEngine(Engine):
             )
         return stopped
 
+    def _decorate_event(self, event: SimulationEvent) -> SimulationEvent:
+        if not event.simulation_id:
+            event.simulation_id = self._simulation_id
+        if not event.world_id:
+            event.world_id = self._world_id
+        if not event.workspace_id:
+            event.workspace_id = self._workspace_id
+        if event.lineage_id is None:
+            event.lineage_id = self._lineage_id
+        if event.parent_simulation_id is None:
+            event.parent_simulation_id = self._parent_simulation_id
+        return event
+
     def _validate_pre_step(self, gm: Entity, entities: Sequence[Entity]) -> bool:
         """Pre-step validation: check GM and entity health (Phase 8.5)."""
         try:
@@ -479,6 +501,10 @@ class InstrumentedSequentialEngine(Engine):
                     "acting_agent": self._last_acting_entity_name,
                     "content": resolved or putative,
                     "world_id": self._world_id,
+                    "workspace_id": self._workspace_id,
+                    "simulation_id": self._simulation_id,
+                    "lineage_id": self._lineage_id,
+                    "parent_simulation_id": self._parent_simulation_id,
                 },
                 timeout=15,
             )

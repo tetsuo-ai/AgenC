@@ -185,6 +185,9 @@ Last updated: 2026-03-25
   bundle around if it depends on `import.meta.url`; either make the package
   ESM-only or add a genuinely dual-format-safe path resolver.
 ## 2026-04-02
+- Concordia run isolation must use `simulationId` as the live run key. `worldId` is scenario metadata only; reusing it as the session namespace will collapse concurrent runs of the same world back together.
+- Concordia resume must mint a new `simulationId` and carry continuity through `lineageId` / `parentSimulationId`. Reusing the checkpoint run ID for the resumed run makes checkpoints, sessions, and live events indistinguishable.
+- Concordia bridge routes that create or mutate run state (`/setup`, `/act`, `/observe`, `/event`, `/checkpoint`) must reject missing `simulation_id` instead of silently deriving one from `worldId`. Silent fallback reintroduces cross-run collisions.
 
 - Concordia isolation must be keyed by world as well as agent. If the daemon session layer keys only by channel and sender, observations and history bleed across simulations with the same agent ID.
 - Concordia periodic memory tasks must run on completed simulation steps, not on every `/act` call. In simultaneous mode, per-agent action counting fires reflection/consolidation too often and distorts memory behavior.

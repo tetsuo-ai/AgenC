@@ -29,6 +29,7 @@ describe("ConcordiaChannelAdapter pending response handling", () => {
       "timeout",
       "world-a",
       1,
+      "sim-1",
     ) as Promise<string>;
 
     await adapter.send({
@@ -56,6 +57,7 @@ describe("ConcordiaChannelAdapter pending response handling", () => {
       "timeout",
       "world-a",
       2,
+      "sim-2",
     ) as Promise<string>;
 
     await adapter.send({
@@ -82,6 +84,7 @@ describe("ConcordiaChannelAdapter pending response handling", () => {
       agentName: "Agent A",
       worldId: "world-a",
       workspaceId: "ws-a",
+      simulationId: "sim-dispatch",
     });
 
     await expect(

@@ -10,6 +10,7 @@ import pytest
 
 from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
 from concordia_bridge.checkpoint import (
+    CHECKPOINT_VERSION,
     save_checkpoint,
     load_checkpoint,
     list_checkpoints,
@@ -49,8 +50,11 @@ def sample_config():
             AgentConfig(id="a1", name="Alice", personality="Helpful"),
             AgentConfig(id="a2", name="Bob", personality="Curious"),
         ],
+        simulation_id="sim-123",
+        lineage_id="lineage-123",
+        parent_simulation_id=None,
         max_steps=20,
-        bridge_url="http://localhost:1",  # No real bridge needed
+        bridge_url="http://localhost:1",
     )
 
 
@@ -62,7 +66,7 @@ class TestCheckpoint:
             entities=entities, checkpoint_dir=tmp_checkpoint_dir,
         )
         assert os.path.exists(filepath)
-        assert "test-world_step_5.json" in filepath
+        assert "sim-123_step_5.json" in filepath
 
     def test_save_contains_correct_data(self, tmp_checkpoint_dir, sample_config) -> None:
         entities = [MockEntity("Alice")]
@@ -70,11 +74,13 @@ class TestCheckpoint:
             sample_config, step=3, game_master=object(),
             entities=entities, checkpoint_dir=tmp_checkpoint_dir,
         )
-        with open(filepath) as f:
+        with open(filepath, encoding="utf-8") as f:
             data = json.load(f)
 
-        assert data["version"] == 1
+        assert data["version"] == CHECKPOINT_VERSION
         assert data["world_id"] == "test-world"
+        assert data["simulation_id"] == "sim-123"
+        assert data["lineage_id"] == "lineage-123"
         assert data["step"] == 3
         assert "Alice" in data["entity_logs"]
         assert data["entity_logs"]["Alice"]["action"] == "test action"
@@ -90,21 +96,59 @@ class TestCheckpoint:
         assert loaded is not None
         assert loaded["step"] == 7
         assert loaded["world_id"] == "test-world"
+        assert loaded["simulation_id"] == "sim-123"
 
     def test_load_returns_none_for_missing(self) -> None:
         result = load_checkpoint("/nonexistent/path.json")
         assert result is None
 
-    def test_list_checkpoints_sorted(self, tmp_checkpoint_dir, sample_config) -> None:
+    def test_load_migrates_legacy_world_scoped_checkpoint(self, tmp_checkpoint_dir) -> None:
+        legacy_path = os.path.join(tmp_checkpoint_dir, "legacy.json")
+        with open(legacy_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "version": 1,
+                "world_id": "legacy-world",
+                "step": 2,
+                "config": {
+                    "world_id": "legacy-world",
+                    "workspace_id": "legacy-ws",
+                    "premise": "Legacy premise",
+                    "agents": [],
+                },
+            }, f)
+
+        loaded = load_checkpoint(legacy_path)
+        assert loaded is not None
+        assert loaded["version"] == CHECKPOINT_VERSION
+        assert loaded["simulation_id"] == "legacy-world"
+        assert loaded["config"]["simulation_id"] == "legacy-world"
+
+    def test_list_checkpoints_sorted_and_filterable_by_simulation(self, tmp_checkpoint_dir, sample_config) -> None:
         entities = [MockEntity("Alice")]
         for step in [3, 1, 5, 2]:
             save_checkpoint(
                 sample_config, step=step, game_master=object(),
                 entities=entities, checkpoint_dir=tmp_checkpoint_dir,
             )
-        cps = list_checkpoints("test-world", tmp_checkpoint_dir)
+
+        other_config = SimulationConfig(
+            world_id="test-world",
+            workspace_id="test-ws",
+            premise="Other premise",
+            agents=[AgentConfig(id="b1", name="Bea", personality="Brave")],
+            simulation_id="sim-999",
+            max_steps=10,
+            bridge_url="http://localhost:1",
+        )
+        save_checkpoint(
+            other_config, step=4, game_master=object(),
+            entities=entities, checkpoint_dir=tmp_checkpoint_dir,
+        )
+
+        cps = list_checkpoints("test-world", tmp_checkpoint_dir, simulation_id="sim-123")
         assert len(cps) == 4
         assert [c["step"] for c in cps] == [1, 2, 3, 5]
+        assert {c["simulation_id"] for c in cps} == {"sim-123"}
 
     def test_list_checkpoints_empty_dir(self, tmp_checkpoint_dir) -> None:
         cps = list_checkpoints("nonexistent", tmp_checkpoint_dir)
@@ -122,4 +166,6 @@ class TestCheckpoint:
         config = simulation_config_from_checkpoint(checkpoint)
         assert config.world_id == "test-world"
         assert config.workspace_id == "test-ws"
+        assert config.simulation_id == "sim-123"
+        assert config.lineage_id == "lineage-123"
         assert len(config.agents) == 2

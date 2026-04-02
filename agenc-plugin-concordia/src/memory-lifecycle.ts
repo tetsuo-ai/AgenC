@@ -97,7 +97,7 @@ async function runReflectionForAgent(
   if (ctx.lifecycle) {
     await ctx.lifecycle.reflectAgent({
       agentId,
-      sessionId: deriveSessionId(ctx.worldId, agentId),
+      sessionId: deriveSessionId(ctx.simulationId ?? ctx.worldId, agentId),
       workspaceId: ctx.workspaceId,
     });
     return;
@@ -109,10 +109,11 @@ async function runReflectionForAgent(
 
   // Store a reflection marker so the system knows when it last ran
   await ctx.memoryBackend.set(
-    `${ctx.workspaceId}:reflection:${agentId}:latest`,
+    `${ctx.workspaceId}:reflection:${ctx.simulationId ?? ctx.worldId}:${agentId}:latest`,
     {
       agentId,
       worldId: ctx.worldId,
+      simulationId: ctx.simulationId ?? ctx.worldId,
       timestamp: Date.now(),
       beliefCount: Object.keys(identity.beliefs).length,
       traitCount: identity.learnedTraits.length,
@@ -133,9 +134,10 @@ async function runConsolidation(ctx: MemoryWiringContext): Promise<void> {
   }
 
   await ctx.memoryBackend.set(
-    `${ctx.workspaceId}:consolidation:${ctx.worldId}:latest`,
+    `${ctx.workspaceId}:consolidation:${ctx.simulationId ?? ctx.worldId}:latest`,
     {
       worldId: ctx.worldId,
+      simulationId: ctx.simulationId ?? ctx.worldId,
       timestamp: Date.now(),
       status: "completed",
     },
@@ -155,9 +157,10 @@ async function runRetention(ctx: MemoryWiringContext): Promise<void> {
   }
 
   await ctx.memoryBackend.set(
-    `${ctx.workspaceId}:retention:${ctx.worldId}:latest`,
+    `${ctx.workspaceId}:retention:${ctx.simulationId ?? ctx.worldId}:latest`,
     {
       worldId: ctx.worldId,
+      simulationId: ctx.simulationId ?? ctx.worldId,
       timestamp: Date.now(),
       status: "completed",
     },
@@ -202,6 +205,7 @@ export async function postSimulationCleanup(
   const summary: Record<string, unknown> = {
     worldId: ctx.worldId,
     workspaceId: ctx.workspaceId,
+    simulationId: ctx.simulationId ?? ctx.worldId,
     agentCount: agentIds.length,
     timestamp: Date.now(),
   };

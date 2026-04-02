@@ -17,6 +17,9 @@ function createMockContext(
   return {
     worldId: "test-world",
     workspaceId: "test-ws",
+    simulationId: "sim-test",
+    lineageId: "lineage-test",
+    parentSimulationId: null,
     memoryBackend: {
       addEntry: vi.fn().mockResolvedValue({ id: "e1", timestamp: Date.now() }),
       getThread: vi.fn().mockResolvedValue([]),
@@ -49,7 +52,6 @@ describe("runPeriodicTasks", () => {
   it("runs reflection at configured interval", async () => {
     const ctx = createMockContext();
     await runPeriodicTasks(ctx, 5, ["alice", "bob"], { reflectionInterval: 5 });
-    // Should have stored reflection markers for both agents
     expect(ctx.memoryBackend.set).toHaveBeenCalledTimes(2);
   });
 
@@ -68,7 +70,7 @@ describe("runPeriodicTasks", () => {
     });
     expect(ctx.memoryBackend.set).toHaveBeenCalledWith(
       expect.stringContaining("consolidation"),
-      expect.objectContaining({ status: "completed" }),
+      expect.objectContaining({ status: "completed", simulationId: "sim-test" }),
     );
   });
 
@@ -81,7 +83,7 @@ describe("runPeriodicTasks", () => {
     });
     expect(ctx.memoryBackend.set).toHaveBeenCalledWith(
       expect.stringContaining("retention"),
-      expect.objectContaining({ status: "completed" }),
+      expect.objectContaining({ status: "completed", simulationId: "sim-test" }),
     );
   });
 
@@ -90,24 +92,23 @@ describe("runPeriodicTasks", () => {
     (ctx.identityManager.load as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("identity load failed"),
     );
-    // Should not throw
     await runPeriodicTasks(ctx, 5, ["alice"], { reflectionInterval: 5 });
   });
 
   it("prefers runtime lifecycle hooks when available", async () => {
     const ctx = createMockContext({
       lifecycle: {
-      reflectAgent: vi.fn().mockResolvedValue(true),
-      consolidate: vi.fn().mockResolvedValue({
-        processed: 5,
-        consolidated: 2,
-        skippedDuplicates: 0,
-        durationMs: 10,
-      }),
-      retain: vi.fn().mockResolvedValue({
-        expiredDeleted: 0,
-        logsDeleted: 0,
-      }),
+        reflectAgent: vi.fn().mockResolvedValue(true),
+        consolidate: vi.fn().mockResolvedValue({
+          processed: 5,
+          consolidated: 2,
+          skippedDuplicates: 0,
+          durationMs: 10,
+        }),
+        retain: vi.fn().mockResolvedValue({
+          expiredDeleted: 0,
+          logsDeleted: 0,
+        }),
       },
     });
 
@@ -119,7 +120,7 @@ describe("runPeriodicTasks", () => {
 
     expect(ctx.lifecycle.reflectAgent).toHaveBeenCalledWith({
       agentId: "alice",
-      sessionId: deriveSessionId("test-world", "alice"),
+      sessionId: deriveSessionId("sim-test", "alice"),
       workspaceId: "test-ws",
     });
     expect(ctx.lifecycle.consolidate).toHaveBeenCalledWith({
@@ -134,8 +135,8 @@ describe("postSimulationCleanup", () => {
     const ctx = createMockContext();
     const summary = await postSimulationCleanup(ctx, ["alice", "bob"]);
     expect(summary.worldId).toBe("test-world");
+    expect(summary.simulationId).toBe("sim-test");
     expect(summary.agentCount).toBe(2);
-    // Should have called set for consolidation + retention + 2 reflections
     expect(ctx.memoryBackend.set).toHaveBeenCalledTimes(4);
   });
 });

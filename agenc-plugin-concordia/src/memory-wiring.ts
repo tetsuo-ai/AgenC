@@ -32,6 +32,9 @@ import { sanitizeContent } from "./response-processor.js";
 export interface MemoryWiringContext {
   readonly worldId: string;
   readonly workspaceId: string;
+  readonly simulationId?: string;
+  readonly lineageId?: string | null;
+  readonly parentSimulationId?: string | null;
   readonly memoryBackend: MemoryBackendLike;
   readonly identityManager: IdentityManagerLike;
   readonly socialMemory: SocialMemoryLike;
@@ -407,12 +410,16 @@ function hashFactFingerprint(content: string): string {
     .digest("hex");
 }
 
+function resolveSimulationScopeId(ctx: MemoryWiringContext): string {
+  return ctx.simulationId ?? ctx.worldId;
+}
+
 function buildObservationFactIndexKey(ctx: MemoryWiringContext): string {
-  return `${ctx.workspaceId}:concordia:observation-facts:${ctx.worldId}`;
+  return `${ctx.workspaceId}:concordia:observation-facts:${resolveSimulationScopeId(ctx)}`;
 }
 
 function buildCollectiveEmergenceKey(ctx: MemoryWiringContext): string {
-  return `${ctx.workspaceId}:concordia:collective-emergence:${ctx.worldId}`;
+  return `${ctx.workspaceId}:concordia:collective-emergence:${resolveSimulationScopeId(ctx)}`;
 }
 
 function listAgentAliases(agent: KnownAgentReference): string[] {

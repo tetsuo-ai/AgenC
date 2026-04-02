@@ -24,6 +24,11 @@ export async function launchSimulationRunner(params: {
   const payload = {
     world_id: params.request.world_id,
     workspace_id: params.request.workspace_id,
+    simulation_id: params.request.simulation_id,
+    ...(params.request.lineage_id ? { lineage_id: params.request.lineage_id } : {}),
+    ...(params.request.parent_simulation_id
+      ? { parent_simulation_id: params.request.parent_simulation_id }
+      : {}),
     ...(params.request.user_id ? { user_id: params.request.user_id } : {}),
     premise: params.request.premise,
     agents: params.request.agents,

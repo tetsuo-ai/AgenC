@@ -20,6 +20,9 @@ export interface ActRequest {
   readonly agent_name: string;
   readonly world_id: string;
   readonly workspace_id: string;
+  readonly simulation_id: string;
+  readonly lineage_id?: string | null;
+  readonly parent_simulation_id?: string | null;
   readonly action_spec: ConcordiaActionSpec;
   readonly turn_count?: number;
 }
@@ -33,12 +36,18 @@ export interface ObserveRequest {
   readonly agent_name: string;
   readonly world_id: string;
   readonly workspace_id: string;
+  readonly simulation_id: string;
+  readonly lineage_id?: string | null;
+  readonly parent_simulation_id?: string | null;
   readonly observation: string;
 }
 
 export interface SetupRequest {
   readonly world_id: string;
   readonly workspace_id: string;
+  readonly simulation_id: string;
+  readonly lineage_id?: string | null;
+  readonly parent_simulation_id?: string | null;
   readonly user_id?: string;
   readonly agents: readonly AgentSetupConfig[];
   readonly premise: string;
@@ -47,6 +56,9 @@ export interface SetupRequest {
 export interface LaunchRequest {
   readonly world_id: string;
   readonly workspace_id: string;
+  readonly simulation_id?: string;
+  readonly lineage_id?: string | null;
+  readonly parent_simulation_id?: string | null;
   readonly user_id?: string;
   readonly agents: readonly AgentSetupConfig[];
   readonly premise: string;
@@ -70,11 +82,17 @@ export interface GenerateAgentsRequest {
 export interface CheckpointRequest {
   readonly world_id: string;
   readonly workspace_id: string;
+  readonly simulation_id: string;
+  readonly lineage_id?: string | null;
+  readonly parent_simulation_id?: string | null;
   readonly step: number;
 }
 
 export interface ResumeRequest {
   readonly checkpoint: Record<string, unknown>;
+  readonly simulation_id?: string;
+  readonly lineage_id?: string | null;
+  readonly parent_simulation_id?: string | null;
   readonly user_id?: string;
 }
 
@@ -99,9 +117,16 @@ export interface EventNotification {
   readonly target_agents?: readonly string[];
   readonly content: string;
   readonly world_id: string;
+  readonly workspace_id: string;
+  readonly simulation_id: string;
+  readonly lineage_id?: string | null;
+  readonly parent_simulation_id?: string | null;
 }
 
 export interface AgentStateResponse {
+  readonly simulationId?: string;
+  readonly lineageId?: string | null;
+  readonly parentSimulationId?: string | null;
   readonly identity: Record<string, unknown> | null;
   readonly memoryCount: number;
   readonly recentMemories: readonly MemoryEntrySummary[];

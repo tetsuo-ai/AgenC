@@ -252,6 +252,7 @@ def run_simulation(
     sim_state.update(
         max_steps=config.max_steps,
         world_id=config.world_id,
+        simulation_id=config.simulation_id,
         agent_count=len(config.agents),
         running=True,
         step=max(int(checkpoint.get("step", 0)), 0) if checkpoint else 0,
@@ -272,6 +273,9 @@ def run_simulation(
                 agent_id=agent.id,
                 world_id=config.world_id,
                 workspace_id=config.workspace_id,
+                simulation_id=config.simulation_id,
+                lineage_id=config.lineage_id,
+                parent_simulation_id=config.parent_simulation_id,
                 stop_event=controller.stop_event,
             )
             for agent in config.agents
@@ -297,12 +301,20 @@ def run_simulation(
                 event_callback=event_server.broadcast,
                 bridge_url=config.bridge_url,
                 world_id=config.world_id,
+                simulation_id=config.simulation_id,
+                workspace_id=config.workspace_id,
+                lineage_id=config.lineage_id,
+                parent_simulation_id=config.parent_simulation_id,
             )
         else:
             engine = InstrumentedSequentialEngine(
                 event_callback=event_server.broadcast,
                 bridge_url=config.bridge_url,
                 world_id=config.world_id,
+                simulation_id=config.simulation_id,
+                workspace_id=config.workspace_id,
+                lineage_id=config.lineage_id,
+                parent_simulation_id=config.parent_simulation_id,
             )
 
         # 8. Run the simulation
@@ -316,6 +328,11 @@ def run_simulation(
                 type="step",
                 step=step,
                 timestamp=time.time(),
+                simulation_id=config.simulation_id,
+                world_id=config.world_id,
+                workspace_id=config.workspace_id,
+                lineage_id=config.lineage_id,
+                parent_simulation_id=config.parent_simulation_id,
                 metadata={
                     "phase": "step_complete",
                     "outcome": outcome,
@@ -360,6 +377,7 @@ def run_simulation(
 
         summary = {
             "world_id": config.world_id,
+            "simulation_id": config.simulation_id,
             "steps_completed": sim_state.step,
             "max_steps": config.max_steps,
             "agent_count": len(config.agents),
@@ -383,6 +401,9 @@ def _setup_agents(config: SimulationConfig) -> None:
             json={
                 "world_id": config.world_id,
                 "workspace_id": config.workspace_id,
+                "simulation_id": config.simulation_id,
+                "lineage_id": config.lineage_id,
+                "parent_simulation_id": config.parent_simulation_id,
                 "user_id": config.user_id,
                 "agents": [
                     {

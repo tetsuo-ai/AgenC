@@ -3,30 +3,30 @@ import { SessionManager, deriveSessionId } from "../src/session-manager.js";
 
 describe("deriveSessionId", () => {
   it("is deterministic — same inputs produce same output", () => {
-    const id1 = deriveSessionId("world-1", "alice");
-    const id2 = deriveSessionId("world-1", "alice");
+    const id1 = deriveSessionId("sim-1", "alice");
+    const id2 = deriveSessionId("sim-1", "alice");
     expect(id1).toBe(id2);
   });
 
-  it("produces different IDs for different worlds", () => {
-    const id1 = deriveSessionId("world-1", "alice");
-    const id2 = deriveSessionId("world-2", "alice");
+  it("produces different IDs for different simulations", () => {
+    const id1 = deriveSessionId("sim-1", "alice");
+    const id2 = deriveSessionId("sim-2", "alice");
     expect(id1).not.toBe(id2);
   });
 
   it("produces different IDs for different agents", () => {
-    const id1 = deriveSessionId("world-1", "alice");
-    const id2 = deriveSessionId("world-1", "bob");
+    const id1 = deriveSessionId("sim-1", "alice");
+    const id2 = deriveSessionId("sim-1", "bob");
     expect(id1).not.toBe(id2);
   });
 
   it("starts with concordia: prefix", () => {
-    const id = deriveSessionId("world-1", "alice");
+    const id = deriveSessionId("sim-1", "alice");
     expect(id.startsWith("concordia:")).toBe(true);
   });
 
   it("is a valid SHA256 hex hash after prefix", () => {
-    const id = deriveSessionId("world-1", "alice");
+    const id = deriveSessionId("sim-1", "alice");
     const hash = id.slice("concordia:".length);
     expect(hash).toMatch(/^[a-f0-9]{64}$/);
   });
@@ -40,48 +40,57 @@ describe("SessionManager", () => {
       agentName: "Alice",
       worldId: "world-1",
       workspaceId: "ws-1",
+      simulationId: "sim-1",
+      lineageId: "lineage-1",
+      parentSimulationId: null,
     });
     expect(session.agentId).toBe("alice");
     expect(session.agentName).toBe("Alice");
     expect(session.worldId).toBe("world-1");
+    expect(session.simulationId).toBe("sim-1");
+    expect(session.lineageId).toBe("lineage-1");
     expect(session.sessionId.startsWith("concordia:")).toBe(true);
     expect(session.turnCount).toBe(0);
     expect(session.lastAction).toBeNull();
   });
 
-  it("returns existing session on second call for the same world/workspace/agent", () => {
+  it("returns existing session on second call for the same workspace/simulation/agent", () => {
     const mgr = new SessionManager();
     const s1 = mgr.getOrCreate({
       agentId: "alice",
       agentName: "Alice",
       worldId: "w1",
       workspaceId: "ws1",
+      simulationId: "sim-1",
     });
     const s2 = mgr.getOrCreate({
       agentId: "alice",
       agentName: "Alice",
       worldId: "w1",
       workspaceId: "ws1",
+      simulationId: "sim-1",
     });
     expect(s1).toBe(s2);
   });
 
-  it("creates separate sessions for the same agent across different worlds", () => {
+  it("creates separate sessions for the same agent across concurrent runs of the same world", () => {
     const mgr = new SessionManager();
-    const worldOne = mgr.getOrCreate({
+    const firstRun = mgr.getOrCreate({
       agentId: "alice",
       agentName: "Alice",
       worldId: "w1",
       workspaceId: "ws1",
+      simulationId: "sim-1",
     });
-    const worldTwo = mgr.getOrCreate({
+    const secondRun = mgr.getOrCreate({
       agentId: "alice",
       agentName: "Alice",
-      worldId: "w2",
+      worldId: "w1",
       workspaceId: "ws1",
+      simulationId: "sim-2",
     });
-    expect(worldOne).not.toBe(worldTwo);
-    expect(worldOne.sessionId).not.toBe(worldTwo.sessionId);
+    expect(firstRun).not.toBe(secondRun);
+    expect(firstRun.sessionId).not.toBe(secondRun.sessionId);
   });
 
   it("get returns undefined for unknown agent", () => {
@@ -96,6 +105,7 @@ describe("SessionManager", () => {
       agentName: "Bob",
       worldId: "w1",
       workspaceId: "ws1",
+      simulationId: "sim-1",
     });
     const found = mgr.findBySessionId(session.sessionId);
     expect(found).toBe(session);
@@ -108,14 +118,51 @@ describe("SessionManager", () => {
 
   it("listAgentIds returns all agent IDs", () => {
     const mgr = new SessionManager();
-    mgr.getOrCreate({ agentId: "a", agentName: "A", worldId: "w", workspaceId: "ws" });
-    mgr.getOrCreate({ agentId: "b", agentName: "B", worldId: "w", workspaceId: "ws" });
+    mgr.getOrCreate({ agentId: "a", agentName: "A", worldId: "w", workspaceId: "ws", simulationId: "sim-1" });
+    mgr.getOrCreate({ agentId: "b", agentName: "B", worldId: "w", workspaceId: "ws", simulationId: "sim-2" });
     expect(mgr.listAgentIds()).toEqual(["a", "b"]);
+  });
+
+  it("getForWorld can disambiguate by simulationId", () => {
+    const mgr = new SessionManager();
+    const simOne = mgr.getOrCreate({
+      agentId: "alice",
+      agentName: "Alice",
+      worldId: "w1",
+      workspaceId: "ws1",
+      simulationId: "sim-1",
+    });
+    mgr.getOrCreate({
+      agentId: "alice",
+      agentName: "Alice",
+      worldId: "w1",
+      workspaceId: "ws1",
+      simulationId: "sim-2",
+    });
+
+    const found = mgr.getForWorld({
+      agentId: "alice",
+      worldId: "w1",
+      workspaceId: "ws1",
+      simulationId: "sim-1",
+    });
+
+    expect(found).toBe(simOne);
+  });
+
+  it("getAllForWorld can be filtered to a single simulation", () => {
+    const mgr = new SessionManager();
+    mgr.getOrCreate({ agentId: "a", agentName: "A", worldId: "w", workspaceId: "ws", simulationId: "sim-1" });
+    mgr.getOrCreate({ agentId: "b", agentName: "B", worldId: "w", workspaceId: "ws", simulationId: "sim-2" });
+
+    const sessions = mgr.getAllForWorld("w", "ws", "sim-1");
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].simulationId).toBe("sim-1");
   });
 
   it("clear removes all sessions", () => {
     const mgr = new SessionManager();
-    mgr.getOrCreate({ agentId: "a", agentName: "A", worldId: "w", workspaceId: "ws" });
+    mgr.getOrCreate({ agentId: "a", agentName: "A", worldId: "w", workspaceId: "ws", simulationId: "sim-1" });
     expect(mgr.size).toBe(1);
     mgr.clear();
     expect(mgr.size).toBe(0);
@@ -128,6 +175,7 @@ describe("SessionManager", () => {
       agentName: "Alice",
       worldId: "w1",
       workspaceId: "ws1",
+      simulationId: "sim-1",
     });
     mgr.resetSimulation();
     const second = mgr.getOrCreate({
@@ -135,6 +183,7 @@ describe("SessionManager", () => {
       agentName: "Alice",
       worldId: "w1",
       workspaceId: "ws1",
+      simulationId: "sim-1",
     });
     expect(first.sessionId).toBe(second.sessionId);
     expect(mgr.size).toBe(1);
@@ -147,6 +196,7 @@ describe("SessionManager", () => {
       agentName: "Alice",
       worldId: "w1",
       workspaceId: "ws1",
+      simulationId: "sim-1",
     });
     session.observations.push("obs1");
     session.observations.push("obs2");
@@ -160,6 +210,7 @@ describe("SessionManager", () => {
       agentName: "Alice",
       worldId: "w1",
       workspaceId: "ws1",
+      simulationId: "sim-1",
     });
     session.turnCount = 5;
     session.lastAction = "went to market";

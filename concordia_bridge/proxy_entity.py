@@ -50,6 +50,9 @@ class ProxyEntity(Entity):
         agent_id: str = "",
         world_id: str = "default",
         workspace_id: str = "concordia-sim",
+        simulation_id: str = "",
+        lineage_id: str | None = None,
+        parent_simulation_id: str | None = None,
         timeout_seconds: float = 120.0,
         max_retries: int = 2,
         retry_delay_seconds: float = 2.0,
@@ -61,6 +64,9 @@ class ProxyEntity(Entity):
         self._agent_id = agent_id or agent_name.lower().replace(" ", "-")
         self._world_id = world_id
         self._workspace_id = workspace_id
+        self._simulation_id = simulation_id
+        self._lineage_id = lineage_id
+        self._parent_simulation_id = parent_simulation_id
         self._timeout = timeout_seconds
         self._max_retries = max_retries
         self._retry_delay = retry_delay_seconds
@@ -110,6 +116,9 @@ class ProxyEntity(Entity):
                         "agent_name": self._name,
                         "world_id": self._world_id,
                         "workspace_id": self._workspace_id,
+                        "simulation_id": self._simulation_id,
+                        "lineage_id": self._lineage_id,
+                        "parent_simulation_id": self._parent_simulation_id,
                         "action_spec": action_spec.to_dict(),
                         "turn_count": self._turn_count,
                     },
@@ -237,6 +246,9 @@ class ProxyEntity(Entity):
                     "agent_name": self._name,
                     "world_id": self._world_id,
                     "workspace_id": self._workspace_id,
+                    "simulation_id": self._simulation_id,
+                    "lineage_id": self._lineage_id,
+                    "parent_simulation_id": self._parent_simulation_id,
                     "observation": observation,
                 },
                 timeout=self._timeout,
@@ -277,6 +289,10 @@ class ProxyEntityWithLogging(ProxyEntity, EntityWithLogging):
             "agent_id": self._agent_id,
             "agent_name": self._name,
             "world_id": self._world_id,
+            "workspace_id": self._workspace_id,
+            "simulation_id": self._simulation_id,
+            "lineage_id": self._lineage_id,
+            "parent_simulation_id": self._parent_simulation_id,
             "turn_count": self._turn_count,
             "elapsed_ms": round(elapsed_ms, 1),
         }
@@ -291,12 +307,20 @@ class ProxyEntityWithLogging(ProxyEntity, EntityWithLogging):
             "agent_name": self._name,
             "world_id": self._world_id,
             "workspace_id": self._workspace_id,
+            "simulation_id": self._simulation_id,
+            "lineage_id": self._lineage_id,
+            "parent_simulation_id": self._parent_simulation_id,
             "turn_count": self._turn_count,
             "last_log": self._last_log,
         }
 
     def set_state(self, state: dict[str, Any]) -> None:
         self._turn_count = int(state.get("turn_count", self._turn_count))
+        self._simulation_id = str(state.get("simulation_id", self._simulation_id))
+        lineage_id = state.get("lineage_id")
+        self._lineage_id = str(lineage_id) if lineage_id else None
+        parent_simulation_id = state.get("parent_simulation_id")
+        self._parent_simulation_id = str(parent_simulation_id) if parent_simulation_id else None
         last_log = state.get("last_log")
         if isinstance(last_log, dict):
             self._last_log = last_log

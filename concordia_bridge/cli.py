@@ -19,6 +19,7 @@ import importlib
 import json
 import logging
 import sys
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,9 @@ def cmd_run_json(args: argparse.Namespace) -> None:
         workspace_id=raw.get("workspace_id", "concordia-sim"),
         premise=raw.get("premise", ""),
         agents=agents,
+        simulation_id=raw.get("simulation_id", str(uuid4())),
+        lineage_id=raw.get("lineage_id"),
+        parent_simulation_id=raw.get("parent_simulation_id"),
         user_id=raw.get("user_id"),
         max_steps=raw.get("max_steps", 50),
         gm_instructions=raw.get("gm_instructions", ""),
@@ -215,6 +219,15 @@ def cmd_resume(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     config = simulation_config_from_checkpoint(checkpoint)
+    resumed_simulation_id = str(uuid4())
+    resumed_lineage_id = checkpoint.get("lineage_id") or checkpoint.get("simulation_id")
+    resumed_parent_simulation_id = checkpoint.get("simulation_id")
+    config = dataclasses.replace(
+        config,
+        simulation_id=resumed_simulation_id,
+        lineage_id=resumed_lineage_id,
+        parent_simulation_id=resumed_parent_simulation_id,
+    )
 
     print(f"Resuming simulation: {config.world_id}")
     print(f"  Checkpoint: {args.checkpoint}")

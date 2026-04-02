@@ -1,9 +1,9 @@
 """
 Simulation checkpoint/resume — save and restore simulation state.
 
-Saves: GM memory, entity logs, step counter, world config.
+Saves: GM memory, entity logs, step counter, world config, and run identity.
 AgenC agent memory persists automatically via SQLite — checkpoints
-only need to capture Concordia-side state.
+only need to capture Concordia-side state plus explicit resume metadata.
 
 Phase 7.3 of the CONCORDIA_TODO.MD implementation plan.
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -27,6 +28,7 @@ from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_DIR = os.path.expanduser("~/.agenc/concordia/checkpoints")
+CHECKPOINT_VERSION = 2
 
 
 def save_checkpoint(
@@ -42,7 +44,6 @@ def save_checkpoint(
     """
     Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
 
-    # Collect entity logs
     entity_logs = {}
     entity_states = {}
     for entity in entities:
@@ -56,7 +57,6 @@ def save_checkpoint(
             except Exception as exc:
                 logger.warning("Failed to get state for entity %s: %s", entity.name, exc)
 
-    # Collect GM state if available
     gm_state = {}
     if hasattr(game_master, "get_state"):
         try:
@@ -65,7 +65,10 @@ def save_checkpoint(
             logger.warning("Failed to get GM state: %s", exc)
 
     checkpoint = {
-        "version": 1,
+        "version": CHECKPOINT_VERSION,
+        "simulation_id": config.simulation_id,
+        "lineage_id": config.lineage_id,
+        "parent_simulation_id": config.parent_simulation_id,
         "world_id": config.world_id,
         "workspace_id": config.workspace_id,
         "user_id": config.user_id,
@@ -79,21 +82,23 @@ def save_checkpoint(
         "agent_ids": [a.id for a in config.agents],
     }
 
-    filename = f"{config.world_id}_step_{step}.json"
+    filename = _checkpoint_filename(config.simulation_id, step)
     filepath = os.path.join(checkpoint_dir, filename)
 
-    with open(filepath, "w") as f:
+    with open(filepath, "w", encoding="utf-8") as f:
         json.dump(checkpoint, f, indent=2, default=str)
 
     logger.info("Checkpoint saved: %s", filepath)
 
-    # Notify bridge to trigger memory consolidation / summary capture
     try:
         requests.post(
             f"{config.bridge_url}/checkpoint",
             json={
                 "world_id": config.world_id,
                 "workspace_id": config.workspace_id,
+                "simulation_id": config.simulation_id,
+                "lineage_id": config.lineage_id,
+                "parent_simulation_id": config.parent_simulation_id,
                 "step": step,
             },
             timeout=5,
@@ -104,58 +109,103 @@ def save_checkpoint(
     return filepath
 
 
-def load_checkpoint(
-    filepath: str,
-) -> Optional[dict]:
+def load_checkpoint(filepath: str) -> Optional[dict]:
     """Load a checkpoint from disk.
 
-    Returns the checkpoint dict, or None if the file doesn't exist.
+    Returns the migrated checkpoint dict, or None if the file doesn't exist.
     """
     if not os.path.exists(filepath):
         logger.warning("Checkpoint not found: %s", filepath)
         return None
 
-    with open(filepath) as f:
+    with open(filepath, encoding="utf-8") as f:
         checkpoint = json.load(f)
 
-    if checkpoint.get("version") != 1:
+    migrated = _migrate_checkpoint(checkpoint)
+    if migrated is None:
         logger.warning("Unsupported checkpoint version: %s", checkpoint.get("version"))
         return None
 
     logger.info(
-        "Checkpoint loaded: world=%s step=%d",
-        checkpoint.get("world_id"),
-        checkpoint.get("step"),
+        "Checkpoint loaded: simulation=%s world=%s step=%d",
+        migrated.get("simulation_id"),
+        migrated.get("world_id"),
+        migrated.get("step"),
     )
-    return checkpoint
+    return migrated
 
 
 def list_checkpoints(
-    world_id: str,
+    world_id: Optional[str],
     checkpoint_dir: str = CHECKPOINT_DIR,
+    simulation_id: Optional[str] = None,
 ) -> list[dict]:
-    """List all checkpoints for a world, sorted by step."""
+    """List checkpoints filtered by world and/or simulation, sorted by step."""
     if not os.path.exists(checkpoint_dir):
         return []
 
     checkpoints = []
-    prefix = f"{world_id}_step_"
     for filename in os.listdir(checkpoint_dir):
-        if filename.startswith(prefix) and filename.endswith(".json"):
-            filepath = os.path.join(checkpoint_dir, filename)
-            try:
-                with open(filepath) as f:
-                    data = json.load(f)
-                checkpoints.append({
-                    "filepath": filepath,
-                    "world_id": data.get("world_id"),
-                    "step": data.get("step", 0),
-                    "timestamp": data.get("timestamp", 0),
-                })
-            except Exception:
+        if not filename.endswith(".json"):
+            continue
+        filepath = os.path.join(checkpoint_dir, filename)
+        try:
+            checkpoint = load_checkpoint(filepath)
+            if checkpoint is None:
                 continue
+            if world_id is not None and checkpoint.get("world_id") != world_id:
+                continue
+            if simulation_id is not None and checkpoint.get("simulation_id") != simulation_id:
+                continue
+            checkpoints.append({
+                "filepath": filepath,
+                "simulation_id": checkpoint.get("simulation_id"),
+                "lineage_id": checkpoint.get("lineage_id"),
+                "parent_simulation_id": checkpoint.get("parent_simulation_id"),
+                "world_id": checkpoint.get("world_id"),
+                "step": checkpoint.get("step", 0),
+                "timestamp": checkpoint.get("timestamp", 0),
+                "version": checkpoint.get("version", 0),
+            })
+        except Exception:
+            continue
 
     return sorted(checkpoints, key=lambda c: c["step"])
+
+
+def _checkpoint_filename(simulation_id: str, step: int) -> str:
+    safe_simulation_id = re.sub(r"[^a-zA-Z0-9._-]+", "-", simulation_id).strip("-")
+    safe_simulation_id = safe_simulation_id or "simulation"
+    return f"{safe_simulation_id}_step_{step}.json"
+
+
+def _migrate_checkpoint(checkpoint: dict) -> Optional[dict]:
+    version = checkpoint.get("version", 1)
+    if version == CHECKPOINT_VERSION:
+        return checkpoint
+    if version != 1:
+        return None
+
+    config = checkpoint.get("config")
+    if not isinstance(config, dict):
+        config = {}
+
+    simulation_id = checkpoint.get("simulation_id") or config.get("simulation_id") or checkpoint.get("world_id") or "legacy-simulation"
+    lineage_id = checkpoint.get("lineage_id") or config.get("lineage_id")
+    parent_simulation_id = checkpoint.get("parent_simulation_id") or config.get("parent_simulation_id")
+
+    migrated = dict(checkpoint)
+    migrated["version"] = CHECKPOINT_VERSION
+    migrated["simulation_id"] = simulation_id
+    migrated["lineage_id"] = lineage_id
+    migrated["parent_simulation_id"] = parent_simulation_id
+
+    migrated_config = dict(config)
+    migrated_config.setdefault("simulation_id", simulation_id)
+    migrated_config.setdefault("lineage_id", lineage_id)
+    migrated_config.setdefault("parent_simulation_id", parent_simulation_id)
+    migrated["config"] = migrated_config
+    return migrated
 
 
 def _serialize_state(state: object) -> dict:
@@ -171,7 +221,11 @@ def _serialize_state(state: object) -> dict:
 
 def simulation_config_from_checkpoint(checkpoint: dict) -> SimulationConfig:
     """Rebuild a SimulationConfig from a serialized checkpoint."""
-    raw = checkpoint.get("config")
+    migrated = _migrate_checkpoint(checkpoint)
+    if migrated is None:
+        raise ValueError("Checkpoint has unsupported version")
+
+    raw = migrated.get("config")
     if not isinstance(raw, dict):
         raise ValueError("Checkpoint missing config payload")
 
@@ -189,12 +243,18 @@ def simulation_config_from_checkpoint(checkpoint: dict) -> SimulationConfig:
         )
 
     return SimulationConfig(
-        world_id=raw.get("world_id", checkpoint.get("world_id", "default")),
+        world_id=raw.get("world_id", migrated.get("world_id", "default")),
         workspace_id=raw.get("workspace_id", "concordia-sim"),
         premise=raw.get("premise", ""),
         agents=agents,
+        simulation_id=raw.get("simulation_id", migrated.get("simulation_id", "")),
+        lineage_id=raw.get("lineage_id", migrated.get("lineage_id")),
+        parent_simulation_id=raw.get(
+            "parent_simulation_id",
+            migrated.get("parent_simulation_id"),
+        ),
         user_id=raw.get("user_id"),
-        max_steps=raw.get("max_steps", checkpoint.get("step", 0)),
+        max_steps=raw.get("max_steps", migrated.get("step", 0)),
         gm_instructions=raw.get("gm_instructions", ""),
         gm_model=raw.get("gm_model", "grok-3-mini"),
         gm_provider=raw.get("gm_provider", "ollama"),

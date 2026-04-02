@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass, field, asdict
-from typing import Optional, Sequence
 import json
+import time
+from dataclasses import asdict, dataclass, field
+from typing import Optional
+from uuid import uuid4
 
 
 # ============================================================================
@@ -15,10 +16,16 @@ import json
 @dataclass
 class SimulationEvent:
     """An event emitted during simulation for real-time streaming."""
+
     type: str  # "step", "observation", "action", "resolution", "scene_change",
     #            "terminate", "collective_emergence", "reflection", "error"
     step: int
     timestamp: float = field(default_factory=time.time)
+    simulation_id: str = ""
+    world_id: str = ""
+    workspace_id: str = ""
+    lineage_id: Optional[str] = None
+    parent_simulation_id: Optional[str] = None
     agent_name: Optional[str] = None
     content: Optional[str] = None
     action_spec: Optional[dict] = None
@@ -41,6 +48,7 @@ class SimulationEvent:
 @dataclass
 class AgentConfig:
     """Configuration for a single agent in a Concordia simulation."""
+
     id: str
     name: str
     personality: str
@@ -54,10 +62,14 @@ class AgentConfig:
 @dataclass
 class SimulationConfig:
     """Full configuration for running a Concordia simulation with AgenC agents."""
+
     world_id: str
     workspace_id: str
     premise: str
     agents: list[AgentConfig]
+    simulation_id: str = field(default_factory=lambda: str(uuid4()))
+    lineage_id: Optional[str] = None
+    parent_simulation_id: Optional[str] = None
     user_id: Optional[str] = None
     max_steps: int = 50
     gm_instructions: str = ""

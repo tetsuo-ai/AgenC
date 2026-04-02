@@ -3,10 +3,6 @@ import { createBridgeServer } from "../src/bridge-http.js";
 import { SessionManager } from "../src/session-manager.js";
 import type { Server } from "node:http";
 
-// ============================================================================
-// Test HTTP server
-// ============================================================================
-
 let server: Server;
 let port: number;
 let sessionManager: SessionManager;
@@ -30,12 +26,12 @@ beforeAll(async () => {
     host: "127.0.0.1",
     logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     sessionManager,
-    onAct: async (agentId, sessionId, message, requestId) => {
+    onAct: async (agentId, _sessionId, message, requestId) => {
       actCalls.push(message);
       actRequestIds.push(requestId);
       return `response for ${agentId}`;
     },
-    onObserve: async (agentId, sessionId, observation) => {
+    onObserve: async (_agentId, _sessionId, observation) => {
       observeCalls.push(observation);
     },
     onSetup: async (request) => {
@@ -47,6 +43,9 @@ beforeAll(async () => {
           agentName: agent.agent_name,
           worldId: request.world_id,
           workspaceId: request.workspace_id,
+          simulationId: request.simulation_id,
+          lineageId: request.lineage_id,
+          parentSimulationId: request.parent_simulation_id,
         });
         sessions[agent.agent_id] = s.sessionId;
       }
@@ -54,15 +53,29 @@ beforeAll(async () => {
     },
     onLaunch: async (request) => {
       launchCalls.push(request);
-      return { pid: 4242, world_id: request.world_id };
+      return {
+        pid: 4242,
+        world_id: request.world_id,
+        simulation_id: request.simulation_id ?? "generated-sim",
+      };
     },
     onCheckpoint: async (request) => {
       checkpointCalls.push(request);
-      return { world_id: request.world_id, step: request.step, sessions: [] };
+      return {
+        world_id: request.world_id,
+        simulation_id: request.simulation_id,
+        step: request.step,
+        sessions: [],
+      };
     },
     onResume: async (request) => {
       resumeCalls.push(request);
-      return { world_id: "test-world", resumed_from_step: 5, sessions: {} };
+      return {
+        world_id: "test-world",
+        simulation_id: request.simulation_id ?? "resumed-sim",
+        resumed_from_step: 5,
+        sessions: {},
+      };
     },
     onGenerateAgents: async (request, requestId) => {
       generateCalls.push(request);
@@ -84,6 +97,7 @@ beforeAll(async () => {
     getAgentState: async (agentId) => {
       if (agentId === "unknown") return null;
       return {
+        simulationId: "sim-agent-state",
         identity: { name: agentId },
         memoryCount: 5,
         recentMemories: [],
@@ -91,7 +105,7 @@ beforeAll(async () => {
         worldFacts: [],
         turnCount: 1,
         lastAction: "test action",
-      } as any;
+      } as const;
     },
   });
 
@@ -107,10 +121,6 @@ afterAll(() => {
 function url(path: string): string {
   return `http://127.0.0.1:${port}${path}`;
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 describe("Bridge HTTP Server", () => {
   describe("GET /health", () => {
@@ -135,13 +145,16 @@ describe("Bridge HTTP Server", () => {
   });
 
   describe("POST /setup", () => {
-    it("creates sessions for agents", async () => {
+    it("creates sessions for agents and echoes simulation identity", async () => {
       const resp = await fetch(url("/setup"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           world_id: "test-world",
           workspace_id: "test-ws",
+          simulation_id: "sim-setup",
+          lineage_id: "lineage-setup",
+          parent_simulation_id: null,
           agents: [
             { agent_id: "alice", agent_name: "Alice", personality: "Helpful", goal: "Win" },
             { agent_id: "bob", agent_name: "Bob", personality: "Curious" },
@@ -152,7 +165,8 @@ describe("Bridge HTTP Server", () => {
       const data = await resp.json();
       expect(resp.status).toBe(200);
       expect(data.status).toBe("ok");
-      expect(data.sessions).toBeDefined();
+      expect(data.simulation_id).toBe("sim-setup");
+      expect(data.lineage_id).toBe("lineage-setup");
       expect(data.sessions.alice).toBeTruthy();
       expect(data.sessions.bob).toBeTruthy();
     });
@@ -166,6 +180,7 @@ describe("Bridge HTTP Server", () => {
         body: JSON.stringify({
           world_id: "launch-world",
           workspace_id: "test-ws",
+          simulation_id: "sim-launch",
           agents: [
             { agent_id: "alice", agent_name: "Alice", personality: "Helpful", goal: "Win" },
           ],
@@ -179,6 +194,7 @@ describe("Bridge HTTP Server", () => {
       expect(resp.status).toBe(200);
       expect(data.status).toBe("ok");
       expect(data.pid).toBe(4242);
+      expect(data.simulation_id).toBe("sim-launch");
       expect(launchCalls).toHaveLength(1);
     });
   });
@@ -191,6 +207,8 @@ describe("Bridge HTTP Server", () => {
         body: JSON.stringify({
           world_id: "checkpoint-world",
           workspace_id: "test-ws",
+          simulation_id: "sim-checkpoint",
+          lineage_id: "lineage-checkpoint",
           step: 7,
         }),
       });
@@ -198,6 +216,7 @@ describe("Bridge HTTP Server", () => {
       expect(resp.status).toBe(200);
       expect(data.status).toBe("ok");
       expect(data.step).toBe(7);
+      expect(data.simulation_id).toBe("sim-checkpoint");
       expect(checkpointCalls).toHaveLength(1);
     });
   });
@@ -208,12 +227,15 @@ describe("Bridge HTTP Server", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          simulation_id: "sim-resumed",
           checkpoint: {
             world_id: "test-world",
+            simulation_id: "sim-original",
             step: 5,
             config: {
               world_id: "test-world",
               workspace_id: "test-ws",
+              simulation_id: "sim-original",
               premise: "Resume premise",
               agents: [],
             },
@@ -224,6 +246,7 @@ describe("Bridge HTTP Server", () => {
       expect(resp.status).toBe(200);
       expect(data.status).toBe("ok");
       expect(data.resumed_from_step).toBe(5);
+      expect(data.simulation_id).toBe("sim-resumed");
       expect(resumeCalls).toHaveLength(1);
     });
   });
@@ -252,12 +275,12 @@ describe("Bridge HTTP Server", () => {
 
   describe("POST /act", () => {
     it("returns agent response", async () => {
-      // Ensure session exists
       sessionManager.getOrCreate({
         agentId: "alice",
         agentName: "Alice",
         worldId: "test-world",
         workspaceId: "test-ws",
+        simulationId: "sim-act",
       });
 
       const resp = await fetch(url("/act"), {
@@ -268,6 +291,7 @@ describe("Bridge HTTP Server", () => {
           agent_name: "Alice",
           world_id: "test-world",
           workspace_id: "test-ws",
+          simulation_id: "sim-act",
           action_spec: {
             call_to_action: "What would Alice do?",
             output_type: "free",
@@ -292,6 +316,7 @@ describe("Bridge HTTP Server", () => {
         agentName: "Alice",
         worldId: "w1",
         workspaceId: "ws1",
+        simulationId: "sim-observe",
       });
 
       const resp = await fetch(url("/observe"), {
@@ -302,6 +327,7 @@ describe("Bridge HTTP Server", () => {
           agent_name: "Alice",
           world_id: "w1",
           workspace_id: "ws1",
+          simulation_id: "sim-observe",
           observation: "You see a market square.",
         }),
       });
@@ -323,6 +349,8 @@ describe("Bridge HTTP Server", () => {
           acting_agent: "alice",
           content: "Alice trades iron.",
           world_id: "test-world",
+          workspace_id: "test-ws",
+          simulation_id: "sim-event",
         }),
       });
       const data = await resp.json();
@@ -338,6 +366,7 @@ describe("Bridge HTTP Server", () => {
         agentName: "Temp",
         worldId: "w",
         workspaceId: "ws",
+        simulationId: "sim-reset",
       });
       expect(sessionManager.size).toBeGreaterThan(0);
 
@@ -356,6 +385,7 @@ describe("Bridge HTTP Server", () => {
       expect(resp.status).toBe(200);
       expect(data.identity.name).toBe("alice");
       expect(data.turnCount).toBe(1);
+      expect(data.simulationId).toBe("sim-agent-state");
     });
 
     it("returns 404 for unknown agent", async () => {
@@ -373,6 +403,28 @@ describe("Bridge HTTP Server", () => {
     it("returns 405 for wrong method", async () => {
       const resp = await fetch(url("/health"), { method: "PUT" });
       expect(resp.status).toBe(405);
+    });
+
+    it("rejects act requests without simulation identity", async () => {
+      const resp = await fetch(url("/act"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: "alice",
+          agent_name: "Alice",
+          world_id: "test-world",
+          workspace_id: "test-ws",
+          action_spec: {
+            call_to_action: "What would Alice do?",
+            output_type: "free",
+            options: [],
+            tag: "action",
+          },
+        }),
+      });
+      const data = await resp.json();
+      expect(resp.status).toBe(500);
+      expect(data.error).toContain("simulation_id");
     });
   });
 });

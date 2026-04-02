@@ -34,6 +34,9 @@ interface ConcordiaMemoryResolverHostServices {
   readonly resolveWorldContext: (input: {
     worldId: string;
     workspaceId: string;
+    simulationId?: string;
+    lineageId?: string | null;
+    parentSimulationId?: string | null;
   }) => Promise<ConcordiaMemoryWorldServices>;
 }
 
@@ -102,16 +105,27 @@ export async function resolveConcordiaMemoryContext(
   context: ChannelAdapterContext<ConcordiaChannelConfig>,
   worldId: string,
   workspaceId: string,
+  identity: {
+    simulationId?: string;
+    lineageId?: string | null;
+    parentSimulationId?: string | null;
+  } = {},
 ): Promise<MemoryWiringContext | null> {
   const services = context.host_services?.concordia_memory;
   if (isConcordiaMemoryResolverHostServices(services)) {
     const resolved = await services.resolveWorldContext({
       worldId,
       workspaceId,
+      simulationId: identity.simulationId,
+      lineageId: identity.lineageId,
+      parentSimulationId: identity.parentSimulationId,
     });
     return {
       worldId,
       workspaceId,
+      simulationId: identity.simulationId,
+      lineageId: identity.lineageId ?? null,
+      parentSimulationId: identity.parentSimulationId ?? null,
       memoryBackend: resolved.memoryBackend,
       identityManager: resolved.identityManager,
       socialMemory: resolved.socialMemory,
@@ -138,6 +152,9 @@ export async function resolveConcordiaMemoryContext(
   return {
     worldId,
     workspaceId,
+    simulationId: identity.simulationId,
+    lineageId: identity.lineageId ?? null,
+    parentSimulationId: identity.parentSimulationId ?? null,
     memoryBackend: services.memoryBackend,
     identityManager: services.identityManager,
     socialMemory: services.socialMemory,

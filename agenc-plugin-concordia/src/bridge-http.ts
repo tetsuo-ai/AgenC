@@ -207,11 +207,16 @@ async function handleAct(
   metrics.actRequests++;
   const start = Date.now();
 
+  const simulationId = requireStringField(request.simulation_id, "simulation_id");
+
   const session = config.sessionManager.getOrCreate({
     agentId: request.agent_id,
     agentName: request.agent_name,
     worldId: request.world_id,
     workspaceId: request.workspace_id,
+    simulationId,
+    lineageId: request.lineage_id,
+    parentSimulationId: request.parent_simulation_id,
   });
 
   // Build the prompt from the ActionSpec
@@ -253,11 +258,16 @@ async function handleObserve(
 ): Promise<void> {
   metrics.observeRequests++;
 
+  const simulationId = requireStringField(request.simulation_id, "simulation_id");
+
   const session = config.sessionManager.getOrCreate({
     agentId: request.agent_id,
     agentName: request.agent_name,
     worldId: request.world_id,
     workspaceId: request.workspace_id,
+    simulationId,
+    lineageId: request.lineage_id,
+    parentSimulationId: request.parent_simulation_id,
   });
 
   // Buffer observation for context
@@ -285,13 +295,21 @@ async function handleSetup(
 ): Promise<void> {
   metrics.setupRequests++;
 
+  requireStringField(request.simulation_id, "simulation_id");
+
   const sessions = await config.onSetup(request);
 
   config.logger.info?.(
-    `[concordia] /setup world=${request.world_id} agents=${request.agents.length}`,
+    `[concordia] /setup world=${request.world_id} simulation=${request.simulation_id} agents=${request.agents.length}`,
   );
 
-  sendJson(res, 200, { status: "ok", sessions });
+  sendJson(res, 200, {
+    status: "ok",
+    simulation_id: request.simulation_id,
+    lineage_id: request.lineage_id ?? null,
+    parent_simulation_id: request.parent_simulation_id ?? null,
+    sessions,
+  });
 }
 
 async function handleEvent(
@@ -302,10 +320,13 @@ async function handleEvent(
 ): Promise<void> {
   metrics.eventNotifications++;
 
+  requireStringField(event.simulation_id, "simulation_id");
+  requireStringField(event.workspace_id, "workspace_id");
+
   await config.onEvent(event);
 
   config.logger.debug?.(
-    `[concordia] /event step=${event.step} type=${event.type}: ${event.content.slice(0, 80)}`,
+    `[concordia] /event simulation=${event.simulation_id} step=${event.step} type=${event.type}: ${event.content.slice(0, 80)}`,
   );
 
   sendJson(res, 200, { status: "ok" });
@@ -334,6 +355,8 @@ async function handleCheckpoint(
     sendJson(res, 404, { error: "Checkpoint not supported" });
     return;
   }
+
+  requireStringField(request.simulation_id, "simulation_id");
 
   const result = await config.onCheckpoint(request);
   sendJson(res, 200, { status: "ok", ...result });
@@ -382,6 +405,13 @@ function sendEmpty(res: ServerResponse, status: number): void {
   setCorsHeaders(res);
   res.writeHead(status);
   res.end();
+}
+
+function requireStringField(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Missing required field: ${field}`);
+  }
+  return value;
 }
 
 function sendJson(res: ServerResponse, status: number, data: unknown): void {
