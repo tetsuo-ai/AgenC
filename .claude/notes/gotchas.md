@@ -206,4 +206,4 @@ Last updated: 2026-03-25
 - Concordia request-id recovery fallback must stay simulation-scoped. If a send path ever searches pending requests outside the matched simulation handle, one sim can resolve or reject another sim's `/act` promise.
 - Concordia browser refresh recovery should read the bridge registry (`GET /simulations`, `GET /simulations/:id`), not React-local launch state. The bridge is now the source of truth for active/recent sim summaries while it stays alive.
 - Concordia config reconstruction must use the shared `build_simulation_config(...)` helper. If CLI JSON launch and checkpoint resume rebuild `SimulationConfig` separately, defaults and identity fields drift and break parity between fresh runs and resumed runs.
-
+- The repo-root `scripts/techdebt.mjs` nesting scan is intended to measure control-block depth, not object-literal depth. If the report starts flagging builder-heavy files for “nested control flow,” fix the analyzer before doing broad refactors just to satisfy brace counting.

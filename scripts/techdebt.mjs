@@ -242,13 +242,23 @@ function analyzeNesting(relPath, extension, lines, aggregate) {
     return;
   }
 
-  let depth = 0;
+  const controlBlockPattern = /^\s*(?:if|else\b|for|while|switch|try|catch|finally|do)\b/u;
+  const blockStack = [];
+  let controlDepth = 0;
+
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     const closes = (line.match(/\}/gu) || []).length;
-    depth = Math.max(0, depth - closes);
+    for (let closeIndex = 0; closeIndex < closes; closeIndex += 1) {
+      const kind = blockStack.pop();
+      if (kind === 'control') {
+        controlDepth = Math.max(0, controlDepth - 1);
+      }
+    }
+
     const opens = (line.match(/\{/gu) || []).length;
-    const effectiveDepth = depth + opens;
+    const controlOpens = opens > 0 && controlBlockPattern.test(line) ? 1 : 0;
+    const effectiveDepth = controlDepth + controlOpens;
 
     if (effectiveDepth >= HIGH_NESTING_DEPTH) {
       addIssue(
@@ -268,7 +278,13 @@ function analyzeNesting(relPath, extension, lines, aggregate) {
       );
     }
 
-    depth += opens;
+    for (let openIndex = 0; openIndex < opens; openIndex += 1) {
+      const kind = openIndex < controlOpens ? 'control' : 'other';
+      blockStack.push(kind);
+      if (kind === 'control') {
+        controlDepth += 1;
+      }
+    }
   }
 }
 
