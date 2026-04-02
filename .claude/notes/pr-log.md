@@ -11,3 +11,10 @@
 - **What worked:** the runtime only loads channel plugins via dynamic `import()`, so shipping `@tetsuo-ai/plugin-concordia` as ESM-only removed the `import.meta.url` CJS build warning cleanly without changing runtime loading behavior
 - **What didn't:** there is still follow-up refactor debt in the Concordia adapter/memory-wiring modules, but not in the packaging path
 - **Rule added to CLAUDE.md:** no
+
+## PR #1545: fix(concordia): restore simulation launch path
+- **Date:** 2026-04-02
+- **Files changed:** `concordia_bridge` sequential/simultaneous engine surfaces, Concordia Python tests, root gotchas/tech-debt notes
+- **What worked:** aligning the simultaneous engine with the runner's shared `scenes` input and restoring Concordia's exact observation prompt contract removed the launch-time 500 and let fresh simulations survive setup plus the first real observation/action turn
+- **What didn't:** scene lifecycle handling is still duplicated between the sequential and simultaneous engines, and Concordia turn routing still logs `send() missing request_id` during live runs
+- **Rule added to CLAUDE.md:** no
