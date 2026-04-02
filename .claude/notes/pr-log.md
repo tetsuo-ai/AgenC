@@ -5,7 +5,7 @@
 - **What didn't:** the current bridge/orchestration surface is still too concentrated in `agenc-plugin-concordia/src/adapter.ts`, and the sequential/simultaneous engine restoration logic still has duplicated maintenance points
 - **Rule added to CLAUDE.md:** no
 
-## PR TBD: fix(concordia): remove broken cjs build path
+## PR #1543: fix(concordia): remove broken cjs plugin build path
 - **Date:** 2026-04-02
 - **Files changed:** `agenc-plugin-concordia/package.json`, root note updates
 - **What worked:** the runtime only loads channel plugins via dynamic `import()`, so shipping `@tetsuo-ai/plugin-concordia` as ESM-only removed the `import.meta.url` CJS build warning cleanly without changing runtime loading behavior
