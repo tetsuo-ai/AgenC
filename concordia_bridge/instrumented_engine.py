@@ -16,7 +16,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional, Sequence, TypedDict
 
 import requests
 
@@ -82,6 +82,23 @@ class _SceneState:
     index: int = 0
     round: int = 0
     current: object | None = None
+
+
+CheckpointCallback = Optional[Callable[[int], None]]
+StepCallback = Optional[Callable[..., None]]
+LoopStepDisposition = str
+
+
+class RunLoopOptions(TypedDict, total=False):
+    premise: str
+    max_steps: int
+    verbose: bool
+    log: bool
+    checkpoint_callback: CheckpointCallback
+    step_controller: object
+    step_callback: StepCallback
+    scenes: Optional[list]
+    start_step: int
 
 
 class InstrumentedSequentialEngine(Engine):
@@ -342,6 +359,90 @@ class InstrumentedSequentialEngine(Engine):
                 return gm
         return game_master
 
+    def _initialize_run_loop(
+        self,
+        game_masters: Sequence[Entity],
+        premise: str,
+        scenes: Optional[list],
+        start_step: int,
+    ) -> tuple[Entity, _SceneState]:
+        gm = game_masters[0]
+        self._emit_premise(gm, premise, start_step)
+        scene_state = self._initialize_scene_state(scenes)
+        return gm, scene_state
+
+    def _prepare_loop_step(
+        self,
+        step: int,
+        gm: Entity,
+        game_masters: Sequence[Entity],
+        entities: Sequence[Entity],
+        step_controller: object,
+        scenes: Optional[list],
+        scene_state: _SceneState,
+        step_callback: StepCallback,
+    ) -> tuple[LoopStepDisposition, Entity]:
+        self._current_step = step
+
+        if step_controller and hasattr(step_controller, "wait_for_step_permission"):
+            step_controller.wait_for_step_permission()
+
+        if self._stop_requested(step_controller, "before_step"):
+            return "break", gm
+
+        if not self._validate_pre_step(gm, entities):
+            logger.warning("Pre-step validation failed at step %d — skipping", step)
+            self._finish_step(step, "skipped_pre_step_validation", step_callback)
+            return "continue", gm
+
+        if self.terminate(gm):
+            return "break", gm
+
+        self._advance_scene_state(step, scenes, scene_state)
+
+        if len(game_masters) > 1:
+            gm = self.next_game_master(gm, game_masters)
+
+        return "proceed", gm
+
+    def _iter_prepared_steps(
+        self,
+        game_masters: Sequence[Entity],
+        entities: Sequence[Entity],
+        premise: str,
+        max_steps: int,
+        step_controller: object,
+        step_callback: StepCallback,
+        scenes: Optional[list],
+        start_step: int,
+    ) -> Sequence[tuple[int, Entity]]:
+        gm, scene_state = self._initialize_run_loop(
+            game_masters,
+            premise,
+            scenes,
+            start_step,
+        )
+        prepared_steps: list[tuple[int, Entity]] = []
+
+        for step in range(start_step, max_steps + 1):
+            disposition, gm = self._prepare_loop_step(
+                step,
+                gm,
+                game_masters,
+                entities,
+                step_controller,
+                scenes,
+                scene_state,
+                step_callback,
+            )
+            if disposition == "break":
+                break
+            if disposition == "continue":
+                continue
+            prepared_steps.append((step, gm))
+
+        return prepared_steps
+
     def run_loop(
         self,
         game_masters: Sequence[Entity],
@@ -350,40 +451,23 @@ class InstrumentedSequentialEngine(Engine):
         max_steps: int = 100,
         verbose: bool = False,
         log: bool = False,
-        checkpoint_callback: Optional[Callable[[int], None]] = None,
+        checkpoint_callback: CheckpointCallback = None,
         step_controller: object = None,
-        step_callback: Optional[Callable[..., None]] = None,
+        step_callback: StepCallback = None,
         scenes: Optional[list] = None,
         start_step: int = 1,
     ) -> None:
         """Run the full simulation loop with optional scene support."""
-        gm = game_masters[0]
-
-        self._emit_premise(gm, premise, start_step)
-        scene_state = self._initialize_scene_state(scenes)
-
-        for step in range(start_step, max_steps + 1):
-            self._current_step = step
-
-            if step_controller and hasattr(step_controller, "wait_for_step_permission"):
-                step_controller.wait_for_step_permission()
-
-            if self._stop_requested(step_controller, "before_step"):
-                break
-
-            if not self._validate_pre_step(gm, entities):
-                logger.warning("Pre-step validation failed at step %d — skipping", step)
-                self._finish_step(step, "skipped_pre_step_validation", step_callback)
-                continue
-
-            if self.terminate(gm):
-                break
-
-            self._advance_scene_state(step, scenes, scene_state)
-
-            if len(game_masters) > 1:
-                gm = self.next_game_master(gm, game_masters)
-
+        for step, gm in self._iter_prepared_steps(
+            game_masters,
+            entities,
+            premise,
+            max_steps,
+            step_controller,
+            step_callback,
+            scenes,
+            start_step,
+        ):
             stop_during_observation = False
             for entity in entities:
                 if self._stop_requested(step_controller, f"before_observation:{entity.name}"):

@@ -13,13 +13,16 @@ from __future__ import annotations
 import logging
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional, Sequence, Unpack
 
 from concordia.typing.entity import Entity, ActionSpec, OutputType
 
 from concordia_bridge.bridge_types import SimulationEvent
 from concordia_bridge.instrumented_engine import (
+    CheckpointCallback,
     InstrumentedSequentialEngine,
+    RunLoopOptions,
+    StepCallback,
     is_invalid_agent_action,
 )
 
@@ -45,48 +48,40 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
         )
         self._max_workers = max_workers
 
+    def _iter_simultaneous_steps(
+        self,
+        game_masters: Sequence[Entity],
+        entities: Sequence[Entity],
+        options: RunLoopOptions,
+    ) -> Sequence[tuple[int, Entity]]:
+        return self._iter_prepared_steps(
+            game_masters,
+            entities,
+            options.get("premise", ""),
+            options.get("max_steps", 100),
+            options.get("step_controller"),
+            options.get("step_callback"),
+            options.get("scenes"),
+            options.get("start_step", 1),
+        )
+
     def run_loop(
         self,
         game_masters: Sequence[Entity],
         entities: Sequence[Entity],
-        premise: str = "",
-        max_steps: int = 100,
-        verbose: bool = False,
-        log: bool = False,
-        checkpoint_callback: Optional[Callable[[int], None]] = None,
-        step_controller: object = None,
-        step_callback: Optional[Callable[..., None]] = None,
-        scenes: Optional[list] = None,
-        start_step: int = 1,
+        **options: Unpack[RunLoopOptions],
     ) -> None:
         """Run simulation with simultaneous agent actions per step."""
-        gm = game_masters[0]
+        max_steps = options.get("max_steps", 100)
+        checkpoint_callback = options.get("checkpoint_callback")
+        step_controller = options.get("step_controller")
+        step_callback = options.get("step_callback")
 
-        self._emit_premise(gm, premise, start_step)
-        scene_state = self._initialize_scene_state(scenes)
-
-        for step in range(start_step, max_steps + 1):
-            self._current_step = step
-
-            if step_controller and hasattr(step_controller, "wait_for_step_permission"):
-                step_controller.wait_for_step_permission()
-
-            if self._stop_requested(step_controller, "before_step"):
-                break
-
-            if not self._validate_pre_step(gm, entities):
-                logger.warning("Pre-step validation failed at step %d — skipping", step)
-                self._finish_step(step, "skipped_pre_step_validation", step_callback)
-                continue
-
-            if self.terminate(gm):
-                break
-
-            self._advance_scene_state(step, scenes, scene_state)
-
-            if len(game_masters) > 1:
-                gm = self.next_game_master(gm, game_masters)
-
+        for step, gm in self._iter_simultaneous_steps(
+            game_masters,
+            entities,
+            options,
+        ):
             stop_during_observation = False
             for entity in entities:
                 if self._stop_requested(step_controller, f"before_observation:{entity.name}"):
