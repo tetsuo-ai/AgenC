@@ -35,6 +35,7 @@ from concordia_bridge.control_server import (
     SimulationState,
     start_control_server,
 )
+from concordia_bridge.checkpoint import save_checkpoint
 
 logger = logging.getLogger(__name__)
 _MAX_MULTIPLE_CHOICE_ATTEMPTS = 20
@@ -228,6 +229,7 @@ def create_embedder(config: SimulationConfig):
 def run_simulation(
     config: SimulationConfig,
     verbose: bool = False,
+    checkpoint: Optional[dict] = None,
 ) -> dict:
     """Run a complete Concordia simulation with AgenC agents.
 
@@ -252,6 +254,7 @@ def run_simulation(
         world_id=config.world_id,
         agent_count=len(config.agents),
         running=True,
+        step=max(int(checkpoint.get("step", 0)), 0) if checkpoint else 0,
     )
     control_srv = start_control_server(
         controller, sim_state, port=config.control_port,
@@ -284,6 +287,9 @@ def run_simulation(
         # 6. Build Game Master
         game_master = _build_game_master(config, model, gm_memory, proxy_entities)
 
+        if checkpoint:
+            _restore_checkpoint_state(checkpoint, game_master, proxy_entities)
+
         # 7. Create instrumented engine
         if config.engine_type == "simultaneous":
             engine = InstrumentedSimultaneousEngine(
@@ -308,13 +314,23 @@ def run_simulation(
                 metadata={"phase": "step_complete"},
             ))
 
+        def checkpoint_callback(step: int) -> None:
+            save_checkpoint(
+                config=config,
+                step=step,
+                game_master=game_master,
+                entities=proxy_entities,
+            )
+
         engine.run_loop(
             game_masters=[game_master],
             entities=proxy_entities,
             premise=config.premise,
             max_steps=config.max_steps,
+            start_step=max(int(checkpoint.get("step", 0)), 0) + 1 if checkpoint else 1,
             step_controller=controller,
             step_callback=step_callback,
+            checkpoint_callback=checkpoint_callback,
             scenes=config.scenes,
         )
 
@@ -360,6 +376,33 @@ def _setup_agents(config: SimulationConfig) -> None:
         logger.info("Agent setup complete: %s", response.json())
     except Exception as exc:
         logger.warning("Agent setup via bridge failed: %s", exc)
+
+
+def _restore_checkpoint_state(
+    checkpoint: dict,
+    game_master: Entity,
+    proxy_entities: Sequence[ProxyEntityWithLogging],
+) -> None:
+    """Restore GM and proxy entity state from a checkpoint payload."""
+    gm_state = checkpoint.get("gm_state")
+    if gm_state and hasattr(game_master, "set_state"):
+        try:
+            game_master.set_state(gm_state)
+        except Exception as exc:
+            logger.warning("Failed to restore game master state: %s", exc)
+
+    entity_states = checkpoint.get("entity_states", {})
+    if not isinstance(entity_states, dict):
+        entity_states = {}
+
+    for entity in proxy_entities:
+        state = entity_states.get(entity.name)
+        if not isinstance(state, dict):
+            continue
+        try:
+            entity.set_state(state)
+        except Exception as exc:
+            logger.warning("Failed to restore state for %s: %s", entity.name, exc)
 
 
 def _build_game_master(

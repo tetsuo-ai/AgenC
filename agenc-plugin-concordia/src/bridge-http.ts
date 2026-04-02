@@ -10,6 +10,7 @@
  */
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import type { ChannelAdapterLogger } from "@tetsuo-ai/plugin-kit";
 import type {
   ActRequest,
@@ -18,6 +19,8 @@ import type {
   SetupRequest,
   LaunchRequest,
   GenerateAgentsRequest,
+  CheckpointRequest,
+  ResumeRequest,
   EventNotification,
   AgentStateResponse,
   BridgeMetrics,
@@ -36,12 +39,21 @@ export interface BridgeServerConfig {
   readonly host: string;
   readonly logger: ChannelAdapterLogger;
   readonly sessionManager: SessionManager;
-  readonly onAct: (agentId: string, sessionId: string, message: string) => Promise<string>;
+  readonly onAct: (
+    agentId: string,
+    sessionId: string,
+    message: string,
+    requestId: string,
+  ) => Promise<string>;
   readonly onObserve: (agentId: string, sessionId: string, observation: string) => Promise<void>;
   readonly onSetup: (request: SetupRequest) => Promise<Record<string, string>>;
+  readonly onReset?: () => Promise<void>;
+  readonly onCheckpoint?: (request: CheckpointRequest) => Promise<Record<string, unknown>>;
+  readonly onResume?: (request: ResumeRequest) => Promise<Record<string, unknown>>;
   readonly onLaunch?: (request: LaunchRequest) => Promise<Record<string, unknown>>;
   readonly onGenerateAgents?: (
     request: GenerateAgentsRequest,
+    requestId: string,
   ) => Promise<{ agents: readonly { id: string; name: string; personality: string; goal: string }[] }>;
   readonly onEvent: (event: EventNotification) => Promise<void>;
   readonly getAgentState?: (agentId: string) => Promise<AgentStateResponse | null>;
@@ -161,6 +173,12 @@ async function handlePost(
     case "/launch":
       await handleLaunch(body as LaunchRequest, res, config);
       break;
+    case "/checkpoint":
+      await handleCheckpoint(body as CheckpointRequest, res, config);
+      break;
+    case "/resume":
+      await handleResume(body as ResumeRequest, res, config);
+      break;
     case "/generate-agents":
       await handleGenerateAgents(body as GenerateAgentsRequest, res, config);
       break;
@@ -168,7 +186,11 @@ async function handlePost(
       await handleEvent(body as EventNotification, res, config, metrics);
       break;
     case "/reset":
-      config.sessionManager.clear();
+      if (config.onReset) {
+        await config.onReset();
+      } else {
+        config.sessionManager.clear();
+      }
       sendJson(res, 200, { status: "ok" });
       break;
     default:
@@ -196,12 +218,14 @@ async function handleAct(
 
   // Build the prompt from the ActionSpec
   const message = buildActPrompt(request.action_spec, request.agent_name);
+  const requestId = randomUUID();
 
   // Route through the daemon pipeline via the onAct callback
   const rawResponse = await config.onAct(
     request.agent_id,
     session.sessionId,
     message,
+    requestId,
   );
 
   // Post-process: strip name prefix, enforce choice constraints, parse floats
@@ -303,6 +327,34 @@ async function handleLaunch(
   sendJson(res, 200, { status: "ok", ...result });
 }
 
+async function handleCheckpoint(
+  request: CheckpointRequest,
+  res: ServerResponse,
+  config: BridgeServerConfig,
+): Promise<void> {
+  if (!config.onCheckpoint) {
+    sendJson(res, 404, { error: "Checkpoint not supported" });
+    return;
+  }
+
+  const result = await config.onCheckpoint(request);
+  sendJson(res, 200, { status: "ok", ...result });
+}
+
+async function handleResume(
+  request: ResumeRequest,
+  res: ServerResponse,
+  config: BridgeServerConfig,
+): Promise<void> {
+  if (!config.onResume) {
+    sendJson(res, 404, { error: "Resume not supported" });
+    return;
+  }
+
+  const result = await config.onResume(request);
+  sendJson(res, 200, { status: "ok", ...result });
+}
+
 async function handleGenerateAgents(
   request: GenerateAgentsRequest,
   res: ServerResponse,
@@ -313,7 +365,8 @@ async function handleGenerateAgents(
     return;
   }
 
-  const result = await config.onGenerateAgents(request);
+  const requestId = randomUUID();
+  const result = await config.onGenerateAgents(request, requestId);
   sendJson(res, 200, result);
 }
 

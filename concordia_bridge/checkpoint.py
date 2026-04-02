@@ -22,7 +22,7 @@ import requests
 
 from concordia.typing.entity import EntityWithLogging
 
-from concordia_bridge.bridge_types import SimulationConfig
+from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +44,17 @@ def save_checkpoint(
 
     # Collect entity logs
     entity_logs = {}
+    entity_states = {}
     for entity in entities:
         try:
             entity_logs[entity.name] = entity.get_last_log()
         except Exception:
             entity_logs[entity.name] = {}
+        if hasattr(entity, "get_state"):
+            try:
+                entity_states[entity.name] = _serialize_state(entity.get_state())
+            except Exception as exc:
+                logger.warning("Failed to get state for entity %s: %s", entity.name, exc)
 
     # Collect GM state if available
     gm_state = {}
@@ -67,6 +73,7 @@ def save_checkpoint(
         "timestamp": time.time(),
         "config": asdict(config),
         "entity_logs": entity_logs,
+        "entity_states": entity_states,
         "gm_state": _serialize_state(gm_state),
         "agent_ids": [a.id for a in config.agents],
     }
@@ -160,3 +167,47 @@ def _serialize_state(state: object) -> dict:
     if isinstance(state, (str, int, float, bool, type(None))):
         return state
     return str(state)
+
+
+def simulation_config_from_checkpoint(checkpoint: dict) -> SimulationConfig:
+    """Rebuild a SimulationConfig from a serialized checkpoint."""
+    raw = checkpoint.get("config")
+    if not isinstance(raw, dict):
+        raise ValueError("Checkpoint missing config payload")
+
+    agents = []
+    for agent in raw.get("agents", []):
+        if not isinstance(agent, dict):
+            continue
+        agents.append(
+            AgentConfig(
+                id=agent.get("id", ""),
+                name=agent.get("name", ""),
+                personality=agent.get("personality", ""),
+                goal=agent.get("goal", ""),
+            )
+        )
+
+    return SimulationConfig(
+        world_id=raw.get("world_id", checkpoint.get("world_id", "default")),
+        workspace_id=raw.get("workspace_id", "concordia-sim"),
+        premise=raw.get("premise", ""),
+        agents=agents,
+        max_steps=raw.get("max_steps", checkpoint.get("step", 0)),
+        gm_instructions=raw.get("gm_instructions", ""),
+        gm_model=raw.get("gm_model", "grok-3-mini"),
+        gm_provider=raw.get("gm_provider", "ollama"),
+        gm_api_key=raw.get("gm_api_key", ""),
+        gm_base_url=raw.get("gm_base_url", ""),
+        engine_type=raw.get("engine_type", "simultaneous"),
+        gm_prefab=raw.get("gm_prefab", "generic"),
+        bridge_url=raw.get("bridge_url", "http://localhost:3200"),
+        event_port=raw.get("event_port", 3201),
+        control_port=raw.get("control_port", 3202),
+        embedding_model=raw.get("embedding_model", "all-MiniLM-L6-v2"),
+        reflection_interval=raw.get("reflection_interval", 5),
+        consolidation_interval=raw.get("consolidation_interval", 20),
+        retention_interval=raw.get("retention_interval", 20),
+        encryption_key=raw.get("encryption_key", ""),
+        scenes=raw.get("scenes"),
+    )

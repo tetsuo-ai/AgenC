@@ -43,6 +43,10 @@ export interface MemoryWiringContext {
   readonly traceLogger?: TraceLoggerLike;
   /** Optional — daily log manager for simulation transcripts (Task 10.14). */
   readonly dailyLogManager?: DailyLogManagerLike;
+  /** Optional — semantic ingestion engine for long-term memory indexing. */
+  readonly ingestionEngine?: MemoryIngestionEngineLike;
+  /** Optional — semantic retriever for richer action context. */
+  readonly retriever?: MemoryRetrieverLike;
   /** Optional — encryption key for at-rest encryption (Task 10.10). */
   readonly encryptionKey?: string;
   /**
@@ -239,6 +243,41 @@ export interface DailyLogManagerLike {
   }): Promise<void>;
 }
 
+export interface MemoryIngestionEngineLike {
+  ingestTurn(
+    sessionId: string,
+    userMessage: string,
+    agentResponse: string,
+    metadata?: {
+      agentResponseMetadata?: Record<string, unknown>;
+      workspaceId?: string;
+      agentId?: string;
+      userId?: string;
+      worldId?: string;
+      channel?: string;
+      backgroundRunId?: string;
+    },
+  ): Promise<void>;
+}
+
+export interface MemoryRetrieverLike {
+  retrieve(message: string, sessionId: string): Promise<string | undefined>;
+  retrieveDetailed?: (
+    message: string,
+    sessionId: string,
+  ) => Promise<{
+    readonly content?: string;
+    readonly estimatedTokens?: number;
+    readonly entries?: readonly {
+      readonly entry: {
+        readonly id: string;
+        readonly role?: string;
+      };
+      readonly role: string;
+    }[];
+  }>;
+}
+
 // ============================================================================
 // Memory operations
 // ============================================================================
@@ -271,6 +310,25 @@ export async function ingestObservation(
       confidence: 0.9,
     },
   });
+
+  if (ctx.ingestionEngine) {
+    await ctx.ingestionEngine.ingestTurn(
+      sessionId,
+      observation,
+      "[Observation recorded for future simulation turns.]",
+      {
+        workspaceId: ctx.workspaceId,
+        agentId,
+        worldId: ctx.worldId,
+        channel: "concordia",
+        agentResponseMetadata: {
+          type: "concordia_observation",
+          concordia_tag: "observation",
+          provenance: "concordia:gm_observation",
+        },
+      },
+    );
+  }
 }
 
 /**
@@ -699,13 +757,56 @@ export async function buildFullActContext(
     parts.push(proceduralContext);
   }
 
-  // 3. Knowledge graph context (BFS traversal)
+  // 3. Semantic memory retrieval (working + episodic + semantic)
+  if (ctx.retriever) {
+    const startedAt = Date.now();
+    const retrieval = ctx.retriever.retrieveDetailed
+      ? await ctx.retriever.retrieveDetailed(actionCallToAction, sessionId)
+      : {
+          content: await ctx.retriever.retrieve(actionCallToAction, sessionId),
+          entries: [],
+          estimatedTokens: 0,
+        };
+
+    if (retrieval.content) {
+      parts.push(retrieval.content);
+    }
+
+    const retrievedEntryIds = Array.from(
+      new Set(
+        (retrieval.entries ?? []).map((entry) => entry.entry.id).filter(Boolean),
+      ),
+    );
+    if (retrievedEntryIds.length > 0) {
+      await updateActivationScores(ctx, sessionId, retrievedEntryIds);
+    }
+    if (ctx.traceLogger) {
+      const roleCounts = (retrieval.entries ?? []).reduce<Record<string, number>>(
+        (counts, entry) => {
+          counts[entry.role] = (counts[entry.role] ?? 0) + 1;
+          return counts;
+        },
+        {},
+      );
+      traceMemoryRetrieval(ctx, {
+        sessionId,
+        query: actionCallToAction,
+        candidateCount: (retrieval.entries ?? []).length,
+        selectedCount: (retrieval.entries ?? []).length,
+        estimatedTokens: retrieval.estimatedTokens ?? 0,
+        roles: roleCounts,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+  }
+
+  // 4. Knowledge graph context (BFS traversal)
   const graphContext = await buildGraphContext(ctx, actionCallToAction, agentId);
   if (graphContext) {
     parts.push(graphContext);
   }
 
-  // 4. Shared cross-simulation knowledge
+  // 5. Shared cross-simulation knowledge
   const sharedContext = await getSharedContext(ctx, userId);
   if (sharedContext) {
     parts.push(sharedContext);
