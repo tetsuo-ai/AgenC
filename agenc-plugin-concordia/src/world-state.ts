@@ -34,6 +34,12 @@ export interface WorldStateSeed {
   readonly premise: string;
   readonly agents: readonly AgentSetupConfig[];
   readonly status?: SimulationLifecycleStatus;
+  readonly initial_scene_id?: string | null;
+  readonly initial_scene_name?: string | null;
+  readonly initial_zone_id?: string | null;
+  readonly initial_location_id?: string | null;
+  readonly initial_time_of_day?: string | null;
+  readonly initial_day_index?: number | null;
 }
 
 export interface StructuredActResult {
@@ -124,7 +130,14 @@ function cloneSnapshot(snapshot: WorldStateSnapshot): WorldStateSnapshot {
   };
 }
 
-function buildGoalTask(agent: AgentSetupConfig): WorldTask | null {
+function buildGoalTask(
+  agent: AgentSetupConfig,
+  coordinate: {
+    readonly scene_id: string;
+    readonly zone_id: string;
+    readonly location_id: string;
+  },
+): WorldTask | null {
   if (!agent.goal?.trim()) {
     return null;
   }
@@ -134,20 +147,39 @@ function buildGoalTask(agent: AgentSetupConfig): WorldTask | null {
     status: "active",
     assigned_agent_id: agent.agent_id,
     description: agent.goal.trim(),
-    scene_id: DEFAULT_SCENE_ID,
-    zone_id: DEFAULT_ZONE_ID,
-    location_id: DEFAULT_LOCATION_ID,
+    scene_id: coordinate.scene_id,
+    zone_id: coordinate.zone_id,
+    location_id: coordinate.location_id,
   };
 }
 
-function buildInitialAgentState(agent: AgentSetupConfig): EmbodiedAgentState {
-  const task = buildGoalTask(agent);
+function buildInitialCoordinate(seed: WorldStateSeed): {
+  scene_id: string;
+  zone_id: string;
+  location_id: string;
+} {
+  return {
+    scene_id: seed.initial_scene_id ?? DEFAULT_SCENE_ID,
+    zone_id: seed.initial_zone_id ?? DEFAULT_ZONE_ID,
+    location_id: seed.initial_location_id ?? DEFAULT_LOCATION_ID,
+  };
+}
+
+function buildInitialAgentState(
+  agent: AgentSetupConfig,
+  coordinate: {
+    readonly scene_id: string;
+    readonly zone_id: string;
+    readonly location_id: string;
+  },
+): EmbodiedAgentState {
+  const task = buildGoalTask(agent, coordinate);
   return {
     agent_id: agent.agent_id,
     agent_name: agent.agent_name,
-    location_id: DEFAULT_LOCATION_ID,
-    scene_id: DEFAULT_SCENE_ID,
-    zone_id: DEFAULT_ZONE_ID,
+    location_id: coordinate.location_id,
+    scene_id: coordinate.scene_id,
+    zone_id: coordinate.zone_id,
     nearby_agent_ids: [],
     inventory: [],
     world_object_ids: [],
@@ -344,14 +376,82 @@ function normalizeStep(event: EventNotification, snapshot: WorldStateSnapshot): 
   return Number.isFinite(event.step) ? event.step : snapshot.clock.step;
 }
 
+function normalizedEventMetadata(event: EventNotification): Record<string, unknown> {
+  return event.metadata ? { ...event.metadata } : {};
+}
+
+function applySceneMetadata(
+  snapshot: MutableWorldStateSnapshot,
+  metadata: Record<string, unknown>,
+  fallbackScene?: string | null,
+): void {
+  const sceneName = typeof metadata.scene_name === "string"
+    ? metadata.scene_name
+    : fallbackScene ?? snapshot.clock.scene_name ?? null;
+  const sceneId = typeof metadata.scene_id === "string"
+    ? metadata.scene_id
+    : fallbackScene
+      ? slugify(fallbackScene)
+      : snapshot.active_scene_id;
+  const zoneId = typeof metadata.zone_id === "string"
+    ? metadata.zone_id
+    : sceneId ?? snapshot.active_zone_id;
+  const locationId = typeof metadata.location_id === "string"
+    ? metadata.location_id
+    : zoneId
+      ? `${zoneId}:center`
+      : snapshot.active_location_id;
+  const timeOfDay = typeof metadata.time_of_day === "string"
+    ? metadata.time_of_day
+    : snapshot.clock.time_of_day ?? null;
+  const dayIndex = typeof metadata.day_index === "number" && Number.isFinite(metadata.day_index)
+    ? metadata.day_index
+    : snapshot.clock.day_index ?? null;
+
+  snapshot.active_scene_id = sceneId ?? snapshot.active_scene_id;
+  snapshot.active_zone_id = zoneId ?? snapshot.active_zone_id;
+  snapshot.active_location_id = locationId ?? snapshot.active_location_id;
+  snapshot.clock = {
+    ...snapshot.clock,
+    scene_name: sceneName,
+    time_of_day: timeOfDay,
+    day_index: dayIndex,
+  };
+}
+
+function mergeWorldFactsFromEvent(
+  current: readonly WorldFactSummary[],
+  summary: string,
+): readonly WorldFactSummary[] {
+  const trimmed = summary.trim();
+  if (!trimmed) {
+    return current.map(cloneWorldFact);
+  }
+  const existing = current.find((fact) => fact.content === trimmed);
+  const nextFact: WorldFactSummary = existing
+    ? {
+        ...existing,
+        confirmations: existing.confirmations + 1,
+      }
+    : {
+        content: trimmed,
+        observedBy: "system",
+        confirmations: 1,
+      };
+
+  const remainder = current.filter((fact) => fact.content !== trimmed).map(cloneWorldFact);
+  return [nextFact, ...remainder];
+}
+
 function pushRecentEvent(snapshot: WorldStateSnapshot, event: WorldEvent): readonly WorldEvent[] {
   return [...snapshot.recent_events, event].slice(-RECENT_WORLD_EVENT_LIMIT);
 }
 
 export function createInitialWorldState(seed: WorldStateSeed): WorldStateSnapshot {
   const now = Date.now();
+  const coordinate = buildInitialCoordinate(seed);
   const agentStates = Object.fromEntries(
-    seed.agents.map((agent) => [agent.agent_id, buildInitialAgentState(agent)]),
+    seed.agents.map((agent) => [agent.agent_id, buildInitialAgentState(agent, coordinate)]),
   ) as Record<string, EmbodiedAgentState>;
   const snapshot: WorldStateSnapshot = {
     simulation_id: seed.simulation_id,
@@ -365,10 +465,13 @@ export function createInitialWorldState(seed: WorldStateSeed): WorldStateSnapsho
       step: 0,
       phase: defaultStatus(seed),
       updated_at: now,
+      scene_name: seed.initial_scene_name ?? null,
+      time_of_day: seed.initial_time_of_day ?? null,
+      day_index: seed.initial_day_index ?? null,
     },
-    active_scene_id: DEFAULT_SCENE_ID,
-    active_zone_id: DEFAULT_ZONE_ID,
-    active_location_id: DEFAULT_LOCATION_ID,
+    active_scene_id: coordinate.scene_id,
+    active_zone_id: coordinate.zone_id,
+    active_location_id: coordinate.location_id,
     agent_states: recalculateNearbyAgents(agentStates),
     world_objects: {},
     world_facts: buildInitialWorldFacts(seed),
@@ -401,9 +504,16 @@ export function reconcileWorldStateSnapshot(
     ...next.clock,
     phase: defaultStatus(seed),
     updated_at: Date.now(),
+    scene_name: seed.initial_scene_name ?? next.clock.scene_name ?? null,
+    time_of_day: seed.initial_time_of_day ?? next.clock.time_of_day ?? null,
+    day_index: seed.initial_day_index ?? next.clock.day_index ?? null,
   };
+  next.active_scene_id = seed.initial_scene_id ?? next.active_scene_id;
+  next.active_zone_id = seed.initial_zone_id ?? next.active_zone_id;
+  next.active_location_id = seed.initial_location_id ?? next.active_location_id;
 
   const existingAgentStates = next.agent_states;
+  const coordinate = buildInitialCoordinate(seed);
   const mergedAgentStates: Record<string, EmbodiedAgentState> = {};
   for (const agent of seed.agents) {
     const existing = existingAgentStates[agent.agent_id];
@@ -417,7 +527,7 @@ export function reconcileWorldStateSnapshot(
             goal: agent.goal ?? "",
           },
         }
-      : buildInitialAgentState(agent);
+      : buildInitialAgentState(agent, coordinate);
   }
 
   next.agent_states = recalculateNearbyAgents(mergedAgentStates);
@@ -630,19 +740,20 @@ export function applyEventToWorldState(
   const timestamp = typeof event.timestamp === "number" ? event.timestamp : Date.now();
   const actingAgentId = event.acting_agent ?? event.agent_name ?? null;
   const summary = (event.resolved_event ?? event.content ?? event.type).trim() || event.type;
+  const metadata = normalizedEventMetadata(event);
 
   next.clock = {
     tick: next.clock.tick + 1,
     step: Math.max(next.clock.step, step),
     phase: next.clock.phase,
     updated_at: Date.now(),
+    scene_name: next.clock.scene_name ?? null,
+    time_of_day: next.clock.time_of_day ?? null,
+    day_index: next.clock.day_index ?? null,
   };
 
-  if (event.scene) {
-    const sceneId = slugify(event.scene);
-    next.active_scene_id = sceneId;
-    next.active_zone_id = sceneId;
-    next.active_location_id = `${sceneId}:center`;
+  if (event.scene || metadata.scene_id || metadata.scene_name) {
+    applySceneMetadata(next, metadata, event.scene ?? null);
   }
 
   if (event.type === "step") {
@@ -677,7 +788,7 @@ export function applyEventToWorldState(
         scene_id: next.active_scene_id,
         zone_id: next.active_zone_id,
         location_id: next.active_location_id,
-        metadata: event.metadata ? { ...event.metadata } : null,
+        metadata,
       }
     : event.outcome ?? null;
 
@@ -701,8 +812,12 @@ export function applyEventToWorldState(
     location_id: next.active_location_id,
     intent: event.intent ?? null,
     outcome: resolutionOutcome,
-    metadata: event.metadata ? { ...event.metadata } : null,
+    metadata,
   };
+
+  if (event.type === "scene_change" || event.type === "world_event") {
+    next.world_facts = mergeWorldFactsFromEvent(next.world_facts, summary);
+  }
 
   next.agent_states = recalculateNearbyAgents(next.agent_states);
   next.updated_at = Date.now();

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Mapping, Optional
+from typing import Any, Mapping, Optional
 from uuid import uuid4
 
 
@@ -56,6 +56,118 @@ class AgentConfig:
 
 
 # ============================================================================
+# Scene Configuration
+# ============================================================================
+
+def _slugify_scene(value: object, fallback: str) -> str:
+    if isinstance(value, str):
+        normalized = "".join(
+            char.lower() if char.isalnum() else "-"
+            for char in value.strip()
+        )
+        collapsed = "-".join(part for part in normalized.split("-") if part)
+        if collapsed:
+            return collapsed
+    return fallback
+
+
+def _as_string(value: object, fallback: str = "") -> str:
+    return value if isinstance(value, str) else fallback
+
+
+def _as_optional_string(value: object) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    return trimmed or None
+
+
+def _as_optional_int(value: object) -> Optional[int]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def _as_positive_int(value: object, fallback: int) -> int:
+    parsed = _as_optional_int(value)
+    return parsed if parsed is not None and parsed > 0 else fallback
+
+
+@dataclass
+class SceneWorldEventSpec:
+    summary: str
+    observation: Optional[str] = None
+    trigger_round: int = 1
+    event_id: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SceneSpec:
+    scene_id: str
+    name: str
+    description: str
+    num_rounds: int = 1
+    zone_id: Optional[str] = None
+    location_id: Optional[str] = None
+    time_of_day: Optional[str] = None
+    day_index: Optional[int] = None
+    gm_instructions: str = ""
+    world_events: list[SceneWorldEventSpec] = field(default_factory=list)
+
+    @property
+    def scene_type(self) -> dict[str, str]:
+        return {"name": self.name}
+
+
+def normalize_scene_specs(raw_scenes: object) -> Optional[list[SceneSpec]]:
+    if not isinstance(raw_scenes, list):
+        return None
+
+    scenes: list[SceneSpec] = []
+    for index, raw_scene in enumerate(raw_scenes):
+        if not isinstance(raw_scene, Mapping):
+            continue
+        fallback_id = f"scene-{index + 1}"
+        name = _as_string(raw_scene.get("name"), f"Scene {index + 1}")
+        scene_id = _slugify_scene(raw_scene.get("scene_id") or name, fallback_id)
+        description = _as_string(raw_scene.get("description"), name)
+        raw_world_events = raw_scene.get("world_events")
+        world_events: list[SceneWorldEventSpec] = []
+        if isinstance(raw_world_events, list):
+            for event_index, raw_event in enumerate(raw_world_events):
+                if not isinstance(raw_event, Mapping):
+                    continue
+                summary = _as_string(raw_event.get("summary")).strip()
+                if not summary:
+                    continue
+                world_events.append(SceneWorldEventSpec(
+                    summary=summary,
+                    observation=_as_optional_string(raw_event.get("observation")),
+                    trigger_round=_as_positive_int(raw_event.get("trigger_round"), 1),
+                    event_id=_as_optional_string(raw_event.get("event_id")) or f"{scene_id}-event-{event_index + 1}",
+                    metadata=dict(raw_event.get("metadata", {})) if isinstance(raw_event.get("metadata"), Mapping) else {},
+                ))
+        scenes.append(SceneSpec(
+            scene_id=scene_id,
+            name=name,
+            description=description,
+            num_rounds=_as_positive_int(raw_scene.get("num_rounds"), 1),
+            zone_id=_as_optional_string(raw_scene.get("zone_id")),
+            location_id=_as_optional_string(raw_scene.get("location_id")),
+            time_of_day=_as_optional_string(raw_scene.get("time_of_day")),
+            day_index=_as_optional_int(raw_scene.get("day_index")),
+            gm_instructions=_as_string(raw_scene.get("gm_instructions")),
+            world_events=world_events,
+        ))
+    return scenes or None
+
+
+# ============================================================================
 # Simulation Configuration
 # ============================================================================
 
@@ -91,7 +203,7 @@ class SimulationConfig:
     consolidation_interval: int = 20  # Run consolidation every N steps (used by TS adapter memory-lifecycle)
     retention_interval: int = 20  # Run retention every N steps (used by TS adapter memory-lifecycle)
     encryption_key: str = ""  # At-rest encryption key (used by TS adapter memory-wiring)
-    scenes: Optional[list] = None  # Optional SceneSpec list
+    scenes: Optional[list[SceneSpec]] = None  # Optional SceneSpec list
 
 
 def build_simulation_config(
@@ -138,5 +250,5 @@ def build_simulation_config(
         consolidation_interval=raw.get("consolidation_interval", 20),
         retention_interval=raw.get("retention_interval", 20),
         encryption_key=raw.get("encryption_key", ""),
-        scenes=raw.get("scenes"),
+        scenes=normalize_scene_specs(raw.get("scenes")),
     )

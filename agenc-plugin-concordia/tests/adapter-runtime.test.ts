@@ -327,6 +327,47 @@ describe("ConcordiaChannelAdapter registry-backed pending response handling", ()
     expect(onMessage).toHaveBeenCalledOnce();
   });
 
+  it("creates an isolated ephemeral handle for agent generation instead of reusing the active sim", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    const context = makeContext();
+    await adapter.initialize(context as never);
+
+    const active = createHandle(adapter, "sim-active");
+    adapter.registry.setCurrentAlias(active.simulationId);
+
+    const result = await adapter.ensureGenerationHandle(
+      { count: 2, premise: "A harbor standoff." },
+      "world-generator",
+    );
+
+    expect(result.handle.simulationId).not.toBe(active.simulationId);
+    expect(result.handle.workspaceId).toMatch(/^concordia-generator:/);
+    expect(adapter.registry.getCurrentHandle()?.simulationId).toBe(active.simulationId);
+    adapter.cleanupEphemeralGenerationHandle(result.ephemeralHandle);
+  });
+
+  it("parses generated agents from prose-wrapped JSON payloads", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    await adapter.initialize(makeContext() as never);
+
+    const parsed = adapter.parseGeneratedAgents("Here you go.\\n```json\\n[{\"name\":\"Dockmaster Rhea\",\"personality\":\"Decisive\",\"goal\":\"Secure the pier.\"},{\"id\":\"broker-ives\",\"name\":\"Broker Ives\",\"personality\":\"Calculating\",\"goal\":\"Win the contract.\"}]\\n```");
+
+    expect(parsed).toEqual([
+      {
+        id: "dockmaster-rhea",
+        name: "Dockmaster Rhea",
+        personality: "Decisive",
+        goal: "Secure the pier.",
+      },
+      {
+        id: "broker-ives",
+        name: "Broker Ives",
+        personality: "Calculating",
+        goal: "Win the contract.",
+      },
+    ]);
+  });
+
   it("launches a second simulation without overwriting the first", async () => {
     const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
     const context = makeContext();

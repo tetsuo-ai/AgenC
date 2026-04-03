@@ -81,6 +81,7 @@ function buildRunnerPayload(
       premise: request.premise,
       agents: request.agents,
       max_steps: request.max_steps ?? DEFAULT_MAX_STEPS,
+      gm_instructions: request.gm_instructions ?? "",
       gm_model: request.gm_model ?? DEFAULT_GM_MODEL,
       gm_provider: request.gm_provider ?? DEFAULT_GM_PROVIDER,
       gm_api_key: request.gm_api_key ?? "",
@@ -89,6 +90,7 @@ function buildRunnerPayload(
       control_port: request.control_port ?? DEFAULT_CONTROL_PORT,
       engine_type: request.engine_type ?? DEFAULT_ENGINE_TYPE,
       gm_prefab: request.gm_prefab ?? DEFAULT_GM_PREFAB,
+      scenes: request.scenes ?? [],
       bridge_url: `http://127.0.0.1:${config.bridge_port ?? DEFAULT_BRIDGE_PORT}`,
       simultaneous_max_workers:
         request.run_budget?.simultaneous_max_workers ??

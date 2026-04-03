@@ -3,6 +3,7 @@ import type { ChannelAdapterLogger } from "@tetsuo-ai/plugin-kit";
 import type {
   AgentSetupConfig,
   ConcordiaCheckpointStatus,
+  ConcordiaExecutionPhase,
   EventNotification,
   LaunchRequest,
   SimulationLifecycleStatus,
@@ -47,6 +48,7 @@ export interface SimulationHandle<TRunner = unknown, TMemoryContext = unknown, T
   maxSteps: number | null;
   gmModel?: string;
   gmProvider?: string;
+  executionPhase: ConcordiaExecutionPhase | null;
   status: SimulationLifecycleStatus;
   reason: string | null;
   error: string | null;
@@ -367,6 +369,7 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       maxSteps: params.request.max_steps ?? null,
       gmModel: params.request.gm_model,
       gmProvider: params.request.gm_provider,
+      executionPhase: params.status === "launching" ? "launching" : null,
       status: params.status ?? "launching",
       reason: null,
       error: null,
@@ -450,6 +453,7 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       handle.endedAt = null;
       if (handle.status === "launching") {
         handle.status = "running";
+        handle.executionPhase = handle.executionPhase ?? "launching";
         handle.reason = null;
         handle.error = null;
       }
@@ -499,6 +503,8 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       readonly maxSteps?: number | null;
       readonly gmModel?: string;
       readonly gmProvider?: string;
+      readonly gmInstructions?: string;
+      readonly scenes?: LaunchRequest["scenes"];
       readonly runBudget?: LaunchRequest["run_budget"] | null;
     },
   ): SimulationHandle<TRunner, TMemoryContext, TPending> {
@@ -544,6 +550,12 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
         handle.gmProvider = update.gmProvider;
         handle.launchRequest.gm_provider = update.gmProvider;
       }
+      if (update.gmInstructions !== undefined) {
+        handle.launchRequest.gm_instructions = update.gmInstructions;
+      }
+      if (update.scenes !== undefined) {
+        handle.launchRequest.scenes = update.scenes;
+      }
       if (update.runBudget !== undefined) {
         handle.launchRequest.run_budget = update.runBudget ?? undefined;
       }
@@ -554,6 +566,7 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
     simulationId: string,
     update: {
       readonly status?: SimulationLifecycleStatus;
+      readonly executionPhase?: ConcordiaExecutionPhase | null;
       readonly reason?: string | null;
       readonly error?: string | null;
       readonly lastCompletedStep?: number;
@@ -569,6 +582,9 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
     return this.requireMutated(simulationId, (handle) => {
       if (update.status !== undefined) {
         handle.status = update.status;
+      }
+      if (update.executionPhase !== undefined) {
+        handle.executionPhase = update.executionPhase;
       }
       if (update.reason !== undefined) {
         handle.reason = update.reason;
@@ -746,6 +762,7 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       lineage_id: handle.lineageId,
       parent_simulation_id: handle.parentSimulationId,
       status: handle.status,
+      execution_phase: handle.executionPhase,
       reason: handle.reason,
       error: handle.error,
       created_at: handle.createdAt,
@@ -770,6 +787,8 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       max_steps: handle.maxSteps,
       ...(handle.gmModel ? { gm_model: handle.gmModel } : {}),
       ...(handle.gmProvider ? { gm_provider: handle.gmProvider } : {}),
+      ...(handle.launchRequest.gm_instructions ? { gm_instructions: handle.launchRequest.gm_instructions } : {}),
+      ...(handle.launchRequest.scenes ? { scenes: handle.launchRequest.scenes } : {}),
       run_budget: handle.launchRequest.run_budget ?? null,
     };
   }

@@ -278,6 +278,7 @@ def run_simulation(
         agent_count=len(config.agents),
         running=True,
         step=initial_step,
+        execution_phase="launching",
         last_step_outcome=(
             checkpoint_runtime_cursor.get("last_step_outcome") if checkpoint else None
         ),
@@ -373,6 +374,18 @@ def run_simulation(
                 workspace_id=config.workspace_id,
             ))
 
+        def phase_callback(
+            phase: str,
+            step: int,
+            metadata: Optional[dict] = None,
+        ) -> None:
+            del metadata
+            sim_state.update(
+                step=max(sim_state.step, step),
+                running=not controller.is_stopped,
+                execution_phase=phase,
+            )
+
         def checkpoint_callback(step: int) -> None:
             checkpoint_state = engine.get_checkpoint_state(
                 max_steps=config.max_steps,
@@ -397,6 +410,7 @@ def run_simulation(
                 start_step=(_checkpoint_start_step(checkpoint) if checkpoint else 1),
                 step_controller=controller,
                 step_callback=step_callback,
+                phase_callback=phase_callback,
                 checkpoint_callback=checkpoint_callback,
                 scenes=config.scenes,
             )
@@ -404,6 +418,7 @@ def run_simulation(
             sim_state.update(
                 running=False,
                 paused=False,
+                execution_phase="stopped",
                 terminal_reason=f"error:{type(exc).__name__}",
                 last_step_outcome="failed",
             )
@@ -413,6 +428,7 @@ def run_simulation(
         sim_state.update(
             running=False,
             paused=False,
+            execution_phase="stopped",
             terminal_reason="stopped" if controller.is_stopped else "completed",
         )
 

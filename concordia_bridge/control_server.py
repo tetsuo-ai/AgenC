@@ -39,6 +39,7 @@ class SimulationState:
         self.simulation_id = ""
         self.agent_count = 0
         self.last_step_outcome = "idle"
+        self.execution_phase = "idle"
         self.terminal_reason: Optional[str] = None
         self.last_transition_at = 0.0
         self._lock = threading.Lock()
@@ -61,6 +62,7 @@ class SimulationState:
                 "simulation_id": self.simulation_id,
                 "agent_count": self.agent_count,
                 "last_step_outcome": self.last_step_outcome,
+                "execution_phase": self.execution_phase,
                 "terminal_reason": self.terminal_reason,
                 "last_transition_at": self.last_transition_at,
             }
@@ -159,17 +161,26 @@ def _make_handler_class(
         def do_POST(self) -> None:
             if self.path == "/simulation/play":
                 controller.play()
-                sim_state.update(running=True, paused=False, terminal_reason=None)
+                sim_state.update(
+                    running=True,
+                    paused=False,
+                    execution_phase=(
+                        "launching"
+                        if not sim_state.step
+                        else "waiting_for_permission"
+                    ),
+                    terminal_reason=None,
+                )
                 _log_control_event("command", command="play", **sim_state.to_dict())
                 self._send_ok()
             elif self.path == "/simulation/pause":
                 controller.pause()
-                sim_state.update(running=True, paused=True)
+                sim_state.update(running=True, paused=True, execution_phase="waiting_for_permission")
                 _log_control_event("command", command="pause", **sim_state.to_dict())
                 self._send_ok()
             elif self.path == "/simulation/step":
                 controller.step()
-                sim_state.update(running=True, paused=True)
+                sim_state.update(running=True, paused=True, execution_phase="waiting_for_permission")
                 _log_control_event("command", command="step", **sim_state.to_dict())
                 self._send_ok()
             elif self.path == "/simulation/stop":
@@ -177,6 +188,7 @@ def _make_handler_class(
                 sim_state.update(
                     running=False,
                     paused=False,
+                    execution_phase="stopped",
                     terminal_reason="stopped_by_user",
                 )
                 _log_control_event("command", command="stop", **sim_state.to_dict())

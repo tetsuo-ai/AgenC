@@ -45,6 +45,19 @@ export type SimulationLifecycleStatus =
   | "archived"
   | "deleted";
 
+export type ConcordiaExecutionPhase =
+  | "idle"
+  | "launching"
+  | "waiting_for_permission"
+  | "observing"
+  | "choosing_actor"
+  | "acting"
+  | "collecting_actions"
+  | "resolving"
+  | "checkpointing"
+  | "step_complete"
+  | "stopped";
+
 export type WorldTaskStatus = "pending" | "active" | "completed" | "blocked";
 
 export type ConcordiaVisibilityTier =
@@ -105,6 +118,27 @@ export interface WorldCoordinate {
   readonly scene_id: string | null;
   readonly zone_id: string | null;
   readonly label?: string | null;
+}
+
+export interface ConcordiaSceneWorldEventSpec {
+  readonly event_id?: string;
+  readonly summary: string;
+  readonly observation?: string | null;
+  readonly trigger_round?: number | null;
+  readonly metadata?: Record<string, unknown> | null;
+}
+
+export interface ConcordiaSceneSpec {
+  readonly scene_id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly num_rounds: number;
+  readonly zone_id?: string | null;
+  readonly location_id?: string | null;
+  readonly time_of_day?: string | null;
+  readonly day_index?: number | null;
+  readonly gm_instructions?: string | null;
+  readonly world_events?: readonly ConcordiaSceneWorldEventSpec[];
 }
 
 export interface WorldTask {
@@ -257,6 +291,9 @@ export interface WorldProjection {
     readonly step: number;
     readonly phase: SimulationLifecycleStatus;
     readonly updated_at: number;
+    readonly scene_name?: string | null;
+    readonly time_of_day?: string | null;
+    readonly day_index?: number | null;
   };
   readonly premise: string;
   readonly self: EmbodiedAgentState | null;
@@ -281,6 +318,9 @@ export interface WorldStateSnapshot {
     readonly step: number;
     readonly phase: SimulationLifecycleStatus;
     readonly updated_at: number;
+    readonly scene_name?: string | null;
+    readonly time_of_day?: string | null;
+    readonly day_index?: number | null;
   };
   readonly active_scene_id: string | null;
   readonly active_zone_id: string | null;
@@ -355,6 +395,7 @@ export interface LaunchRequest {
   readonly agents: readonly AgentSetupConfig[];
   readonly premise: string;
   readonly max_steps?: number;
+  readonly gm_instructions?: string;
   readonly gm_model?: string;
   readonly gm_provider?: string;
   readonly gm_api_key?: string;
@@ -363,6 +404,7 @@ export interface LaunchRequest {
   readonly control_port?: number;
   readonly engine_type?: "sequential" | "simultaneous";
   readonly gm_prefab?: string;
+  readonly scenes?: readonly ConcordiaSceneSpec[];
   readonly run_budget?: ConcordiaRunBudget;
 }
 
@@ -414,6 +456,7 @@ export interface EventNotification {
     | "action"
     | "resolution"
     | "scene_change"
+    | "world_event"
     | "terminate"
     | "error";
   readonly step: number;
@@ -449,6 +492,7 @@ export interface SimulationSummary {
   readonly lineage_id: string | null;
   readonly parent_simulation_id: string | null;
   readonly status: SimulationLifecycleStatus;
+  readonly execution_phase?: ConcordiaExecutionPhase | null;
   readonly reason: string | null;
   readonly error: string | null;
   readonly created_at: number;
@@ -470,6 +514,8 @@ export interface SimulationRecord extends SimulationSummary {
   readonly max_steps: number | null;
   readonly gm_model?: string;
   readonly gm_provider?: string;
+  readonly gm_instructions?: string;
+  readonly scenes?: readonly ConcordiaSceneSpec[];
   readonly run_budget?: ConcordiaRunBudget | null;
 }
 
@@ -500,6 +546,7 @@ export interface SimulationStatusResponse {
   readonly world_id: string;
   readonly workspace_id: string;
   readonly status: SimulationLifecycleStatus;
+  readonly execution_phase?: ConcordiaExecutionPhase | null;
   readonly reason: string | null;
   readonly error: string | null;
   readonly step: number;

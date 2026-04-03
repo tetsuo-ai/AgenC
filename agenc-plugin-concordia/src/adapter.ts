@@ -33,6 +33,7 @@ import type {
 import type {
   BridgeMetrics,
   ConcordiaChannelConfig,
+  ConcordiaExecutionPhase,
   ConcordiaOperationalMetrics,
   ConcordiaProvenanceRecord,
   ConcordiaTrustRecord,
@@ -393,6 +394,7 @@ interface RunnerStatusSnapshot {
   readonly world_id?: string;
   readonly simulation_id?: string;
   readonly agent_count?: number;
+  readonly execution_phase?: ConcordiaExecutionPhase | null;
   readonly last_step_outcome?: string;
   readonly terminal_reason?: string | null;
 }
@@ -517,6 +519,12 @@ export class ConcordiaChannelAdapter
         premise: handle.premise,
         agents: handle.agents,
         status: handle.status,
+        initial_scene_id: handle.launchRequest.scenes?.[0]?.scene_id ?? null,
+        initial_scene_name: handle.launchRequest.scenes?.[0]?.name ?? null,
+        initial_zone_id: handle.launchRequest.scenes?.[0]?.zone_id ?? null,
+        initial_location_id: handle.launchRequest.scenes?.[0]?.location_id ?? null,
+        initial_time_of_day: handle.launchRequest.scenes?.[0]?.time_of_day ?? null,
+        initial_day_index: handle.launchRequest.scenes?.[0]?.day_index ?? null,
       },
     );
 
@@ -1517,15 +1525,10 @@ export class ConcordiaChannelAdapter
     handle: ConcordiaSimulationHandle;
     ephemeralHandle: ConcordiaSimulationHandle | null;
   }> {
-    const activeHandle = this.registry.getCurrentHandle() ?? null;
-    if (activeHandle) {
-      return { handle: activeHandle, ephemeralHandle: null };
-    }
-
     const ephemeralHandle = await this.createSimulationHandle(
       {
         world_id: worldId,
-        workspace_id: "concordia-generator",
+        workspace_id: `concordia-generator:${randomUUID()}`,
         simulation_id: randomUUID(),
         lineage_id: null,
         parent_simulation_id: null,
@@ -1642,6 +1645,8 @@ export class ConcordiaChannelAdapter
       maxSteps: launchRequest.max_steps ?? null,
       gmModel: launchRequest.gm_model,
       gmProvider: launchRequest.gm_provider,
+      gmInstructions: launchRequest.gm_instructions,
+      scenes: launchRequest.scenes,
       runBudget: launchRequest.run_budget ?? null,
     };
   }
@@ -1664,6 +1669,7 @@ export class ConcordiaChannelAdapter
   ): Parameters<ConcordiaChannelAdapter["registry"]["updateLifecycle"]>[1] {
     return {
       status: "launching",
+      executionPhase: "launching",
       reason: null,
       error: null,
       startedAt: null,
@@ -1957,6 +1963,14 @@ export class ConcordiaChannelAdapter
     }
     if (gmPrefab) {
       request.gm_prefab = gmPrefab;
+    }
+    const gmInstructions = asString(config.gm_instructions);
+    if (gmInstructions) {
+      request.gm_instructions = gmInstructions;
+    }
+    const scenes = config.scenes;
+    if (Array.isArray(scenes)) {
+      request.scenes = scenes as NormalizedLaunchRequest["scenes"];
     }
     if (runBudget) {
       request.run_budget = runBudget;
@@ -2838,6 +2852,7 @@ export class ConcordiaChannelAdapter
     previousStatus: SimulationLifecycleStatus,
   ): {
     status: SimulationLifecycleStatus;
+    executionPhase: RunnerStatusSnapshot["execution_phase"];
     reason: string | null;
     error: string | null;
     lastCompletedStep: number;
@@ -2867,6 +2882,7 @@ export class ConcordiaChannelAdapter
 
     return {
       status: lifecycleStatus,
+      executionPhase: status.execution_phase ?? null,
       reason: terminalReason,
       error,
       lastCompletedStep: status.step,
@@ -2910,6 +2926,7 @@ export class ConcordiaChannelAdapter
   private markSimulationStopRequested(simulationId: string): void {
     this.registry.updateLifecycle(simulationId, {
       status: "stopping",
+      executionPhase: "stopped",
       reason: "stop_requested",
     });
   }
@@ -2982,6 +2999,7 @@ export class ConcordiaChannelAdapter
       world_id: handle.worldId,
       workspace_id: handle.workspaceId,
       status: handle.status,
+      execution_phase: handle.executionPhase ?? null,
       reason: handle.reason,
       error: handle.error,
       step: handle.lastCompletedStep,
@@ -3547,6 +3565,7 @@ export class ConcordiaChannelAdapter
     }
     this.registry.updateLifecycle(handle.simulationId, {
       status: options.status ?? "stopped",
+      executionPhase: "stopped",
       reason,
       error: options.error ?? null,
       endedAt: Date.now(),
@@ -3566,37 +3585,23 @@ export class ConcordiaChannelAdapter
   }
 
   private parseGeneratedAgents(rawResponse: string): GeneratedAgent[] {
-    const trimmed = rawResponse.trim();
-    const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    const jsonText = match ? match[1].trim() : trimmed;
-    const parsed = JSON.parse(jsonText) as unknown;
+    const parsed = extractGeneratedAgentsPayload(rawResponse);
+    const record = asRecord(parsed);
+    const entries = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(record.agents)
+        ? record.agents as unknown[]
+        : null;
 
-    if (!Array.isArray(parsed)) {
-      throw new Error("Expected JSON array of generated agents");
+    if (!entries) {
+      throw new Error("Expected generated agents JSON array or object with agents");
     }
 
-    const agents = parsed.map((entry, index) => {
-      if (
-        typeof entry !== "object" ||
-        entry === null ||
-        typeof (entry as Record<string, unknown>).id !== "string" ||
-        typeof (entry as Record<string, unknown>).name !== "string" ||
-        typeof (entry as Record<string, unknown>).personality !== "string" ||
-        typeof (entry as Record<string, unknown>).goal !== "string"
-      ) {
-        throw new Error(`Generated agent ${index} is missing required fields`);
-      }
+    const agents = entries.map((entry, index) =>
+      normalizeGeneratedAgent(entry, index),
+    );
 
-      const agent = entry as Record<string, string>;
-      return {
-        id: agent.id,
-        name: agent.name,
-        personality: agent.personality,
-        goal: agent.goal,
-      };
-    });
-
-    return agents;
+    return dedupeGeneratedAgents(agents);
   }
 }
 
@@ -3612,4 +3617,115 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function slugifyGeneratedAgentId(value: string, fallbackIndex: number): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || `agent-${fallbackIndex + 1}`;
+}
+
+function extractGeneratedAgentsPayload(rawResponse: string): unknown {
+  const trimmed = rawResponse.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidates = [
+    fenced?.[1]?.trim(),
+    trimmed,
+    ...extractJsonCandidates(trimmed),
+  ].filter((candidate): candidate is string => Boolean(candidate && candidate.length > 0));
+
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    try {
+      return JSON.parse(candidate) as unknown;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error("Unable to parse generated agents response as JSON");
+}
+
+function extractJsonCandidates(rawResponse: string): string[] {
+  const candidates: string[] = [];
+  for (const opener of ["[", "{"]) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let start = -1;
+    for (let index = 0; index < rawResponse.length; index += 1) {
+      const char = rawResponse[index]!;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) {
+        continue;
+      }
+      if (char === opener && depth === 0) {
+        start = index;
+        depth = 1;
+        continue;
+      }
+      if (start !== -1) {
+        if (char === opener) {
+          depth += 1;
+          continue;
+        }
+        if ((opener === "[" && char === "]") || (opener === "{" && char === "}")) {
+          depth -= 1;
+          if (depth === 0) {
+            candidates.push(rawResponse.slice(start, index + 1));
+            start = -1;
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function normalizeGeneratedAgent(entry: unknown, index: number): GeneratedAgent {
+  const record = asRecord(entry);
+  const name = asString(record.name)?.trim();
+  const personality = asString(record.personality)?.trim();
+  const goal = asString(record.goal)?.trim();
+  if (!name || !personality || !goal) {
+    throw new Error(`Generated agent ${index} is missing required fields`);
+  }
+  const idSource = asString(record.id)?.trim() || name;
+  return {
+    id: slugifyGeneratedAgentId(idSource, index),
+    name,
+    personality,
+    goal,
+  };
+}
+
+function dedupeGeneratedAgents(agents: readonly GeneratedAgent[]): GeneratedAgent[] {
+  const seen = new Set<string>();
+  return agents.map((agent) => {
+    let candidate = agent.id;
+    let suffix = 2;
+    while (seen.has(candidate)) {
+      candidate = `${agent.id}-${suffix}`;
+      suffix += 1;
+    }
+    seen.add(candidate);
+    return candidate === agent.id ? agent : { ...agent, id: candidate };
+  });
 }

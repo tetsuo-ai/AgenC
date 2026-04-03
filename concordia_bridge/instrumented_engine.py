@@ -16,7 +16,7 @@ import logging
 import re
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence, TypedDict
 
 import requests
@@ -84,10 +84,13 @@ class _SceneState:
     index: int = 0
     round: int = 0
     current: object | None = None
+    introduced_index: int = -1
+    emitted_round_events: set[str] = field(default_factory=set)
 
 
 CheckpointCallback = Optional[Callable[[int], None]]
 StepCallback = Optional[Callable[..., None]]
+PhaseCallback = Optional[Callable[[str, int, Optional[dict]], None]]
 LoopStepDisposition = str
 
 
@@ -99,6 +102,7 @@ class RunLoopOptions(TypedDict, total=False):
     checkpoint_callback: CheckpointCallback
     step_controller: object
     step_callback: StepCallback
+    phase_callback: PhaseCallback
     scenes: Optional[list]
     start_step: int
 
@@ -176,13 +180,209 @@ class InstrumentedSequentialEngine(Engine):
             metadata={"phase": "premise"},
         ))
 
+    def _scene_value(
+        self,
+        scene: object | None,
+        key: str,
+    ) -> object | None:
+        if scene is None:
+            return None
+        if isinstance(scene, dict):
+            return scene.get(key)
+        return getattr(scene, key, None)
+
     def _scene_name(self, scene: object, fallback_index: int) -> str:
-        scene_type = getattr(scene, "scene_type", None)
+        direct_name = self._scene_value(scene, "name")
+        if isinstance(direct_name, str) and direct_name:
+            return direct_name
+        scene_type = self._scene_value(scene, "scene_type")
         if isinstance(scene_type, dict):
             name = scene_type.get("name")
             if isinstance(name, str) and name:
                 return name
         return str(fallback_index)
+
+    def _scene_id(self, scene: object | None, fallback_index: int) -> str:
+        value = self._scene_value(scene, "scene_id")
+        if isinstance(value, str) and value:
+            return value
+        return f"scene-{fallback_index + 1}"
+
+    def _scene_zone_id(self, scene: object | None, fallback_index: int) -> str:
+        value = self._scene_value(scene, "zone_id")
+        if isinstance(value, str) and value:
+            return value
+        return self._scene_id(scene, fallback_index)
+
+    def _scene_location_id(self, scene: object | None, fallback_index: int) -> str:
+        value = self._scene_value(scene, "location_id")
+        if isinstance(value, str) and value:
+            return value
+        return f"{self._scene_zone_id(scene, fallback_index)}:center"
+
+    def _scene_time_of_day(self, scene: object | None) -> str | None:
+        value = self._scene_value(scene, "time_of_day")
+        return value if isinstance(value, str) and value else None
+
+    def _scene_day_index(self, scene: object | None) -> int | None:
+        value = self._scene_value(scene, "day_index")
+        if isinstance(value, int):
+            return value
+        return None
+
+    def _scene_description(self, scene: object | None) -> str | None:
+        value = self._scene_value(scene, "description")
+        return value if isinstance(value, str) and value else None
+
+    def _scene_gm_instructions(self, scene: object | None) -> str | None:
+        value = self._scene_value(scene, "gm_instructions")
+        return value if isinstance(value, str) and value else None
+
+    def _scene_world_events(self, scene: object | None) -> list[object]:
+        value = self._scene_value(scene, "world_events")
+        return list(value) if isinstance(value, list) else []
+
+    def _world_event_trigger_round(self, raw_event: object) -> int:
+        if isinstance(raw_event, dict):
+            value = raw_event.get("trigger_round")
+        else:
+            value = getattr(raw_event, "trigger_round", None)
+        return value if isinstance(value, int) and value > 0 else 1
+
+    def _world_event_summary(self, raw_event: object) -> str | None:
+        if isinstance(raw_event, dict):
+            value = raw_event.get("summary")
+        else:
+            value = getattr(raw_event, "summary", None)
+        return value if isinstance(value, str) and value else None
+
+    def _world_event_observation(self, raw_event: object) -> str | None:
+        if isinstance(raw_event, dict):
+            value = raw_event.get("observation")
+        else:
+            value = getattr(raw_event, "observation", None)
+        return value if isinstance(value, str) and value else None
+
+    def _world_event_id(
+        self,
+        raw_event: object,
+        scene: object | None,
+        scene_index: int,
+        event_index: int,
+    ) -> str:
+        if isinstance(raw_event, dict):
+            value = raw_event.get("event_id")
+        else:
+            value = getattr(raw_event, "event_id", None)
+        if isinstance(value, str) and value:
+            return value
+        scene_id = self._scene_id(scene, scene_index)
+        return f"{scene_id}-event-{event_index + 1}"
+
+    def _world_event_metadata(self, raw_event: object) -> dict:
+        if isinstance(raw_event, dict):
+            value = raw_event.get("metadata")
+        else:
+            value = getattr(raw_event, "metadata", None)
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _scene_metadata(
+        self,
+        scene: object | None,
+        scene_index: int,
+    ) -> dict[str, object]:
+        return {
+            "scene_id": self._scene_id(scene, scene_index),
+            "scene_name": self._scene_name(scene, scene_index),
+            "zone_id": self._scene_zone_id(scene, scene_index),
+            "location_id": self._scene_location_id(scene, scene_index),
+            "time_of_day": self._scene_time_of_day(scene),
+            "day_index": self._scene_day_index(scene),
+        }
+
+    def _scene_intro_text(
+        self,
+        scene: object | None,
+        scene_index: int,
+    ) -> str | None:
+        if scene is None:
+            return None
+        scene_name = self._scene_name(scene, scene_index)
+        description = self._scene_description(scene)
+        parts = [f"Scene {scene_name} begins."]
+        if description:
+            parts.append(description)
+        time_of_day = self._scene_time_of_day(scene)
+        if time_of_day:
+            parts.append(f"It is currently {time_of_day}.")
+        return " ".join(part.strip() for part in parts if part and part.strip())
+
+    def _emit_scene_intro(
+        self,
+        game_master: Entity,
+        step: int,
+        scene: object | None,
+        scene_index: int,
+        scene_state: _SceneState,
+    ) -> None:
+        if scene is None or scene_state.introduced_index == scene_index:
+            return
+        intro = self._scene_intro_text(scene, scene_index)
+        if intro:
+            game_master.observe(f"[event] {intro}")
+        gm_instructions = self._scene_gm_instructions(scene)
+        if gm_instructions:
+            game_master.observe(f"[event] GM guidance: {gm_instructions}")
+        self._event_callback(SimulationEvent(
+            type="scene_change",
+            step=step,
+            timestamp=time.time(),
+            scene=self._scene_name(scene, scene_index),
+            content=intro or f"Scene started: {scene_index}",
+            metadata=self._scene_metadata(scene, scene_index),
+        ))
+        scene_state.introduced_index = scene_index
+
+    def _emit_scene_round_events(
+        self,
+        game_master: Entity,
+        step: int,
+        scene_state: _SceneState,
+    ) -> None:
+        if scene_state.current is None:
+            return
+        for event_index, raw_event in enumerate(self._scene_world_events(scene_state.current)):
+            trigger_round = self._world_event_trigger_round(raw_event)
+            if trigger_round != scene_state.round:
+                continue
+            event_key = f"{scene_state.index}:{scene_state.round}:{event_index}"
+            if event_key in scene_state.emitted_round_events:
+                continue
+            summary = self._world_event_summary(raw_event)
+            if not summary:
+                continue
+            observation = self._world_event_observation(raw_event) or summary
+            game_master.observe(f"[event] {observation}")
+            metadata = {
+                **self._scene_metadata(scene_state.current, scene_state.index),
+                **self._world_event_metadata(raw_event),
+                "trigger_round": trigger_round,
+                "world_event_id": self._world_event_id(
+                    raw_event,
+                    scene_state.current,
+                    scene_state.index,
+                    event_index,
+                ),
+            }
+            self._event_callback(SimulationEvent(
+                type="world_event",
+                step=step,
+                timestamp=time.time(),
+                scene=self._scene_name(scene_state.current, scene_state.index),
+                content=summary,
+                metadata=metadata,
+            ))
+            scene_state.emitted_round_events.add(event_key)
 
     def _initialize_scene_state(
         self,
@@ -192,6 +392,8 @@ class InstrumentedSequentialEngine(Engine):
             state = _SceneState(
                 index=self._scene_state.index,
                 round=self._scene_state.round,
+                introduced_index=self._scene_state.introduced_index,
+                emitted_round_events=set(self._scene_state.emitted_round_events),
             )
             if scenes and 0 <= state.index < len(scenes):
                 state.current = scenes[state.index]
@@ -203,14 +405,6 @@ class InstrumentedSequentialEngine(Engine):
         current_scene = scenes[0] if scenes else None
         state = _SceneState(current=current_scene)
         self._scene_state = state
-        if current_scene is not None:
-            self._event_callback(SimulationEvent(
-                type="scene_change",
-                step=0,
-                timestamp=time.time(),
-                scene=self._scene_name(current_scene, state.index),
-                content=f"Scene started: {state.index}",
-            ))
         return state
 
     def _advance_scene_state(
@@ -218,33 +412,31 @@ class InstrumentedSequentialEngine(Engine):
         step: int,
         scenes: Optional[Sequence[object]],
         state: _SceneState,
-    ) -> None:
+    ) -> bool:
         self._scene_state = state
         if not scenes or state.current is None:
-            return
+            return False
 
         state.round += 1
-        num_rounds = getattr(state.current, "num_rounds", None) or 999
+        num_rounds = self._scene_value(state.current, "num_rounds")
+        if not isinstance(num_rounds, int) or num_rounds <= 0:
+            num_rounds = 999
         if state.round <= num_rounds:
             self._scene_state = state
-            return
+            return False
 
         state.index += 1
         state.round = 0
+        state.emitted_round_events.clear()
         if state.index < len(scenes):
             state.current = scenes[state.index]
+            state.introduced_index = -1
             self._scene_state = state
-            self._event_callback(SimulationEvent(
-                type="scene_change",
-                step=step,
-                timestamp=time.time(),
-                scene=self._scene_name(state.current, state.index),
-                content=f"Scene transition to scene {state.index}",
-            ))
-            return
+            return True
 
         state.current = None
         self._scene_state = state
+        return False
 
     def _engine_type(self) -> str:
         return "sequential"
@@ -302,6 +494,20 @@ class InstrumentedSequentialEngine(Engine):
                 "last_event_id": str(replay_event_count) if replay_event_count > 0 else None,
             },
         }
+
+    def _emit_phase(
+        self,
+        phase_callback: PhaseCallback,
+        phase: str,
+        step: int,
+        metadata: Optional[dict] = None,
+    ) -> None:
+        if not phase_callback:
+            return
+        try:
+            phase_callback(phase, step, metadata)
+        except Exception as exc:
+            logger.debug("Failed to emit phase %s: %s", phase, exc)
 
     def build_entity_action_spec(self, entity: Entity) -> ActionSpec:
         """Build an explicit, per-entity action prompt for the next move."""
@@ -486,6 +692,14 @@ class InstrumentedSequentialEngine(Engine):
         gm = game_masters[0]
         self._emit_premise(gm, premise, start_step)
         scene_state = self._initialize_scene_state(scenes)
+        if start_step <= 1 and scene_state.current is not None:
+            self._emit_scene_intro(
+                gm,
+                0,
+                scene_state.current,
+                scene_state.index,
+                scene_state,
+            )
         return gm, scene_state
 
     def _prepare_loop_step(
@@ -498,24 +712,44 @@ class InstrumentedSequentialEngine(Engine):
         scenes: Optional[list],
         scene_state: _SceneState,
         step_callback: StepCallback,
+        phase_callback: PhaseCallback,
     ) -> tuple[LoopStepDisposition, Entity]:
         self._current_step = step
+        self._emit_phase(phase_callback, "waiting_for_permission", step)
 
         if step_controller and hasattr(step_controller, "wait_for_step_permission"):
             step_controller.wait_for_step_permission()
 
         if self._stop_requested(step_controller, "before_step"):
+            self._emit_phase(phase_callback, "stopped", step)
             return "break", gm
 
         if not self._validate_pre_step(gm, entities):
             logger.warning("Pre-step validation failed at step %d — skipping", step)
             self._finish_step(step, "skipped_pre_step_validation", step_callback)
+            self._emit_phase(
+                phase_callback,
+                "step_complete",
+                step,
+                {"outcome": "skipped_pre_step_validation"},
+            )
             return "continue", gm
 
         if self.terminate(gm):
+            self._emit_phase(phase_callback, "stopped", step, {"reason": "terminated"})
             return "break", gm
 
-        self._advance_scene_state(step, scenes, scene_state)
+        scene_changed = self._advance_scene_state(step, scenes, scene_state)
+        if scene_changed and scene_state.current is not None:
+            self._emit_scene_intro(
+                gm,
+                step,
+                scene_state.current,
+                scene_state.index,
+                scene_state,
+            )
+
+        self._emit_scene_round_events(gm, step, scene_state)
 
         if len(game_masters) > 1:
             gm = self.next_game_master(gm, game_masters)
@@ -530,6 +764,7 @@ class InstrumentedSequentialEngine(Engine):
         max_steps: int,
         step_controller: object,
         step_callback: StepCallback,
+        phase_callback: PhaseCallback,
         scenes: Optional[list],
         start_step: int,
     ) -> Iterator[tuple[int, Entity]]:
@@ -550,6 +785,7 @@ class InstrumentedSequentialEngine(Engine):
                 scenes,
                 scene_state,
                 step_callback,
+                phase_callback,
             )
             if disposition == "break":
                 break
@@ -568,6 +804,7 @@ class InstrumentedSequentialEngine(Engine):
         checkpoint_callback: CheckpointCallback = None,
         step_controller: object = None,
         step_callback: StepCallback = None,
+        phase_callback: PhaseCallback = None,
         scenes: Optional[list] = None,
         start_step: int = 1,
     ) -> None:
@@ -579,9 +816,11 @@ class InstrumentedSequentialEngine(Engine):
             max_steps,
             step_controller,
             step_callback,
+            phase_callback,
             scenes,
             start_step,
         ):
+            self._emit_phase(phase_callback, "observing", step)
             stop_during_observation = False
             for entity in entities:
                 if self._stop_requested(step_controller, f"before_observation:{entity.name}"):
@@ -592,11 +831,19 @@ class InstrumentedSequentialEngine(Engine):
             if stop_during_observation or self._stop_requested(step_controller, "before_next_acting"):
                 break
 
+            self._emit_phase(phase_callback, "choosing_actor", step)
             acting_entity, action_spec = self.next_acting(gm, entities)
 
             if self._stop_requested(step_controller, f"before_action:{acting_entity.name}"):
+                self._emit_phase(phase_callback, "stopped", step)
                 break
 
+            self._emit_phase(
+                phase_callback,
+                "acting",
+                step,
+                {"agent_name": acting_entity.name},
+            )
             try:
                 raw_action = acting_entity.act(action_spec)
             except Exception as exc:
@@ -641,8 +888,15 @@ class InstrumentedSequentialEngine(Engine):
             ))
 
             if self._stop_requested(step_controller, f"before_resolution:{acting_entity.name}"):
+                self._emit_phase(phase_callback, "stopped", step)
                 break
 
+            self._emit_phase(
+                phase_callback,
+                "resolving",
+                step,
+                {"agent_name": acting_entity.name},
+            )
             self.resolve(gm, event_text)
 
             stop_before_checkpoint = self._stop_requested(
@@ -650,10 +904,22 @@ class InstrumentedSequentialEngine(Engine):
                 f"before_checkpoint:{acting_entity.name}",
             )
             if checkpoint_callback and not stop_before_checkpoint:
+                self._emit_phase(
+                    phase_callback,
+                    "checkpointing",
+                    step,
+                    {"agent_name": acting_entity.name},
+                )
                 checkpoint_callback(step)
 
             outcome = "resolved_stop_pending" if stop_before_checkpoint else "resolved"
             self._finish_step(step, outcome, step_callback)
+            self._emit_phase(
+                phase_callback,
+                "step_complete",
+                step,
+                {"outcome": outcome, "agent_name": acting_entity.name},
+            )
 
             logger.info("Step %d/%d complete: %s", step, max_steps, event_text[:100])
 

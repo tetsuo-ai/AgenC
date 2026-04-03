@@ -21,6 +21,7 @@ from concordia_bridge.bridge_types import SimulationEvent
 from concordia_bridge.instrumented_engine import (
     CheckpointCallback,
     InstrumentedSequentialEngine,
+    PhaseCallback,
     RunLoopOptions,
     StepCallback,
     is_invalid_agent_action,
@@ -64,6 +65,7 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
             options.get("max_steps", 100),
             options.get("step_controller"),
             options.get("step_callback"),
+            options.get("phase_callback"),
             options.get("scenes"),
             options.get("start_step", 1),
         )
@@ -79,12 +81,14 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
         checkpoint_callback = options.get("checkpoint_callback")
         step_controller = options.get("step_controller")
         step_callback = options.get("step_callback")
+        phase_callback: PhaseCallback = options.get("phase_callback")
 
         for step, gm in self._iter_simultaneous_steps(
             game_masters,
             entities,
             options,
         ):
+            self._emit_phase(phase_callback, "observing", step)
             stop_during_observation = False
             for entity in entities:
                 if self._stop_requested(step_controller, f"before_observation:{entity.name}"):
@@ -93,8 +97,10 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                 self.make_observation(gm, entity)
 
             if stop_during_observation or self._stop_requested(step_controller, "before_action_collection"):
+                self._emit_phase(phase_callback, "stopped", step)
                 break
 
+            self._emit_phase(phase_callback, "collecting_actions", step)
             actions: dict[str, str] = {}
             action_specs = {
                 entity.name: self.build_entity_action_spec_from_game_master(
@@ -120,6 +126,7 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                     )
                     if self._stop_requested(step_controller, "during_action_collection"):
                         stop_during_actions = True
+                        self._emit_phase(phase_callback, "stopped", step)
                         for future in pending:
                             future.cancel()
                         break
@@ -178,6 +185,12 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
             if not actions:
                 logger.warning("No valid agent actions at step %d; skipping GM resolution", step)
                 self._finish_step(step, "no_valid_actions", step_callback)
+                self._emit_phase(
+                    phase_callback,
+                    "step_complete",
+                    step,
+                    {"outcome": "no_valid_actions"},
+                )
                 continue
 
             combined = "\n".join(
@@ -190,16 +203,30 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
             )
 
             if self._stop_requested(step_controller, "before_resolution"):
+                self._emit_phase(phase_callback, "stopped", step)
                 break
 
+            self._emit_phase(phase_callback, "resolving", step)
             self.resolve(gm, combined)
 
             stop_before_checkpoint = self._stop_requested(step_controller, "before_checkpoint")
             if checkpoint_callback and not stop_before_checkpoint:
+                self._emit_phase(
+                    phase_callback,
+                    "checkpointing",
+                    step,
+                    {"acted_agents": len(actions)},
+                )
                 checkpoint_callback(step)
 
             outcome = "resolved_stop_pending" if stop_before_checkpoint else "resolved"
             self._finish_step(step, outcome, step_callback)
+            self._emit_phase(
+                phase_callback,
+                "step_complete",
+                step,
+                {"outcome": outcome, "acted_agents": len(actions)},
+            )
 
             logger.info(
                 "Step %d/%d complete: %d agents acted",
@@ -207,4 +234,5 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
             )
 
             if stop_before_checkpoint:
+                self._emit_phase(phase_callback, "stopped", step)
                 break
