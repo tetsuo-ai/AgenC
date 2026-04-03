@@ -307,4 +307,103 @@ describe("ConcordiaChannelAdapter registry-backed pending response handling", ()
     }));
   });
 
+
+  it("rejects new launches when simulation capacity is exhausted", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    const context = makeContext({ config: { max_concurrent_simulations: 1 } });
+    await adapter.initialize(context as never);
+
+    await adapter.handleLaunch({
+      world_id: "world-alpha",
+      workspace_id: "ws-alpha",
+      simulation_id: "sim-alpha",
+      agents: [],
+      premise: "alpha premise",
+    });
+
+    await expect(
+      adapter.handleLaunch({
+        world_id: "world-beta",
+        workspace_id: "ws-beta",
+        simulation_id: "sim-beta",
+        agents: [],
+        premise: "beta premise",
+      }),
+    ).rejects.toThrow(/capacity exhausted/i);
+    expect(simulationRunnerMocks.launchSimulationRunnerMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes resolved run budgets and runner operation timeouts into the runner", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    const context = makeContext({
+      config: {
+        act_timeout_ms: 90_000,
+        simultaneous_max_workers: 6,
+        proxy_action_timeout_seconds: 45,
+        proxy_action_max_retries: 4,
+        proxy_retry_delay_seconds: 3,
+        runner_startup_timeout_ms: 12_345,
+        runner_shutdown_timeout_ms: 6_789,
+      },
+    });
+    await adapter.initialize(context as never);
+
+    await adapter.handleLaunch({
+      world_id: "world-budget",
+      workspace_id: "ws-budget",
+      simulation_id: "sim-budget",
+      agents: [],
+      premise: "budget premise",
+      run_budget: {
+        act_timeout_ms: 30_000,
+        simultaneous_max_workers: 2,
+        proxy_action_timeout_seconds: 12,
+        proxy_action_max_retries: 1,
+        proxy_retry_delay_seconds: 0.5,
+      },
+    });
+
+    const launchArgs = simulationRunnerMocks.launchSimulationRunnerMock.mock.calls[0]?.[0];
+    expect(launchArgs.runnerStartupTimeoutMs).toBe(12_345);
+    expect(launchArgs.runnerShutdownTimeoutMs).toBe(6_789);
+    expect(launchArgs.request.run_budget).toEqual({
+      act_timeout_ms: 30_000,
+      simultaneous_max_workers: 2,
+      proxy_action_timeout_seconds: 12,
+      proxy_action_max_retries: 1,
+      proxy_retry_delay_seconds: 0.5,
+    });
+  });
+
+  it("uses the configured runner shutdown timeout during cleanup", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    const context = makeContext({ config: { runner_shutdown_timeout_ms: 4_321 } });
+    await adapter.initialize(context as never);
+
+    await adapter.handleLaunch({
+      world_id: "world-cleanup",
+      workspace_id: "ws-cleanup",
+      simulation_id: "sim-cleanup",
+      agents: [],
+      premise: "cleanup premise",
+    });
+
+    const handle = adapter.registry.get("sim-cleanup");
+    const runner = handle?.runner ?? null;
+    expect(runner).toBeTruthy();
+
+    await adapter.cleanupSimulationHandle(handle, "cleanup test", {
+      status: "stopped",
+      stopRunner: true,
+      removeSessions: true,
+      runPostCleanup: false,
+      clearMemoryContext: true,
+    });
+
+    expect(simulationRunnerMocks.stopSimulationRunnerMock).toHaveBeenCalledWith(
+      runner,
+      4_321,
+    );
+  });
+
 });

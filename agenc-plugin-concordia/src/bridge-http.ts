@@ -25,6 +25,7 @@ import type {
   EventNotification,
   AgentStateResponse,
   BridgeMetrics,
+  ConcordiaOperationalMetrics,
   SimulationEventsResponse,
   SimulationRecord,
   SimulationReplayEvent,
@@ -34,6 +35,7 @@ import type {
   WorldProjection,
 } from "./types.js";
 import { createEmptyMetrics } from "./types.js";
+import { ConcordiaAdmissionError } from "./operations.js";
 import { buildActPrompt } from "./prompt-builder.js";
 import { processStructuredResponse } from "./response-processor.js";
 import type { SessionManager } from "./session-manager.js";
@@ -87,6 +89,9 @@ export interface BridgeServerConfig {
     simulationId: string,
     cursor?: string | null,
   ) => Promise<SimulationEventsResponse | null>;
+  readonly getOperationalMetrics?: (
+    metrics: BridgeMetrics,
+  ) => Promise<ConcordiaOperationalMetrics> | ConcordiaOperationalMetrics;
   readonly openSimulationEventStream?: (
     simulationId: string,
     cursor: string | null,
@@ -108,18 +113,18 @@ export function createBridgeServer(config: BridgeServerConfig): Server {
   const server = createServer(async (req, res) => {
     try {
       if (req.method === "OPTIONS") {
-        sendEmpty(res, 204);
+        sendEmpty(res, HTTP_NO_CONTENT);
       } else if (req.method === "GET") {
         await handleGet(req, res, config, metrics);
       } else if (req.method === "POST") {
         await handlePost(req, res, config, metrics);
       } else {
-        sendJson(res, 405, { error: "Method not allowed" });
+        sendJson(res, HTTP_METHOD_NOT_ALLOWED, { error: "Method not allowed" });
       }
     } catch (err) {
       metrics.errors++;
       logger.error?.("Bridge HTTP error:", err);
-      sendJson(res, 500, { error: String(err) });
+      sendJson(res, HTTP_INTERNAL_SERVER_ERROR, { error: String(err) });
     }
   });
 
@@ -136,6 +141,16 @@ const ACTIVE_SIMULATION_HEALTH_STATUSES = new Set([
   "paused",
   "stopping",
 ]);
+
+const HTTP_OK = 200;
+const HTTP_NO_CONTENT = 204;
+const HTTP_NOT_FOUND = 404;
+const HTTP_METHOD_NOT_ALLOWED = 405;
+const HTTP_INTERNAL_SERVER_ERROR = 500;
+const HTTP_SERVICE_UNAVAILABLE = 503;
+const MAX_ACT_LATENCY_SAMPLES = 100;
+const MAX_OBSERVATION_BUFFER = 20;
+const SSE_HEARTBEAT_INTERVAL_MS = 15_000;
 
 async function handleGet(
   req: IncomingMessage,
@@ -158,7 +173,7 @@ async function handleGet(
     return;
   }
 
-  sendJson(res, 404, { error: "Not found" });
+  sendJson(res, HTTP_NOT_FOUND, { error: "Not found" });
 }
 
 async function handleOperationalGet(
@@ -168,18 +183,18 @@ async function handleOperationalGet(
   metrics: BridgeMetrics,
 ): Promise<boolean> {
   if (path === "/health") {
-    sendJson(res, 200, await buildHealthPayload(config, metrics));
+    sendJson(res, HTTP_OK, await buildHealthPayload(config, metrics));
     return true;
   }
 
   if (path === "/metrics") {
-    sendJson(res, 200, buildMetricsPayload(config, metrics));
+    sendJson(res, HTTP_OK, await buildMetricsPayload(config, metrics));
     return true;
   }
 
   if (path === "/simulations" && config.listSimulations) {
     const simulations = await config.listSimulations();
-    sendJson(res, 200, { simulations });
+    sendJson(res, HTTP_OK, { simulations });
     return true;
   }
 
@@ -194,20 +209,30 @@ async function buildHealthPayload(
     ? await config.listSimulations()
     : [];
 
+  const operational = config.getOperationalMetrics
+    ? await config.getOperationalMetrics(metrics)
+    : null;
+  const activeSimulations = simulations.filter((simulation) =>
+    ACTIVE_SIMULATION_HEALTH_STATUSES.has(simulation.status),
+  ).length;
+  const degraded = operational
+    ? operational.stuck_simulations > 0 ||
+      operational.active_simulations >= operational.max_concurrent_simulations
+    : false;
+
   return {
-    status: "ok",
+    status: degraded ? "degraded" : "ok",
     active_sessions: config.sessionManager.size,
-    active_simulations: simulations.filter((simulation) =>
-      ACTIVE_SIMULATION_HEALTH_STATUSES.has(simulation.status),
-    ).length,
+    active_simulations: activeSimulations,
     uptime_ms: Date.now() - metrics.startedAt,
+    ...(operational ? { operations: operational } : {}),
   };
 }
 
-function buildMetricsPayload(
+async function buildMetricsPayload(
   config: BridgeServerConfig,
   metrics: BridgeMetrics,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   const avgLatency =
     metrics.actLatencyMs.length > 0
       ? Math.round(
@@ -216,15 +241,22 @@ function buildMetricsPayload(
         )
       : 0;
 
+  const operational = config.getOperationalMetrics
+    ? await config.getOperationalMetrics(metrics)
+    : null;
+
   return {
     act_requests: metrics.actRequests,
     observe_requests: metrics.observeRequests,
     setup_requests: metrics.setupRequests,
+    launch_requests: metrics.launchRequests,
+    rejected_launches: metrics.rejectedLaunches,
     event_notifications: metrics.eventNotifications,
     errors: metrics.errors,
     avg_act_latency_ms: avgLatency,
     active_sessions: config.sessionManager.size,
     uptime_ms: Date.now() - metrics.startedAt,
+    ...(operational ? { operations: operational } : {}),
   };
 }
 
@@ -323,11 +355,11 @@ async function handleScopedAgentStateGet(
   const agentId = decodeURIComponent(match[2]);
   const state = await config.getAgentState(agentId, simulationId);
   if (!state) {
-    sendJson(res, 404, { error: `Agent ${agentId} not found in simulation ${simulationId}` });
+    sendJson(res, HTTP_NOT_FOUND, { error: `Agent ${agentId} not found in simulation ${simulationId}` });
     return true;
   }
 
-  sendJson(res, 200, state);
+  sendJson(res, HTTP_OK, state);
   return true;
 }
 
@@ -369,7 +401,7 @@ async function handleLegacySimulationStatusGet(
 
   const simulationId = await resolveCurrentSimulationId(config);
   if (!simulationId) {
-    sendJson(res, 404, { error: "No active simulation" });
+    sendJson(res, HTTP_NOT_FOUND, { error: "No active simulation" });
     return true;
   }
 
@@ -394,11 +426,11 @@ async function handleLegacyAgentStateGet(
     (await resolveCurrentSimulationId(config));
   const state = await config.getAgentState(agentId, simulationId);
   if (!state) {
-    sendJson(res, 404, { error: `Agent ${agentId} not found` });
+    sendJson(res, HTTP_NOT_FOUND, { error: `Agent ${agentId} not found` });
     return true;
   }
 
-  sendJson(res, 200, state);
+  sendJson(res, HTTP_OK, state);
   return true;
 }
 
@@ -408,11 +440,11 @@ function sendSimulationLookup(
   value: unknown,
 ): boolean {
   if (!value) {
-    sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
+    sendJson(res, HTTP_NOT_FOUND, { error: `Simulation ${simulationId} not found` });
     return true;
   }
 
-  sendJson(res, 200, value);
+  sendJson(res, HTTP_OK, value);
   return true;
 }
 
@@ -430,73 +462,121 @@ async function handlePost(
   const path = url.pathname;
   const body = await readJsonBody(req);
 
-  const simulationCommandMatch = path.match(/^\/simulations\/([^/]+)\/(play|pause|step|stop)$/);
-  if (simulationCommandMatch && config.controlSimulation) {
-    const simulationId = decodeURIComponent(simulationCommandMatch[1]);
-    const command = simulationCommandMatch[2] as SimulationCommand;
-    const status = await config.controlSimulation(simulationId, command);
-    if (!status) {
-      sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
-    } else {
-      sendJson(res, 200, { status: "ok", simulation: status });
-    }
+  if (await handleSimulationControlPost(path, res, config)) {
     return;
   }
 
-  const legacySimulationCommandMatch = path.match(/^\/simulation\/(play|pause|step|stop)$/);
-  if (legacySimulationCommandMatch && config.controlSimulation) {
-    const simulationId = await resolveCurrentSimulationId(config);
-    if (!simulationId) {
-      sendJson(res, 404, { error: "No active simulation" });
-      return;
-    }
-    const command = legacySimulationCommandMatch[1] as SimulationCommand;
-    const status = await config.controlSimulation(simulationId, command);
-    if (!status) {
-      sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
-    } else {
-      sendJson(res, 200, { status: "ok", simulation: status });
-    }
+  if (await handleLegacySimulationControlPost(path, res, config)) {
     return;
   }
 
+  await dispatchPostRequest(path, body, res, config, metrics);
+}
+
+async function handleSimulationControlPost(
+  path: string,
+  res: ServerResponse,
+  config: BridgeServerConfig,
+): Promise<boolean> {
+  const match = path.match(/^\/simulations\/([^/]+)\/(play|pause|step|stop)$/);
+  if (!match || !config.controlSimulation) {
+    return false;
+  }
+
+  const simulationId = decodeURIComponent(match[1]);
+  const command = match[2] as SimulationCommand;
+  const status = await config.controlSimulation(simulationId, command);
+  sendSimulationControlResponse(res, simulationId, status);
+  return true;
+}
+
+async function handleLegacySimulationControlPost(
+  path: string,
+  res: ServerResponse,
+  config: BridgeServerConfig,
+): Promise<boolean> {
+  const match = path.match(/^\/simulation\/(play|pause|step|stop)$/);
+  if (!match || !config.controlSimulation) {
+    return false;
+  }
+
+  const simulationId = await resolveCurrentSimulationId(config);
+  if (!simulationId) {
+    sendJson(res, HTTP_NOT_FOUND, { error: "No active simulation" });
+    return true;
+  }
+
+  const command = match[1] as SimulationCommand;
+  const status = await config.controlSimulation(simulationId, command);
+  sendSimulationControlResponse(res, simulationId, status);
+  return true;
+}
+
+function sendSimulationControlResponse(
+  res: ServerResponse,
+  simulationId: string,
+  status: SimulationStatusResponse | null,
+): void {
+  if (!status) {
+    sendJson(res, HTTP_NOT_FOUND, { error: `Simulation ${simulationId} not found` });
+    return;
+  }
+
+  sendJson(res, HTTP_OK, { status: "ok", simulation: status });
+}
+
+async function dispatchPostRequest(
+  path: string,
+  body: unknown,
+  res: ServerResponse,
+  config: BridgeServerConfig,
+  metrics: BridgeMetrics,
+): Promise<void> {
   switch (path) {
     case "/act":
       await handleAct(body as ActRequest, res, config, metrics);
-      break;
+      return;
     case "/observe":
       await handleObserve(body as ObserveRequest, res, config, metrics);
-      break;
+      return;
     case "/setup":
       await handleSetup(body as SetupRequest, res, config, metrics);
-      break;
+      return;
     case "/simulations":
     case "/launch":
-      await handleLaunch(body as LaunchRequest, res, config);
-      break;
+      await handleLaunch(body as LaunchRequest, res, config, metrics);
+      return;
     case "/checkpoint":
       await handleCheckpoint(body as CheckpointRequest, res, config);
-      break;
+      return;
     case "/resume":
       await handleResume(body as ResumeRequest, res, config);
-      break;
+      return;
     case "/generate-agents":
       await handleGenerateAgents(body as GenerateAgentsRequest, res, config);
-      break;
+      return;
     case "/event":
       await handleEvent(body as EventNotification, res, config, metrics);
-      break;
+      return;
     case "/reset":
-      if (config.onReset) {
-        await config.onReset();
-      } else {
-        config.sessionManager.clear();
-      }
-      sendJson(res, 200, { status: "ok" });
-      break;
+      await handleReset(res, config);
+      return;
     default:
-      sendJson(res, 404, { error: "Not found" });
+      sendJson(res, HTTP_NOT_FOUND, { error: "Not found" });
   }
+}
+
+async function handleReset(
+  res: ServerResponse,
+  config: BridgeServerConfig,
+): Promise<void> {
+  if (config.onReset) {
+    await config.onReset();
+  } else {
+    config.sessionManager.clear();
+  }
+
+  sendJson(res, HTTP_OK, { status: "ok" });
 }
 
 async function handleAct(
@@ -509,8 +589,23 @@ async function handleAct(
   const start = Date.now();
 
   const identity = requireSimulationIdentity(request);
+  const session = getOrCreateSimulationSession(config, request, identity);
+  const worldProjection = await resolveActWorldProjection(request, identity.simulationId, config);
+  const response = await executeActRequest(request, session.sessionId, worldProjection, config);
 
-  const session = config.sessionManager.getOrCreate({
+  session.lastAction = response.action;
+  recordActLatency(metrics, start);
+  logActResponse(config, request.agent_name, response.action, start);
+
+  sendJson(res, HTTP_OK, response);
+}
+
+function getOrCreateSimulationSession(
+  config: BridgeServerConfig,
+  request: ActRequest | ObserveRequest,
+  identity: ReturnType<typeof requireSimulationIdentity>,
+) {
+  return config.sessionManager.getOrCreate({
     agentId: request.agent_id,
     agentName: request.agent_name,
     worldId: request.world_id,
@@ -519,53 +614,77 @@ async function handleAct(
     lineageId: identity.lineageId,
     parentSimulationId: identity.parentSimulationId,
   });
+}
 
-  const worldProjection =
-    request.world_projection ??
-    (identity.simulationId && config.getWorldProjection
-      ? await config.getWorldProjection(identity.simulationId, request.agent_id)
-      : null);
+async function resolveActWorldProjection(
+  request: ActRequest,
+  simulationId: string | null,
+  config: BridgeServerConfig,
+): Promise<WorldProjection | null> {
+  if (request.world_projection) {
+    return request.world_projection;
+  }
+  if (!simulationId || !config.getWorldProjection) {
+    return null;
+  }
+  return await config.getWorldProjection(simulationId, request.agent_id);
+}
 
-  // Build the prompt from the ActionSpec
+async function executeActRequest(
+  request: ActRequest,
+  sessionId: string,
+  worldProjection: WorldProjection | null,
+  config: BridgeServerConfig,
+): Promise<ActResponse> {
   const message = buildActPrompt(request.action_spec, request.agent_name, worldProjection);
   const requestId = randomUUID();
-
-  // Route through the daemon pipeline via the onAct callback
   const rawResponse = await config.onAct(
     request.agent_id,
-    session.sessionId,
+    sessionId,
     message,
     requestId,
   );
-
-  // Post-process: strip name prefix, enforce choice constraints, parse structured intents
   const processed = processStructuredResponse(rawResponse, request.agent_name, request.action_spec);
-  const action = processed.action;
-  session.lastAction = action;
+  const response: ActResponse = {
+    action: processed.action,
+    narration: processed.narration ?? null,
+    intent: processed.intent ?? null,
+  };
 
   if (config.onActResult) {
     await config.onActResult({
-      request: { ...request, world_projection: worldProjection ?? request.world_projection ?? null },
-      sessionId: session.sessionId,
-      action,
-      narration: processed.narration ?? null,
-      intent: processed.intent ?? null,
+      request: {
+        ...request,
+        world_projection: worldProjection ?? request.world_projection ?? null,
+      },
+      sessionId,
+      action: response.action,
+      narration: response.narration ?? null,
+      intent: response.intent ?? null,
     });
   }
 
+  return response;
+}
+
+function recordActLatency(metrics: BridgeMetrics, start: number): void {
   const elapsed = Date.now() - start;
   metrics.actLatencyMs.push(elapsed);
-  // Keep only last 100 latency samples
-  if (metrics.actLatencyMs.length > 100) {
+  if (metrics.actLatencyMs.length > MAX_ACT_LATENCY_SAMPLES) {
     metrics.actLatencyMs.shift();
   }
+}
 
+function logActResponse(
+  config: BridgeServerConfig,
+  agentName: string,
+  action: string,
+  start: number,
+): void {
+  const elapsed = Date.now() - start;
   config.logger.debug?.(
-    `[concordia] /act ${request.agent_name} (${elapsed}ms): ${action.slice(0, 80)}`,
+    `[concordia] /act ${agentName} (${elapsed}ms): ${action.slice(0, 80)}`,
   );
-
-  const response: ActResponse = { action, narration: processed.narration ?? null, intent: processed.intent ?? null };
-  sendJson(res, 200, response);
 }
 
 async function handleObserve(
@@ -591,7 +710,7 @@ async function handleObserve(
   // Buffer observation for context
   session.observations.push(request.observation);
   // Keep only last 20 observations in buffer
-  if (session.observations.length > 20) {
+  if (session.observations.length > MAX_OBSERVATION_BUFFER) {
     session.observations.shift();
   }
 
@@ -602,7 +721,7 @@ async function handleObserve(
     `[concordia] /observe ${request.agent_name}: ${request.observation.slice(0, 80)}`,
   );
 
-  sendJson(res, 200, { status: "ok" });
+  sendJson(res, HTTP_OK, { status: "ok" });
 }
 
 async function handleSetup(
@@ -621,7 +740,7 @@ async function handleSetup(
     `[concordia] /setup world=${request.world_id} simulation=${request.simulation_id} agents=${request.agents.length}`,
   );
 
-  sendJson(res, 200, withSimulationIdentity({
+  sendJson(res, HTTP_OK, withSimulationIdentity({
     status: "ok",
     sessions,
   }, identity));
@@ -644,21 +763,38 @@ async function handleEvent(
     `[concordia] /event simulation=${event.simulation_id} step=${event.step} type=${event.type}: ${(event.resolved_event ?? event.content ?? "").slice(0, 80)}`,
   );
 
-  sendJson(res, 200, { status: "ok" });
+  sendJson(res, HTTP_OK, { status: "ok" });
 }
 
 async function handleLaunch(
   request: LaunchRequest,
   res: ServerResponse,
   config: BridgeServerConfig,
+  metrics: BridgeMetrics,
 ): Promise<void> {
   if (!config.onLaunch) {
-    sendJson(res, 404, { error: "Launch not supported" });
+    sendJson(res, HTTP_NOT_FOUND, { error: "Launch not supported" });
     return;
   }
 
-  const result = await config.onLaunch(request);
-  sendJson(res, 200, { status: "ok", ...result });
+  metrics.launchRequests += 1;
+
+  try {
+    const result = await config.onLaunch(request);
+    sendJson(res, HTTP_OK, { status: "ok", ...result });
+  } catch (error) {
+    if (error instanceof ConcordiaAdmissionError) {
+      metrics.rejectedLaunches += 1;
+      sendJson(res, HTTP_SERVICE_UNAVAILABLE, {
+        error: error.message,
+        code: error.code,
+        active: error.active,
+        limit: error.limit,
+      });
+      return;
+    }
+    throw error;
+  }
 }
 
 async function handleCheckpoint(
@@ -667,14 +803,14 @@ async function handleCheckpoint(
   config: BridgeServerConfig,
 ): Promise<void> {
   if (!config.onCheckpoint) {
-    sendJson(res, 404, { error: "Checkpoint not supported" });
+    sendJson(res, HTTP_NOT_FOUND, { error: "Checkpoint not supported" });
     return;
   }
 
   requireSimulationIdentity(request);
 
   const result = await config.onCheckpoint(request);
-  sendJson(res, 200, { status: "ok", ...result });
+  sendJson(res, HTTP_OK, { status: "ok", ...result });
 }
 
 async function handleResume(
@@ -683,12 +819,12 @@ async function handleResume(
   config: BridgeServerConfig,
 ): Promise<void> {
   if (!config.onResume) {
-    sendJson(res, 404, { error: "Resume not supported" });
+    sendJson(res, HTTP_NOT_FOUND, { error: "Resume not supported" });
     return;
   }
 
   const result = await config.onResume(request);
-  sendJson(res, 200, { status: "ok", ...result });
+  sendJson(res, HTTP_OK, { status: "ok", ...result });
 }
 
 async function handleGenerateAgents(
@@ -697,14 +833,19 @@ async function handleGenerateAgents(
   config: BridgeServerConfig,
 ): Promise<void> {
   if (!config.onGenerateAgents) {
-    sendJson(res, 404, { error: "Agent generation not supported" });
+    sendJson(res, HTTP_NOT_FOUND, { error: "Agent generation not supported" });
     return;
   }
 
   const requestId = randomUUID();
   const result = await config.onGenerateAgents(request, requestId);
-  sendJson(res, 200, result);
+  sendJson(res, HTTP_OK, result);
 }
+
+type SimulationEventStream = {
+  history: readonly SimulationReplayEvent[];
+  unsubscribe: () => void;
+};
 
 async function handleSimulationEventStream(
   req: IncomingMessage,
@@ -713,9 +854,24 @@ async function handleSimulationEventStream(
   simulationId: string,
   cursor: string | null,
 ): Promise<void> {
-  if (!config.openSimulationEventStream) {
-    sendJson(res, 404, { error: "Simulation event streaming not supported" });
+  const stream = await openSimulationEventStream(config, simulationId, cursor, res);
+  if (!stream) {
     return;
+  }
+
+  initializeSimulationSseResponse(res, simulationId, stream.history);
+  attachSimulationSseLifecycle(req, res, stream);
+}
+
+async function openSimulationEventStream(
+  config: BridgeServerConfig,
+  simulationId: string,
+  cursor: string | null,
+  res: ServerResponse,
+): Promise<SimulationEventStream | null> {
+  if (!config.openSimulationEventStream) {
+    sendJson(res, HTTP_NOT_FOUND, { error: "Simulation event streaming not supported" });
+    return null;
   }
 
   const stream = await config.openSimulationEventStream(
@@ -728,27 +884,41 @@ async function handleSimulationEventStream(
     },
   );
   if (!stream) {
-    sendJson(res, 404, { error: `Simulation ${simulationId} not found` });
-    return;
+    sendJson(res, HTTP_NOT_FOUND, { error: `Simulation ${simulationId} not found` });
+    return null;
   }
 
+  return stream;
+}
+
+function initializeSimulationSseResponse(
+  res: ServerResponse,
+  simulationId: string,
+  history: readonly SimulationReplayEvent[],
+): void {
   setCorsHeaders(res);
-  res.writeHead(200, {
+  res.writeHead(HTTP_OK, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
   });
-  for (const event of stream.history) {
+  for (const event of history) {
     writeSseEvent(res, event);
   }
   res.write(`: ready ${simulationId}\n\n`);
+}
 
+function attachSimulationSseLifecycle(
+  req: IncomingMessage,
+  res: ServerResponse,
+  stream: SimulationEventStream,
+): void {
   const heartbeat = setInterval(() => {
     if (!res.writableEnded) {
       res.write(`: keepalive ${Date.now()}\n\n`);
     }
-  }, 15_000);
+  }, SSE_HEARTBEAT_INTERVAL_MS);
 
   const cleanup = () => {
     clearInterval(heartbeat);

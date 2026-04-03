@@ -22,6 +22,37 @@ import { ConcordiaChannelAdapter } from "./adapter.js";
 
 const MAX_TCP_PORT = 65535;
 
+function validatePositiveInteger(
+  value: unknown,
+  field: string,
+  errors: string[],
+): void {
+  if (value === undefined) {
+    return;
+  }
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value < 1
+  ) {
+    errors.push(`${field} must be a positive integer`);
+  }
+}
+
+function validatePositiveNumber(
+  value: unknown,
+  field: string,
+  errors: string[],
+): void {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    errors.push(`${field} must be a positive number`);
+  }
+}
+
 export const manifest: ChannelAdapterManifest = {
   schema_version: 1,
   plugin_id: "ai.tetsuo.channel.concordia",
@@ -58,17 +89,22 @@ export function validateConfig(
     }
   }
 
-  if (c.reflection_interval !== undefined) {
-    if (typeof c.reflection_interval !== "number" || c.reflection_interval < 1) {
-      errors.push("reflection_interval must be a positive integer");
-    }
-  }
-
-  if (c.consolidation_interval !== undefined) {
-    if (typeof c.consolidation_interval !== "number" || c.consolidation_interval < 1) {
-      errors.push("consolidation_interval must be a positive integer");
-    }
-  }
+  validatePositiveInteger(c.reflection_interval, "reflection_interval", errors);
+  validatePositiveInteger(c.consolidation_interval, "consolidation_interval", errors);
+  validatePositiveInteger(c.max_concurrent_simulations, "max_concurrent_simulations", errors);
+  validatePositiveInteger(c.max_historical_simulations, "max_historical_simulations", errors);
+  validatePositiveInteger(c.archived_simulation_retention_ms, "archived_simulation_retention_ms", errors);
+  validatePositiveInteger(c.replay_buffer_limit, "replay_buffer_limit", errors);
+  validatePositiveInteger(c.archived_replay_event_limit, "archived_replay_event_limit", errors);
+  validatePositiveInteger(c.runner_startup_timeout_ms, "runner_startup_timeout_ms", errors);
+  validatePositiveInteger(c.runner_shutdown_timeout_ms, "runner_shutdown_timeout_ms", errors);
+  validatePositiveInteger(c.step_stuck_timeout_ms, "step_stuck_timeout_ms", errors);
+  validatePositiveInteger(c.act_timeout_ms, "act_timeout_ms", errors);
+  validatePositiveInteger(c.generate_agents_timeout_ms, "generate_agents_timeout_ms", errors);
+  validatePositiveInteger(c.simultaneous_max_workers, "simultaneous_max_workers", errors);
+  validatePositiveNumber(c.proxy_action_timeout_seconds, "proxy_action_timeout_seconds", errors);
+  validatePositiveInteger(c.proxy_action_max_retries, "proxy_action_max_retries", errors);
+  validatePositiveNumber(c.proxy_retry_delay_seconds, "proxy_retry_delay_seconds", errors);
 
   return { valid: errors.length === 0, errors };
 }

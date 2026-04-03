@@ -1,7 +1,18 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { createBridgeServer } from "../src/bridge-http.js";
+import { ConcordiaAdmissionError } from "../src/operations.js";
 import { SessionManager } from "../src/session-manager.js";
 import type { Server } from "node:http";
+import {
+  createSampleSimulationWorldState,
+  createSampleWorldProjection,
+} from "./helpers/world-projection-fixture.js";
+
+const HOST = "127.0.0.1";
+const HTTP_OK = 200;
+const HTTP_NOT_FOUND = 404;
+const HTTP_SERVICE_UNAVAILABLE = 503;
+const TEST_PORT_OFFSET = HTTP_OK;
 
 let server: Server;
 let port: number;
@@ -24,96 +35,35 @@ const simulationEventCalls: Array<{ simulationId: string; cursor: string | null 
 const streamSubscribers = new Map<string, Set<(event: Record<string, unknown>) => void>>();
 const actRequestIds: string[] = [];
 const generateRequestIds: string[] = [];
-
-const sampleWorldProjection = {
-  simulation_id: "sim-running",
-  world_id: "world-alpha",
-  workspace_id: "ws-alpha",
-  agent_id: "alice",
-  premise: "The forge is busy at sunrise.",
-  clock: { tick: 3, step: 2, phase: "running", updated_at: 10 },
-  self: {
-    agent_id: "alice",
-    agent_name: "Alice",
-    location_id: "forge",
-    scene_id: "scene-forge",
-    zone_id: "zone-market",
-    nearby_agent_ids: ["bob"],
-    inventory: ["hammer"],
-    world_object_ids: ["anvil"],
-    relationships: [],
-    schedule: [],
-    current_task: null,
-    last_observation: "Sparks fly from the forge.",
-    last_action: "inspects the anvil",
-    last_intent: null,
-    last_outcome: null,
-    turn_count: 2,
-    metadata: null,
-  },
-  active_scene_id: "scene-forge",
-  active_zone_id: "zone-market",
-  active_location_id: "forge",
-  visible_agents: [
-    {
-      agent_id: "bob",
-      agent_name: "Bob",
-      location_id: "forge",
-      scene_id: "scene-forge",
-      zone_id: "zone-market",
-      nearby_agent_ids: ["alice"],
-      inventory: [],
-      world_object_ids: [],
-      relationships: [],
-      schedule: [],
-      current_task: null,
-      last_observation: null,
-      last_action: null,
-      last_intent: null,
-      last_outcome: null,
-      turn_count: 1,
-      metadata: null,
-    },
-  ],
-  visible_objects: [
-    {
-      object_id: "anvil",
-      label: "Forge Anvil",
-      kind: "tool",
-      location_id: "forge",
-      scene_id: "scene-forge",
-      zone_id: "zone-market",
-      status: "ready",
-      tags: ["metalwork"],
-      metadata: null,
-    },
-  ],
-  world_facts: [{ content: "The forge opens at dawn.", observedBy: "system", confirmations: 1 }],
-  recent_events: [],
+const operationalMetrics = {
+  max_concurrent_simulations: 4,
+  max_historical_simulations: 12,
+  archived_simulation_retention_ms: 21_600_000,
+  replay_buffer_limit: 1000,
+  archived_replay_event_limit: HTTP_OK,
+  runner_startup_timeout_ms: 30_000,
+  runner_shutdown_timeout_ms: 2_000,
+  step_stuck_timeout_ms: 300_000,
+  act_timeout_ms: 120_000,
+  generate_agents_timeout_ms: 60_000,
+  simultaneous_max_workers: 8,
+  proxy_action_timeout_seconds: 120,
+  proxy_action_max_retries: 2,
+  proxy_retry_delay_seconds: 2,
+  active_simulations: 1,
+  historical_simulations: 1,
+  stuck_simulations: 0,
+  pending_action_count: 0,
+  replay_buffer_events: 2,
+  reserved_port_count: 4,
+  configured_thread_budget: 8,
+  checkpoint_volume: 1,
+  launch_requests: 0,
+  rejected_launches: 0,
 } as const;
 
-const simulationWorldState = {
-  simulation_id: "sim-running",
-  world_id: "world-alpha",
-  workspace_id: "ws-alpha",
-  lineage_id: null,
-  parent_simulation_id: null,
-  premise: "The forge is busy at sunrise.",
-  clock: { tick: 3, step: 2, phase: "running", updated_at: 10 },
-  active_scene_id: "scene-forge",
-  active_zone_id: "zone-market",
-  active_location_id: "forge",
-  agent_states: {
-    alice: sampleWorldProjection.self,
-  },
-  world_objects: {
-    anvil: sampleWorldProjection.visible_objects[0],
-  },
-  world_facts: sampleWorldProjection.world_facts,
-  recent_events: [],
-  updated_at: 10,
-  snapshot_ref: "sim-running:world:2:10",
-} as const;
+const sampleWorldProjection = createSampleWorldProjection();
+const simulationWorldState = createSampleSimulationWorldState();
 
 const simulationSummaries = [
   {
@@ -260,7 +210,7 @@ beforeAll(async () => {
 
   server = createBridgeServer({
     port,
-    host: "127.0.0.1",
+    host: HOST,
     logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     sessionManager,
     onAct: async (agentId, _sessionId, message, requestId) => {
@@ -418,6 +368,7 @@ beforeAll(async () => {
         next_cursor: filtered.at(-1)?.event_id ?? cursor ?? null,
       };
     },
+    getOperationalMetrics: async () => operationalMetrics,
     openSimulationEventStream: async (simulationId, cursor, subscriber) => {
       const events = simulationEvents.get(simulationId);
       if (!events) return null;
@@ -466,7 +417,7 @@ beforeAll(async () => {
   });
 
   await new Promise<void>((resolve) => {
-    server.listen(port, "127.0.0.1", () => resolve());
+    server.listen(port, HOST, () => resolve());
   });
 });
 
@@ -475,7 +426,7 @@ afterAll(() => {
 });
 
 function url(path: string): string {
-  return `http://127.0.0.1:${port}${path}`;
+  return `http://${HOST}:${port}${path}`;
 }
 
 describe("Bridge HTTP Server", () => {
@@ -483,7 +434,7 @@ describe("Bridge HTTP Server", () => {
     it("returns status ok", async () => {
       const resp = await fetch(url("/health"));
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.status).toBe("ok");
       expect(data.active_simulations).toBe(2);
       expect(typeof data.uptime_ms).toBe("number");
@@ -494,7 +445,7 @@ describe("Bridge HTTP Server", () => {
     it("returns metrics counters", async () => {
       const resp = await fetch(url("/metrics"));
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(typeof data.act_requests).toBe("number");
       expect(typeof data.observe_requests).toBe("number");
       expect(typeof data.errors).toBe("number");
@@ -505,7 +456,7 @@ describe("Bridge HTTP Server", () => {
     it("returns active and recent simulation summaries", async () => {
       const resp = await fetch(url("/simulations"));
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.simulations).toHaveLength(2);
       expect(data.simulations[0].simulation_id).toBe("sim-running");
       expect(data.simulations[1].simulation_id).toBe("sim-paused");
@@ -516,14 +467,14 @@ describe("Bridge HTTP Server", () => {
     it("returns the simulation record when present", async () => {
       const resp = await fetch(url("/simulations/sim-running"));
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.simulation_id).toBe("sim-running");
       expect(data.premise).toBe("Active premise");
     });
 
-    it("returns 404 when the simulation is unknown", async () => {
+    it("returns not found when the simulation is unknown", async () => {
       const resp = await fetch(url("/simulations/missing-sim"));
-      expect(resp.status).toBe(404);
+      expect(resp.status).toBe(HTTP_NOT_FOUND);
     });
   });
 
@@ -531,7 +482,7 @@ describe("Bridge HTTP Server", () => {
     it("returns the simulation lifecycle status", async () => {
       const resp = await fetch(url("/simulations/sim-running/status"));
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.simulation_id).toBe("sim-running");
       expect(data.status).toBe("running");
       expect(simulationStatusCalls.at(-1)).toBe("sim-running");
@@ -542,7 +493,7 @@ describe("Bridge HTTP Server", () => {
     it("returns the authoritative world-state snapshot", async () => {
       const resp = await fetch(url("/simulations/sim-running/world-state"));
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.simulation_id).toBe("sim-running");
       expect(data.snapshot_ref).toBe("sim-running:world:2:10");
       expect(worldStateCalls.at(-1)).toBe("sim-running");
@@ -553,7 +504,7 @@ describe("Bridge HTTP Server", () => {
     it("uses the current simulation alias", async () => {
       const resp = await fetch(url("/simulation/status"));
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.simulation_id).toBe("sim-running");
     });
   });
@@ -562,7 +513,7 @@ describe("Bridge HTTP Server", () => {
     it("returns replay events and cursor state", async () => {
       const resp = await fetch(url("/simulations/sim-running/events"));
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.events).toHaveLength(2);
       expect(data.next_cursor).toBe("2");
       expect(simulationEventCalls.at(-1)).toEqual({
@@ -574,7 +525,7 @@ describe("Bridge HTTP Server", () => {
     it("passes through replay cursors", async () => {
       const resp = await fetch(url("/simulations/sim-running/events?cursor=1"));
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.events).toHaveLength(1);
       expect(data.events[0].event_id).toBe("2");
       expect(simulationEventCalls.at(-1)).toEqual({
@@ -590,7 +541,7 @@ describe("Bridge HTTP Server", () => {
       const resp = await fetch(url("/simulations/sim-running/events/stream"), {
         signal: controller.signal,
       });
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       const reader = resp.body?.getReader();
       expect(reader).toBeTruthy();
       const firstChunk = await reader!.read();
@@ -620,7 +571,7 @@ describe("Bridge HTTP Server", () => {
         }),
       });
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.status).toBe("ok");
       expect(data.simulation_id).toBe("sim-setup");
       expect(data.lineage_id).toBe("lineage-setup");
@@ -648,7 +599,7 @@ describe("Bridge HTTP Server", () => {
         }),
       });
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.status).toBe("ok");
       expect(data.pid).toBe(4242);
       expect(data.simulation_id).toBe("sim-launch");
@@ -662,7 +613,7 @@ describe("Bridge HTTP Server", () => {
         method: "POST",
       });
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.status).toBe("ok");
       expect(data.simulation.simulation_id).toBe("sim-running");
       expect(controlCalls.at(-1)).toEqual({
@@ -677,7 +628,7 @@ describe("Bridge HTTP Server", () => {
       const resp = await fetch(url("/simulation/pause"), {
         method: "POST",
       });
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(controlCalls.at(-1)).toEqual({
         simulationId: "sim-running",
         command: "pause",
@@ -699,7 +650,7 @@ describe("Bridge HTTP Server", () => {
         }),
       });
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.status).toBe("ok");
       expect(data.step).toBe(7);
       expect(data.simulation_id).toBe("sim-checkpoint");
@@ -731,7 +682,7 @@ describe("Bridge HTTP Server", () => {
         }),
       });
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.status).toBe("ok");
       expect(data.resumed_from_step).toBe(5);
       expect(data.simulation_id).toBe("sim-resumed");
@@ -751,7 +702,7 @@ describe("Bridge HTTP Server", () => {
         }),
       });
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(Array.isArray(data.agents)).toBe(true);
       expect(data.agents[0].id).toBe("alex");
       expect(generateCalls).toHaveLength(1);
@@ -789,7 +740,7 @@ describe("Bridge HTTP Server", () => {
         }),
       });
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.action).toBe("response for alice");
       expect(data.narration).toBe("alice advances through the forge.");
       expect(data.intent.mode).toBe("action");
@@ -829,7 +780,7 @@ describe("Bridge HTTP Server", () => {
         }),
       });
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.status).toBe("ok");
       expect(observeCalls).toContain("You see a market square.");
     });
@@ -851,7 +802,7 @@ describe("Bridge HTTP Server", () => {
         }),
       });
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.status).toBe("ok");
     });
   });
@@ -869,7 +820,7 @@ describe("Bridge HTTP Server", () => {
 
       const resp = await fetch(url("/reset"), { method: "POST" });
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.status).toBe("ok");
       expect(sessionManager.size).toBe(0);
     });
@@ -879,7 +830,7 @@ describe("Bridge HTTP Server", () => {
     it("returns agent state", async () => {
       const resp = await fetch(url("/agent/alice/state"));
       const data = await resp.json();
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(data.identity.name).toBe("alice");
       expect(data.turnCount).toBe(1);
       expect(data.simulationId).toBe("sim-agent-state");
@@ -891,27 +842,87 @@ describe("Bridge HTTP Server", () => {
 
     it("passes simulation_id through to agent state lookups", async () => {
       const resp = await fetch(url("/agent/alice/state?simulation_id=sim-state"));
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(agentStateCalls.at(-1)).toEqual({
         agentId: "alice",
         simulationId: "sim-state",
       });
     });
 
-    it("returns 404 for unknown agent", async () => {
+    it("returns not found for unknown agent", async () => {
       const resp = await fetch(url("/agent/unknown/state"));
-      expect(resp.status).toBe(404);
+      expect(resp.status).toBe(HTTP_NOT_FOUND);
     });
   });
 
   describe("GET /simulations/:id/agents/:agentId/state", () => {
     it("uses simulation-scoped agent state endpoints", async () => {
       const resp = await fetch(url("/simulations/sim-running/agents/alice/state"));
-      expect(resp.status).toBe(200);
+      expect(resp.status).toBe(HTTP_OK);
       expect(agentStateCalls.at(-1)).toEqual({
         agentId: "alice",
         simulationId: "sim-running",
       });
     });
   });
+
+it("includes operational metrics in the metrics payload", async () => {
+  const response = await fetch(url("/metrics"));
+  expect(response.status).toBe(HTTP_OK);
+
+  const payload = await response.json();
+  expect(payload).toEqual(expect.objectContaining({
+    operations: expect.objectContaining({
+      max_concurrent_simulations: 4,
+      reserved_port_count: 4,
+      configured_thread_budget: 8,
+    }),
+  }));
+});
+
+it("returns 503 when admission control rejects a launch", async () => {
+  const localSessionManager = new SessionManager();
+  const localPort = port + TEST_PORT_OFFSET;
+  const localServer = createBridgeServer({
+    port: localPort,
+    host: HOST,
+    logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    sessionManager: localSessionManager,
+    onAct: async () => "ok",
+    onObserve: async () => undefined,
+    onSetup: async () => ({}),
+    onEvent: async () => undefined,
+    onLaunch: async () => {
+      throw new ConcordiaAdmissionError(1, 1);
+    },
+  });
+
+  await new Promise<void>((resolve) => {
+    localServer.listen(localPort, HOST, () => resolve());
+  });
+
+  try {
+    const response = await fetch(`http://${HOST}:${localPort}/launch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        world_id: "world-capacity",
+        workspace_id: "ws-capacity",
+        agents: [],
+        premise: "capacity test",
+      }),
+    });
+
+    expect(response.status).toBe(HTTP_SERVICE_UNAVAILABLE);
+    const payload = await response.json();
+    expect(payload).toEqual(expect.objectContaining({
+      code: "concordia_capacity_exhausted",
+      active: 1,
+      limit: 1,
+    }));
+  } finally {
+    await new Promise<void>((resolve) => localServer.close(() => resolve()));
+  }
+});
+
 });

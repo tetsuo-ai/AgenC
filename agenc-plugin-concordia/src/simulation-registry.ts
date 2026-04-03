@@ -83,6 +83,24 @@ const ACTIVE_STATUS_ORDER: ReadonlyArray<SimulationLifecycleStatus> = [
   "archived",
   "deleted",
 ];
+const ACTIVE_SIMULATION_STATUSES = new Set<SimulationLifecycleStatus>([
+  "launching",
+  "running",
+  "paused",
+  "stopping",
+]);
+const HISTORICAL_SIMULATION_STATUSES = new Set<SimulationLifecycleStatus>([
+  "stopped",
+  "finished",
+  "failed",
+  "archived",
+  "deleted",
+]);
+
+export interface SimulationRegistryOptions {
+  readonly replayBufferLimit?: number;
+  readonly archivedReplayEventLimit?: number;
+}
 
 function activeStatusRank(status: SimulationLifecycleStatus): number {
   const index = ACTIVE_STATUS_ORDER.indexOf(status);
@@ -131,11 +149,21 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
   private readonly reservedPorts = new Set<number>();
   private readonly requestIndex = new Map<string, string>();
   private currentAlias: string | null = null;
+  private readonly replayBufferLimit: number;
+  private readonly archivedReplayEventLimit: number;
 
   constructor(
     private readonly logger?: ChannelAdapterLogger,
-    private readonly replayBufferLimit = 1000,
-  ) {}
+    options: number | SimulationRegistryOptions = {},
+  ) {
+    if (typeof options === "number") {
+      this.replayBufferLimit = options;
+      this.archivedReplayEventLimit = Math.min(options, 200);
+      return;
+    }
+    this.replayBufferLimit = options.replayBufferLimit ?? 1000;
+    this.archivedReplayEventLimit = options.archivedReplayEventLimit ?? 200;
+  }
 
   has(simulationId: string): boolean {
     return this.handles.has(simulationId);
@@ -168,6 +196,108 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
 
   listSummaries(): SimulationSummary[] {
     return this.listHandles().map((handle) => this.toSummary(handle));
+  }
+
+  countActiveHandles(excludeSimulationId?: string): number {
+    return this.listHandles().filter((handle) => (
+      handle.simulationId !== excludeSimulationId &&
+      ACTIVE_SIMULATION_STATUSES.has(handle.status)
+    )).length;
+  }
+
+  countHistoricalHandles(): number {
+    return this.listHandles().filter((handle) => (
+      HISTORICAL_SIMULATION_STATUSES.has(handle.status)
+    )).length;
+  }
+
+  countStuckHandles(stepStuckTimeoutMs: number, now = Date.now()): number {
+    return this.listHandles().filter((handle) => {
+      if (!ACTIVE_SIMULATION_STATUSES.has(handle.status)) {
+        return false;
+      }
+      const updatedAt = handle.updatedAt || handle.createdAt;
+      return now - updatedAt >= stepStuckTimeoutMs;
+    }).length;
+  }
+
+  getPendingResponseCount(): number {
+    return this.listHandles().reduce(
+      (total, handle) => total + handle.pendingResponses.size,
+      0,
+    );
+  }
+
+  getReplayBufferEventCount(): number {
+    return this.listHandles().reduce(
+      (total, handle) => total + handle.replayEvents.length,
+      0,
+    );
+  }
+
+  getReservedPortCount(): number {
+    return this.reservedPorts.size;
+  }
+
+  getCheckpointCount(): number {
+    return this.listHandles().filter((handle) => handle.checkpoint !== null).length;
+  }
+
+  getConfiguredThreadBudgetCount(): number {
+    return this.listHandles().reduce((total, handle) => (
+      total + (handle.launchRequest.run_budget?.simultaneous_max_workers ?? 0)
+    ), 0);
+  }
+
+  pruneHistoricalHandles(options: {
+    readonly maxHistoricalSimulations: number;
+    readonly archivedSimulationRetentionMs: number;
+    readonly archivedReplayEventLimit?: number;
+    readonly now?: number;
+  }): {
+    readonly removedSimulationIds: readonly string[];
+    readonly removedSessions: readonly { simulationId: string; workspaceId: string }[];
+    readonly trimmedReplayEvents: number;
+  } {
+    const now = options.now ?? Date.now();
+    const retainedReplayLimit = options.archivedReplayEventLimit ?? this.archivedReplayEventLimit;
+    const historicalHandles = this.listHandles().filter((handle) => (
+      HISTORICAL_SIMULATION_STATUSES.has(handle.status)
+    ));
+    const sortedHistorical = [...historicalHandles].sort((left, right) => (
+      right.updatedAt - left.updatedAt
+    ));
+    const keep = new Set(
+      sortedHistorical
+        .slice(0, Math.max(options.maxHistoricalSimulations, 0))
+        .map((handle) => handle.simulationId),
+    );
+    const removedSimulationIds = [];
+    const removedSessions = [];
+    let trimmedReplayEvents = 0;
+
+    for (const handle of sortedHistorical) {
+      const ageMs = now - (handle.endedAt ?? handle.updatedAt ?? handle.createdAt);
+      const shouldRemove = ageMs > options.archivedSimulationRetentionMs || !keep.has(handle.simulationId);
+      if (shouldRemove) {
+        removedSimulationIds.push(handle.simulationId);
+        removedSessions.push({
+          simulationId: handle.simulationId,
+          workspaceId: handle.workspaceId,
+        });
+        this.deleteHandle(handle.simulationId);
+        continue;
+      }
+      if (handle.replayEvents.length > retainedReplayLimit) {
+        const trimCount = handle.replayEvents.length - retainedReplayLimit;
+        handle.replayEvents.splice(0, trimCount);
+        handle.replayEventCount = handle.replayEvents.length;
+        handle.updatedAt = now;
+        trimmedReplayEvents += trimCount;
+      }
+    }
+
+    return { removedSimulationIds, removedSessions, trimmedReplayEvents };
   }
 
   getRecord(simulationId: string): SimulationRecord | null {
@@ -369,6 +499,7 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       readonly maxSteps?: number | null;
       readonly gmModel?: string;
       readonly gmProvider?: string;
+      readonly runBudget?: LaunchRequest["run_budget"] | null;
     },
   ): SimulationHandle<TRunner, TMemoryContext, TPending> {
     return this.requireMutated(simulationId, (handle) => {
@@ -412,6 +543,9 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       if (update.gmProvider !== undefined) {
         handle.gmProvider = update.gmProvider;
         handle.launchRequest.gm_provider = update.gmProvider;
+      }
+      if (update.runBudget !== undefined) {
+        handle.launchRequest.run_budget = update.runBudget ?? undefined;
       }
     });
   }
@@ -636,6 +770,7 @@ export class SimulationRegistry<TRunner = unknown, TMemoryContext = unknown, TPe
       max_steps: handle.maxSteps,
       ...(handle.gmModel ? { gm_model: handle.gmModel } : {}),
       ...(handle.gmProvider ? { gm_provider: handle.gmProvider } : {}),
+      run_budget: handle.launchRequest.run_budget ?? null,
     };
   }
 

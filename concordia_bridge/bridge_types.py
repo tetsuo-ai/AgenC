@@ -82,6 +82,10 @@ class SimulationConfig:
     bridge_url: str = "http://localhost:3200"
     event_port: int = 3201
     control_port: int = 3202
+    simultaneous_max_workers: int = 8
+    proxy_action_timeout_seconds: float = 120.0
+    proxy_action_max_retries: int = 2
+    proxy_retry_delay_seconds: float = 2.0
     embedding_model: str = "all-MiniLM-L6-v2"
     reflection_interval: int = 5  # Run reflection every N steps (used by TS adapter memory-lifecycle)
     consolidation_interval: int = 20  # Run consolidation every N steps (used by TS adapter memory-lifecycle)
@@ -125,6 +129,10 @@ def build_simulation_config(
         bridge_url=raw.get("bridge_url", "http://localhost:3200"),
         event_port=raw.get("event_port", 3201),
         control_port=raw.get("control_port", 3202),
+        simultaneous_max_workers=raw.get("simultaneous_max_workers", 8),
+        proxy_action_timeout_seconds=raw.get("proxy_action_timeout_seconds", 120.0),
+        proxy_action_max_retries=raw.get("proxy_action_max_retries", 2),
+        proxy_retry_delay_seconds=raw.get("proxy_retry_delay_seconds", 2.0),
         embedding_model=raw.get("embedding_model", "all-MiniLM-L6-v2"),
         reflection_interval=raw.get("reflection_interval", 5),
         consolidation_interval=raw.get("consolidation_interval", 20),

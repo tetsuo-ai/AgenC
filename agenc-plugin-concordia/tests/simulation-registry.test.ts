@@ -181,4 +181,96 @@ describe("SimulationRegistry", () => {
     expect(live).toEqual(["2"]);
     stream?.unsubscribe();
   });
+
+  it("tracks operational counts and configured thread budgets", () => {
+    const registry = new SimulationRegistry<unknown, unknown, { sessionId: string }>();
+    registry.createHandle({
+      request: {
+        ...buildHandleRequest("sim-run", "world-run", "ws-run"),
+        run_budget: { simultaneous_max_workers: 3 },
+      },
+      status: "running",
+      currentAlias: false,
+    });
+    registry.createHandle({
+      request: {
+        ...buildHandleRequest("sim-pause", "world-pause", "ws-pause"),
+        run_budget: { simultaneous_max_workers: 2 },
+      },
+      status: "paused",
+      currentAlias: false,
+    });
+    registry.createHandle({
+      request: buildHandleRequest("sim-failed", "world-failed", "ws-failed"),
+      status: "failed",
+      currentAlias: false,
+    });
+    registry.registerPendingResponse("sim-run", "req-1", { sessionId: "session-1" });
+    registry.registerPendingResponse("sim-pause", "req-2", { sessionId: "session-2" });
+
+    expect(registry.countActiveHandles()).toBe(2);
+    expect(registry.countHistoricalHandles()).toBe(1);
+    expect(registry.getPendingResponseCount()).toBe(2);
+    expect(registry.getConfiguredThreadBudgetCount()).toBe(5);
+  });
+
+  it("prunes aged historical simulations and trims archived replay history", () => {
+    const registry = new SimulationRegistry(undefined, {
+      replayBufferLimit: 10,
+      archivedReplayEventLimit: 2,
+    });
+    registry.createHandle({
+      request: buildHandleRequest("sim-keep", "world-keep", "ws-keep"),
+      status: "finished",
+      currentAlias: false,
+    });
+    registry.createHandle({
+      request: buildHandleRequest("sim-drop", "world-drop", "ws-drop"),
+      status: "failed",
+      currentAlias: false,
+    });
+
+    registry.updateLifecycle("sim-keep", { endedAt: 4_500 });
+    registry.updateLifecycle("sim-drop", { endedAt: 1_000 });
+    registry.appendReplayEvent("sim-keep", {
+      type: "step",
+      step: 1,
+      simulation_id: "sim-keep",
+      world_id: "world-keep",
+      workspace_id: "ws-keep",
+      content: "step one",
+    });
+    registry.appendReplayEvent("sim-keep", {
+      type: "step",
+      step: 2,
+      simulation_id: "sim-keep",
+      world_id: "world-keep",
+      workspace_id: "ws-keep",
+      content: "step two",
+    });
+    registry.appendReplayEvent("sim-keep", {
+      type: "step",
+      step: 3,
+      simulation_id: "sim-keep",
+      world_id: "world-keep",
+      workspace_id: "ws-keep",
+      content: "step three",
+    });
+
+    const pruned = registry.pruneHistoricalHandles({
+      maxHistoricalSimulations: 1,
+      archivedSimulationRetentionMs: 2_000,
+      archivedReplayEventLimit: 2,
+      now: 5_000,
+    });
+
+    expect(pruned.removedSimulationIds).toEqual(["sim-drop"]);
+    expect(pruned.removedSessions).toEqual([
+      { simulationId: "sim-drop", workspaceId: "ws-drop" },
+    ]);
+    expect(pruned.trimmedReplayEvents).toBe(1);
+    expect(registry.get("sim-drop")).toBeUndefined();
+    expect(registry.listReplayEvents("sim-keep")).toHaveLength(2);
+  });
+
 });

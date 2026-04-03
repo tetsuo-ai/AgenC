@@ -7,83 +7,156 @@ import type { ChannelAdapterLogger } from "@tetsuo-ai/plugin-kit";
 import type { ConcordiaChannelConfig, LaunchRequest } from "./types.js";
 import { withSimulationIdentity } from "./simulation-identity.js";
 
+const DEFAULT_MAX_STEPS = 20;
+const DEFAULT_BRIDGE_PORT = 3200;
+const DEFAULT_EVENT_PORT = 3201;
+const DEFAULT_CONTROL_PORT = 3202;
+const DEFAULT_ENGINE_TYPE = "simultaneous";
+const DEFAULT_GM_MODEL = "grok-4-1-fast-non-reasoning";
+const DEFAULT_GM_PROVIDER = "grok";
+const DEFAULT_GM_PREFAB = "generic";
+const DEFAULT_SIMULTANEOUS_MAX_WORKERS = 8;
+const DEFAULT_PROXY_ACTION_TIMEOUT_SECONDS = 120;
+const DEFAULT_PROXY_ACTION_MAX_RETRIES = 2;
+const DEFAULT_PROXY_RETRY_DELAY_SECONDS = 2;
+const STARTUP_POLL_INTERVAL_MS = 250;
+
 export interface SpawnedSimulationRunner {
   readonly child: ChildProcess;
   readonly tempDir: string;
 }
 
-export async function launchSimulationRunner(params: {
+interface LaunchSimulationRunnerParams {
   readonly request: LaunchRequest;
   readonly config: Readonly<ConcordiaChannelConfig>;
   readonly logger: ChannelAdapterLogger;
-}): Promise<SpawnedSimulationRunner> {
-  const pluginDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  const repoRoot = resolve(pluginDir, "..");
+  readonly runnerStartupTimeoutMs: number;
+  readonly runnerShutdownTimeoutMs: number;
+}
+
+export async function launchSimulationRunner(
+  params: LaunchSimulationRunnerParams,
+): Promise<SpawnedSimulationRunner> {
+  const repoRoot = resolveRunnerRepoRoot();
   const tempDir = await mkdtemp(join(tmpdir(), "agenc-concordia-"));
   const configPath = join(tempDir, "simulation-config.json");
 
-  const payload = withSimulationIdentity({
-    world_id: params.request.world_id,
-    workspace_id: params.request.workspace_id,
-    ...(params.request.user_id ? { user_id: params.request.user_id } : {}),
-    premise: params.request.premise,
-    agents: params.request.agents,
-    max_steps: params.request.max_steps ?? 20,
-    gm_model: params.request.gm_model ?? "grok-4-1-fast-non-reasoning",
-    gm_provider: params.request.gm_provider ?? "grok",
-    gm_api_key: params.request.gm_api_key ?? "",
-    gm_base_url: params.request.gm_base_url ?? "",
-    event_port: params.request.event_port ?? 3201,
-    control_port: params.request.control_port ?? 3202,
-    engine_type: params.request.engine_type ?? "simultaneous",
-    gm_prefab: params.request.gm_prefab ?? "generic",
-    bridge_url: `http://127.0.0.1:${params.config.bridge_port ?? 3200}`,
-  }, {
-    simulationId: params.request.simulation_id ?? null,
-    lineageId: params.request.lineage_id ?? null,
-    parentSimulationId: params.request.parent_simulation_id ?? null,
-  });
+  await writeRunnerConfig(configPath, buildRunnerPayload(params));
 
-  await writeFile(configPath, JSON.stringify(payload, null, 2), "utf-8");
-
-  const pythonCommand = params.config.python_command ?? "python3";
   let child: ChildProcess | null = null;
   try {
-    child = spawn(
-      pythonCommand,
-      ["-m", "concordia_bridge.cli", "run-json", "--config-file", configPath],
-      {
-        cwd: repoRoot,
-        env: process.env,
-        stdio: ["ignore", "pipe", "pipe"],
-      },
+    child = spawnRunnerProcess(params, repoRoot, configPath);
+    attachRunnerLogging(child, params.logger);
+    await waitForControlServer(
+      child,
+      getControlPort(params.request),
+      params.runnerStartupTimeoutMs,
     );
-
-    attachRunnerStreamLogger(child.stdout, params.logger, "stdout");
-    attachRunnerStreamLogger(child.stderr, params.logger, "stderr");
-
-    await waitForControlServer(child, params.request.control_port ?? 3202, 30_000);
     return { child, tempDir };
   } catch (error) {
-    if (child && child.exitCode === null) {
-      const spawnedChild = child;
-      spawnedChild.kill("SIGTERM");
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          if (spawnedChild.exitCode === null) {
-            spawnedChild.kill("SIGKILL");
-          }
-          resolve();
-        }, 2_000);
-        spawnedChild.once("exit", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      });
-    }
-    await rm(tempDir, { recursive: true, force: true });
+    await cleanupFailedRunnerLaunch(
+      child,
+      tempDir,
+      params.runnerShutdownTimeoutMs,
+    );
     throw error;
   }
+}
+
+function resolveRunnerRepoRoot(): string {
+  const pluginDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  return resolve(pluginDir, "..");
+}
+
+function buildRunnerPayload(
+  params: LaunchSimulationRunnerParams,
+) {
+  const { request, config } = params;
+
+  return withSimulationIdentity(
+    {
+      world_id: request.world_id,
+      workspace_id: request.workspace_id,
+      ...(request.user_id ? { user_id: request.user_id } : {}),
+      premise: request.premise,
+      agents: request.agents,
+      max_steps: request.max_steps ?? DEFAULT_MAX_STEPS,
+      gm_model: request.gm_model ?? DEFAULT_GM_MODEL,
+      gm_provider: request.gm_provider ?? DEFAULT_GM_PROVIDER,
+      gm_api_key: request.gm_api_key ?? "",
+      gm_base_url: request.gm_base_url ?? "",
+      event_port: request.event_port ?? DEFAULT_EVENT_PORT,
+      control_port: request.control_port ?? DEFAULT_CONTROL_PORT,
+      engine_type: request.engine_type ?? DEFAULT_ENGINE_TYPE,
+      gm_prefab: request.gm_prefab ?? DEFAULT_GM_PREFAB,
+      bridge_url: `http://127.0.0.1:${config.bridge_port ?? DEFAULT_BRIDGE_PORT}`,
+      simultaneous_max_workers:
+        request.run_budget?.simultaneous_max_workers ??
+        config.simultaneous_max_workers ??
+        DEFAULT_SIMULTANEOUS_MAX_WORKERS,
+      proxy_action_timeout_seconds:
+        request.run_budget?.proxy_action_timeout_seconds ??
+        config.proxy_action_timeout_seconds ??
+        DEFAULT_PROXY_ACTION_TIMEOUT_SECONDS,
+      proxy_action_max_retries:
+        request.run_budget?.proxy_action_max_retries ??
+        config.proxy_action_max_retries ??
+        DEFAULT_PROXY_ACTION_MAX_RETRIES,
+      proxy_retry_delay_seconds:
+        request.run_budget?.proxy_retry_delay_seconds ??
+        config.proxy_retry_delay_seconds ??
+        DEFAULT_PROXY_RETRY_DELAY_SECONDS,
+    },
+    {
+      simulationId: request.simulation_id ?? null,
+      lineageId: request.lineage_id ?? null,
+      parentSimulationId: request.parent_simulation_id ?? null,
+    },
+  );
+}
+
+async function writeRunnerConfig(
+  configPath: string,
+  payload: unknown,
+): Promise<void> {
+  await writeFile(configPath, JSON.stringify(payload, null, 2), "utf-8");
+}
+
+function spawnRunnerProcess(
+  params: LaunchSimulationRunnerParams,
+  repoRoot: string,
+  configPath: string,
+): ChildProcess {
+  return spawn(
+    params.config.python_command ?? "python3",
+    ["-m", "concordia_bridge.cli", "run-json", "--config-file", configPath],
+    {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+}
+
+function attachRunnerLogging(
+  child: ChildProcess,
+  logger: ChannelAdapterLogger,
+): void {
+  attachRunnerStreamLogger(child.stdout, logger, "stdout");
+  attachRunnerStreamLogger(child.stderr, logger, "stderr");
+}
+
+async function cleanupFailedRunnerLaunch(
+  child: ChildProcess | null,
+  tempDir: string,
+  timeoutMs: number,
+): Promise<void> {
+  await stopChildProcess(child, timeoutMs);
+  await rm(tempDir, { recursive: true, force: true });
+}
+
+function getControlPort(request: LaunchRequest): number {
+  return request.control_port ?? DEFAULT_CONTROL_PORT;
 }
 
 function attachRunnerStreamLogger(
@@ -143,27 +216,38 @@ function logRunnerLine(
 
 export async function stopSimulationRunner(
   runner: SpawnedSimulationRunner | null,
+  timeoutMs = 2_000,
 ): Promise<void> {
   if (!runner) {
     return;
   }
 
-  runner.child.kill("SIGTERM");
+  await stopChildProcess(runner.child, timeoutMs);
+  await rm(runner.tempDir, { recursive: true, force: true });
+}
+
+async function stopChildProcess(
+  child: ChildProcess | null,
+  timeoutMs: number,
+): Promise<void> {
+  if (!child || child.exitCode !== null) {
+    return;
+  }
+
+  child.kill("SIGTERM");
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
-      if (runner.child.exitCode === null) {
-        runner.child.kill("SIGKILL");
+      if (child.exitCode === null) {
+        child.kill("SIGKILL");
       }
       resolve();
-    }, 2_000);
+    }, timeoutMs);
 
-    runner.child.once("exit", () => {
+    child.once("exit", () => {
       clearTimeout(timer);
       resolve();
     });
   });
-
-  await rm(runner.tempDir, { recursive: true, force: true });
 }
 
 async function waitForControlServer(
@@ -189,7 +273,7 @@ async function waitForControlServer(
       // Retry until timeout.
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve) => setTimeout(resolve, STARTUP_POLL_INTERVAL_MS));
   }
 
   throw new Error(

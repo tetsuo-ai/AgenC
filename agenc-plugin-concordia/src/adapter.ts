@@ -31,7 +31,9 @@ import type {
   ChannelOutboundMessage,
 } from "@tetsuo-ai/plugin-kit";
 import type {
+  BridgeMetrics,
   ConcordiaChannelConfig,
+  ConcordiaOperationalMetrics,
   ConcordiaProvenanceRecord,
   ConcordiaTrustRecord,
   ConcordiaTrustSource,
@@ -110,6 +112,13 @@ import {
   type ResumeHandleParamsInput,
   type ResumeHandleStateInput,
 } from "./adapter-utils.js";
+import {
+  buildOperationalMetricsSnapshot,
+  ConcordiaAdmissionError,
+  resolveOperationsConfig,
+  resolveRunBudget,
+  type ConcordiaResolvedOperationsConfig,
+} from "./operations.js";
 import {
   applyEventToWorldState,
   applyStructuredActResult,
@@ -450,6 +459,7 @@ export class ConcordiaChannelAdapter
     MemoryWiringContext,
     PendingResponseRequest
   >;
+  private operations!: ConcordiaResolvedOperationsConfig;
   private readonly worldStates = new Map<string, WorldStateSnapshot>();
   private readonly structuredActs = new Map<string, Map<string, StructuredActRecord>>();
   private healthy = false;
@@ -458,7 +468,11 @@ export class ConcordiaChannelAdapter
     context: ChannelAdapterContext<ConcordiaChannelConfig>,
   ): Promise<void> {
     this.context = context;
-    this.registry = new SimulationRegistry(context.logger);
+    this.operations = resolveOperationsConfig(context.config);
+    this.registry = new SimulationRegistry(context.logger, {
+      replayBufferLimit: this.operations.replayBufferLimit,
+      archivedReplayEventLimit: this.operations.archivedReplayEventLimit,
+    });
   }
 
   async start(): Promise<void> {
@@ -1081,8 +1095,8 @@ export class ConcordiaChannelAdapter
       inbound,
       sessionId,
       agentId,
-      timeoutMs: 120_000,
-      timeoutLog: `[concordia] /act timeout for ${session.agentName} after 120000ms`,
+      timeoutMs: pendingHandle.launchRequest.run_budget?.act_timeout_ms ?? this.operations.actTimeoutMs,
+      timeoutLog: `[concordia] /act timeout for ${session.agentName} after ${pendingHandle.launchRequest.run_budget?.act_timeout_ms ?? this.operations.actTimeoutMs}ms`,
       worldId: session.worldId,
       step: pendingHandle.lastCompletedStep,
       simulationId: session.simulationId,
@@ -1460,8 +1474,8 @@ export class ConcordiaChannelAdapter
       ),
       sessionId,
       agentId: "concordia-agent-generator",
-      timeoutMs: 60_000,
-      timeoutLog: "[concordia] /generate-agents timed out after 60000ms",
+      timeoutMs: this.operations.generateAgentsTimeoutMs,
+      timeoutLog: `[concordia] /generate-agents timed out after ${this.operations.generateAgentsTimeoutMs}ms`,
       worldId,
       step: handle.lastCompletedStep,
       simulationId: handle.simulationId,
@@ -1639,6 +1653,7 @@ export class ConcordiaChannelAdapter
       maxSteps: launchRequest.max_steps ?? null,
       gmModel: launchRequest.gm_model,
       gmProvider: launchRequest.gm_provider,
+      runBudget: launchRequest.run_budget ?? null,
     };
   }
 
@@ -1677,6 +1692,8 @@ export class ConcordiaChannelAdapter
       request: handle.launchRequest,
       config: this.context.config,
       logger: this.context.logger,
+      runnerStartupTimeoutMs: this.operations.runnerStartupTimeoutMs,
+      runnerShutdownTimeoutMs: this.operations.runnerShutdownTimeoutMs,
     };
   }
 
@@ -1739,6 +1756,7 @@ export class ConcordiaChannelAdapter
   private async handleLaunch(
     request: LaunchRequest,
   ): Promise<Record<string, unknown>> {
+    this.pruneHistoricalSimulations();
     const defaults = resolveConcordiaLaunchDefaults(this.context);
     const launchRequest = this.normalizeLaunchRequest({
       ...request,
@@ -1746,8 +1764,10 @@ export class ConcordiaChannelAdapter
       gm_model: request.gm_model ?? defaults.gm_model,
       gm_api_key: request.gm_api_key ?? defaults.gm_api_key,
       gm_base_url: request.gm_base_url ?? defaults.gm_base_url,
+      run_budget: resolveRunBudget(request, this.operations),
     });
 
+    this.ensureLaunchAdmission(launchRequest.simulation_id);
     let handle = await this.prepareLaunchHandle(launchRequest);
 
     try {
@@ -1758,6 +1778,7 @@ export class ConcordiaChannelAdapter
         handle.simulationId,
         this.buildLaunchFailureLifecycleUpdate(error),
       );
+      this.pruneHistoricalSimulations();
       throw error;
     }
 
@@ -1790,6 +1811,49 @@ export class ConcordiaChannelAdapter
       error: error instanceof Error ? error.message : String(error),
       endedAt: Date.now(),
     };
+  }
+
+
+  private ensureLaunchAdmission(
+    reusableSimulationId: string,
+  ): void {
+    const activeCount = this.registry.countActiveHandles(reusableSimulationId);
+    if (activeCount >= this.operations.maxConcurrentSimulations) {
+      throw new ConcordiaAdmissionError(
+        this.operations.maxConcurrentSimulations,
+        activeCount,
+      );
+    }
+  }
+
+  private pruneHistoricalSimulations(): void {
+    const pruned = this.registry.pruneHistoricalHandles({
+      maxHistoricalSimulations: this.operations.maxHistoricalSimulations,
+      archivedSimulationRetentionMs: this.operations.archivedSimulationRetentionMs,
+      archivedReplayEventLimit: this.operations.archivedReplayEventLimit,
+    });
+    for (const removed of pruned.removedSessions) {
+      this.sessionManager.clearSimulation(
+        removed.simulationId,
+        removed.workspaceId,
+      );
+      this.worldStates.delete(removed.simulationId);
+      this.structuredActs.delete(removed.simulationId);
+    }
+    if (pruned.removedSimulationIds.length > 0 || pruned.trimmedReplayEvents > 0) {
+      this.context.logger.info?.(
+        `[concordia] pruned historical simulations removed=${pruned.removedSimulationIds.length} trimmed_replay_events=${pruned.trimmedReplayEvents}`,
+      );
+    }
+  }
+
+  private buildOperationalMetrics(
+    metrics: BridgeMetrics,
+  ): ConcordiaOperationalMetrics {
+    return buildOperationalMetricsSnapshot(this.registry, this.operations, {
+      launchRequests: metrics.launchRequests,
+      rejectedLaunches: metrics.rejectedLaunches,
+    });
   }
 
   private createSetupHandle(
@@ -1825,6 +1889,42 @@ export class ConcordiaChannelAdapter
     };
   }
 
+  private buildResumeRunBudget(
+    config: Record<string, unknown>,
+  ): LaunchRequest["run_budget"] | null {
+    const actTimeoutMs = asNumber(config.act_timeout_ms);
+    const simultaneousMaxWorkers = asNumber(config.simultaneous_max_workers);
+    const proxyActionTimeoutSeconds = asNumber(config.proxy_action_timeout_seconds);
+    const proxyActionMaxRetries = asNumber(config.proxy_action_max_retries);
+    const proxyRetryDelaySeconds = asNumber(config.proxy_retry_delay_seconds);
+
+    if (
+      actTimeoutMs === undefined &&
+      simultaneousMaxWorkers === undefined &&
+      proxyActionTimeoutSeconds === undefined &&
+      proxyActionMaxRetries === undefined &&
+      proxyRetryDelaySeconds === undefined
+    ) {
+      return null;
+    }
+
+    return {
+      ...(actTimeoutMs !== undefined ? { act_timeout_ms: actTimeoutMs } : {}),
+      ...(simultaneousMaxWorkers !== undefined
+        ? { simultaneous_max_workers: simultaneousMaxWorkers }
+        : {}),
+      ...(proxyActionTimeoutSeconds !== undefined
+        ? { proxy_action_timeout_seconds: proxyActionTimeoutSeconds }
+        : {}),
+      ...(proxyActionMaxRetries !== undefined
+        ? { proxy_action_max_retries: proxyActionMaxRetries }
+        : {}),
+      ...(proxyRetryDelaySeconds !== undefined
+        ? { proxy_retry_delay_seconds: proxyRetryDelaySeconds }
+        : {}),
+    };
+  }
+
   private assignOptionalResumeLaunchFields(
     request: MutableNormalizedLaunchRequest,
     config: Record<string, unknown>,
@@ -1836,6 +1936,7 @@ export class ConcordiaChannelAdapter
     const gmBaseUrl = asString(config.gm_base_url);
     const engineType = asString(config.engine_type);
     const gmPrefab = asString(config.gm_prefab);
+    const runBudget = this.buildResumeRunBudget(config);
 
     if (maxSteps !== undefined) {
       request.max_steps = maxSteps;
@@ -1857,6 +1958,9 @@ export class ConcordiaChannelAdapter
     }
     if (gmPrefab) {
       request.gm_prefab = gmPrefab;
+    }
+    if (runBudget) {
+      request.run_budget = runBudget;
     }
   }
 
@@ -2464,6 +2568,7 @@ export class ConcordiaChannelAdapter
       onGenerateAgents: (request, requestId) =>
         this.handleGenerateAgents(request, requestId),
       onEvent: (event) => this.handleEvent(event),
+      getOperationalMetrics: (metrics) => this.buildOperationalMetrics(metrics),
       getAgentState: (agentId, simulationId) =>
         this.handleGetAgentState(agentId, simulationId),
       getWorldProjection: (simulationId, agentId) =>
@@ -3447,7 +3552,10 @@ export class ConcordiaChannelAdapter
       this.registry.attachMemoryContext(handle.simulationId, null);
     }
     if (runnerToStop) {
-      await stopSimulationRunner(runnerToStop);
+      await stopSimulationRunner(
+        runnerToStop,
+        this.operations.runnerShutdownTimeoutMs,
+      );
     }
     this.registry.updateLifecycle(handle.simulationId, {
       status: options.status ?? "stopped",
@@ -3465,6 +3573,8 @@ export class ConcordiaChannelAdapter
       this.worldStates.delete(handle.simulationId);
       this.structuredActs.delete(handle.simulationId);
     }
+
+    this.pruneHistoricalSimulations();
   }
 
   private parseGeneratedAgents(rawResponse: string): GeneratedAgent[] {

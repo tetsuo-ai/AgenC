@@ -363,6 +363,7 @@ export interface LaunchRequest {
   readonly control_port?: number;
   readonly engine_type?: "sequential" | "simultaneous";
   readonly gm_prefab?: string;
+  readonly run_budget?: ConcordiaRunBudget;
 }
 
 export interface GenerateAgentsRequest {
@@ -469,6 +470,7 @@ export interface SimulationRecord extends SimulationSummary {
   readonly max_steps: number | null;
   readonly gm_model?: string;
   readonly gm_provider?: string;
+  readonly run_budget?: ConcordiaRunBudget | null;
 }
 
 export interface MemoryEntrySummary {
@@ -529,6 +531,14 @@ export type SimulationWorldStateResponse = WorldStateSnapshot;
 // Plugin configuration
 // ============================================================================
 
+export interface ConcordiaRunBudget {
+  readonly act_timeout_ms?: number;
+  readonly proxy_action_timeout_seconds?: number;
+  readonly proxy_action_max_retries?: number;
+  readonly proxy_retry_delay_seconds?: number;
+  readonly simultaneous_max_workers?: number;
+}
+
 export interface ConcordiaChannelConfig {
   readonly bridge_port?: number;
   readonly event_port?: number;
@@ -538,7 +548,48 @@ export interface ConcordiaChannelConfig {
   readonly reflection_interval?: number;
   readonly consolidation_interval?: number;
   readonly python_command?: string;
+  readonly max_concurrent_simulations?: number;
+  readonly max_historical_simulations?: number;
+  readonly archived_simulation_retention_ms?: number;
+  readonly replay_buffer_limit?: number;
+  readonly archived_replay_event_limit?: number;
+  readonly runner_startup_timeout_ms?: number;
+  readonly runner_shutdown_timeout_ms?: number;
+  readonly step_stuck_timeout_ms?: number;
+  readonly act_timeout_ms?: number;
+  readonly generate_agents_timeout_ms?: number;
+  readonly simultaneous_max_workers?: number;
+  readonly proxy_action_timeout_seconds?: number;
+  readonly proxy_action_max_retries?: number;
+  readonly proxy_retry_delay_seconds?: number;
   [key: string]: unknown;
+}
+
+export interface ConcordiaOperationalMetrics {
+  readonly max_concurrent_simulations: number;
+  readonly max_historical_simulations: number;
+  readonly archived_simulation_retention_ms: number;
+  readonly replay_buffer_limit: number;
+  readonly archived_replay_event_limit: number;
+  readonly runner_startup_timeout_ms: number;
+  readonly runner_shutdown_timeout_ms: number;
+  readonly step_stuck_timeout_ms: number;
+  readonly act_timeout_ms: number;
+  readonly generate_agents_timeout_ms: number;
+  readonly simultaneous_max_workers: number;
+  readonly proxy_action_timeout_seconds: number;
+  readonly proxy_action_max_retries: number;
+  readonly proxy_retry_delay_seconds: number;
+  readonly active_simulations: number;
+  readonly historical_simulations: number;
+  readonly stuck_simulations: number;
+  readonly pending_action_count: number;
+  readonly replay_buffer_events: number;
+  readonly reserved_port_count: number;
+  readonly configured_thread_budget: number;
+  readonly checkpoint_volume: number;
+  readonly launch_requests: number;
+  readonly rejected_launches: number;
 }
 
 // ============================================================================
@@ -549,6 +600,8 @@ export interface BridgeMetrics {
   actRequests: number;
   observeRequests: number;
   setupRequests: number;
+  launchRequests: number;
+  rejectedLaunches: number;
   eventNotifications: number;
   errors: number;
   actLatencyMs: number[];
@@ -560,6 +613,8 @@ export function createEmptyMetrics(): BridgeMetrics {
     actRequests: 0,
     observeRequests: 0,
     setupRequests: 0,
+    launchRequests: 0,
+    rejectedLaunches: 0,
     eventNotifications: 0,
     errors: 0,
     actLatencyMs: [],

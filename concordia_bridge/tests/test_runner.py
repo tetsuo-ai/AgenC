@@ -9,7 +9,12 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from concordia_bridge.bridge_types import AgentConfig, SimulationConfig, SimulationEvent
+from concordia_bridge.bridge_types import (
+    AgentConfig,
+    SimulationConfig,
+    SimulationEvent,
+    build_simulation_config,
+)
 from concordia_bridge.observation_component import FreshObservationComponent
 from concordia_bridge.runner import (
     _post_bridge_event,
@@ -50,12 +55,34 @@ class TestSimulationConfig:
         assert config.bridge_url == "http://localhost:3200"
         assert config.event_port == 3201
         assert config.control_port == 3202
+        assert config.simultaneous_max_workers == 8
+        assert config.proxy_action_timeout_seconds == 120.0
+        assert config.proxy_action_max_retries == 2
+        assert config.proxy_retry_delay_seconds == 2.0
         assert config.reflection_interval == 5
         assert config.consolidation_interval == 20
 
     def test_agent_config_defaults(self) -> None:
         agent = AgentConfig(id="test", name="Test", personality="Nice")
         assert agent.goal == ""
+
+    def test_build_simulation_config_applies_runtime_budget_overrides(self) -> None:
+        config = build_simulation_config(
+            {
+                "world_id": "world-budget",
+                "workspace_id": "ws-budget",
+                "premise": "budget premise",
+                "simultaneous_max_workers": 3,
+                "proxy_action_timeout_seconds": 15.0,
+                "proxy_action_max_retries": 1,
+                "proxy_retry_delay_seconds": 0.5,
+            },
+            [],
+        )
+        assert config.simultaneous_max_workers == 3
+        assert config.proxy_action_timeout_seconds == 15.0
+        assert config.proxy_action_max_retries == 1
+        assert config.proxy_retry_delay_seconds == 0.5
 
 
 class TestRunnerApiKeyResolution:

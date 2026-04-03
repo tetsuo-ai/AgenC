@@ -301,6 +301,9 @@ def run_simulation(
                 simulation_id=identity.simulation_id,
                 lineage_id=identity.lineage_id,
                 parent_simulation_id=identity.parent_simulation_id,
+                timeout_seconds=config.proxy_action_timeout_seconds,
+                max_retries=config.proxy_action_max_retries,
+                retry_delay_seconds=config.proxy_retry_delay_seconds,
                 stop_event=controller.stop_event,
             )
             for agent in config.agents
@@ -326,6 +329,7 @@ def run_simulation(
                 event_callback=emit_event,
                 bridge_url=config.bridge_url,
                 world_id=config.world_id,
+                max_workers=config.simultaneous_max_workers,
                 simulation_id=identity.simulation_id,
                 workspace_id=config.workspace_id,
                 lineage_id=identity.lineage_id,
