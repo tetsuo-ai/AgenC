@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildActPrompt, buildSimulationSystemContext } from "../src/prompt-builder.js";
 
 describe("buildActPrompt", () => {
-  it("builds free prompt with action tag", () => {
+  it("builds free prompt with action tag and world projection", () => {
     const prompt = buildActPrompt(
       {
         call_to_action: "What would {name} do next?",
@@ -11,11 +11,47 @@ describe("buildActPrompt", () => {
         tag: "action",
       },
       "Alice",
+      {
+        simulation_id: "sim-1",
+        world_id: "world-1",
+        workspace_id: "ws-1",
+        agent_id: "alice",
+        premise: "A market square at dawn.",
+        clock: { tick: 2, step: 1, phase: "running", updated_at: 1 },
+        self: {
+          agent_id: "alice",
+          agent_name: "Alice",
+          location_id: "market",
+          scene_id: "scene-market",
+          zone_id: "zone-market",
+          nearby_agent_ids: [],
+          inventory: ["coin"],
+          world_object_ids: [],
+          relationships: [],
+          schedule: [],
+          current_task: null,
+          last_observation: null,
+          last_action: null,
+          last_intent: null,
+          last_outcome: null,
+          turn_count: 1,
+          metadata: null,
+        },
+        active_scene_id: "scene-market",
+        active_zone_id: "zone-market",
+        active_location_id: "market",
+        visible_agents: [],
+        visible_objects: [],
+        world_facts: [],
+        recent_events: [],
+      },
     );
     expect(prompt).toContain("[Concordia Action Request]");
     expect(prompt).toContain("What would Alice do next?");
-    expect(prompt).toContain("Reply with one short plain-text description");
-    expect(prompt).not.toContain("dialogue");
+    expect(prompt).toContain("[World Projection]");
+    expect(prompt).toContain('"simulation_id": "sim-1"');
+    expect(prompt).toContain("Return valid JSON");
+    expect(prompt).toContain('"intent"');
   });
 
   it("builds free prompt with speech tag", () => {
@@ -29,8 +65,8 @@ describe("buildActPrompt", () => {
       "Alice",
     );
     expect(prompt).toContain("[Concordia Speech Request]");
-    expect(prompt).toContain("Speak in character as Alice");
-    expect(prompt).toContain("Reply with only the words you would say next");
+    expect(prompt).toContain("spoken words in `action`");
+    expect(prompt).toContain("speech act");
   });
 
   it("builds choice prompt with numbered options", () => {
@@ -47,6 +83,7 @@ describe("buildActPrompt", () => {
     expect(prompt).toContain("2. Reject");
     expect(prompt).toContain("3. Counter-offer");
     expect(prompt).toContain("EXACTLY one of these options");
+    expect(prompt).toContain("Respond with ONLY the chosen option text");
   });
 
   it("builds float prompt", () => {

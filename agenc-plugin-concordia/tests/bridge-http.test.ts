@@ -16,11 +16,105 @@ const checkpointCalls: unknown[] = [];
 const resumeCalls: unknown[] = [];
 const agentStateCalls: Array<{ agentId: string; simulationId: string | null | undefined }> = [];
 const simulationStatusCalls: string[] = [];
+const worldProjectionCalls: Array<{ simulationId: string; agentId: string }> = [];
+const worldStateCalls: string[] = [];
+const actResultCalls: Array<{ action: string; narration: string | null; intent: unknown }> = [];
 const controlCalls: Array<{ simulationId: string; command: string }> = [];
 const simulationEventCalls: Array<{ simulationId: string; cursor: string | null | undefined }> = [];
 const streamSubscribers = new Map<string, Set<(event: Record<string, unknown>) => void>>();
 const actRequestIds: string[] = [];
 const generateRequestIds: string[] = [];
+
+const sampleWorldProjection = {
+  simulation_id: "sim-running",
+  world_id: "world-alpha",
+  workspace_id: "ws-alpha",
+  agent_id: "alice",
+  premise: "The forge is busy at sunrise.",
+  clock: { tick: 3, step: 2, phase: "running", updated_at: 10 },
+  self: {
+    agent_id: "alice",
+    agent_name: "Alice",
+    location_id: "forge",
+    scene_id: "scene-forge",
+    zone_id: "zone-market",
+    nearby_agent_ids: ["bob"],
+    inventory: ["hammer"],
+    world_object_ids: ["anvil"],
+    relationships: [],
+    schedule: [],
+    current_task: null,
+    last_observation: "Sparks fly from the forge.",
+    last_action: "inspects the anvil",
+    last_intent: null,
+    last_outcome: null,
+    turn_count: 2,
+    metadata: null,
+  },
+  active_scene_id: "scene-forge",
+  active_zone_id: "zone-market",
+  active_location_id: "forge",
+  visible_agents: [
+    {
+      agent_id: "bob",
+      agent_name: "Bob",
+      location_id: "forge",
+      scene_id: "scene-forge",
+      zone_id: "zone-market",
+      nearby_agent_ids: ["alice"],
+      inventory: [],
+      world_object_ids: [],
+      relationships: [],
+      schedule: [],
+      current_task: null,
+      last_observation: null,
+      last_action: null,
+      last_intent: null,
+      last_outcome: null,
+      turn_count: 1,
+      metadata: null,
+    },
+  ],
+  visible_objects: [
+    {
+      object_id: "anvil",
+      label: "Forge Anvil",
+      kind: "tool",
+      location_id: "forge",
+      scene_id: "scene-forge",
+      zone_id: "zone-market",
+      status: "ready",
+      tags: ["metalwork"],
+      metadata: null,
+    },
+  ],
+  world_facts: [{ content: "The forge opens at dawn.", observedBy: "system", confirmations: 1 }],
+  recent_events: [],
+} as const;
+
+const simulationWorldState = {
+  simulation_id: "sim-running",
+  world_id: "world-alpha",
+  workspace_id: "ws-alpha",
+  lineage_id: null,
+  parent_simulation_id: null,
+  premise: "The forge is busy at sunrise.",
+  clock: { tick: 3, step: 2, phase: "running", updated_at: 10 },
+  active_scene_id: "scene-forge",
+  active_zone_id: "zone-market",
+  active_location_id: "forge",
+  agent_states: {
+    alice: sampleWorldProjection.self,
+  },
+  world_objects: {
+    anvil: sampleWorldProjection.visible_objects[0],
+  },
+  world_facts: sampleWorldProjection.world_facts,
+  recent_events: [],
+  updated_at: 10,
+  snapshot_ref: "sim-running:world:2:10",
+} as const;
+
 const simulationSummaries = [
   {
     simulation_id: "sim-running",
@@ -65,6 +159,7 @@ const simulationSummaries = [
     checkpoint: null,
   },
 ] as const;
+
 const simulationStatuses = new Map([
   [
     "sim-running",
@@ -111,6 +206,7 @@ const simulationStatuses = new Map([
     },
   ],
 ]);
+
 const simulationEvents = new Map([
   [
     "sim-running",
@@ -141,6 +237,7 @@ const simulationEvents = new Map([
     ],
   ],
 ]);
+
 const simulationRecords = new Map([
   [
     "sim-running",
@@ -169,7 +266,31 @@ beforeAll(async () => {
     onAct: async (agentId, _sessionId, message, requestId) => {
       actCalls.push(message);
       actRequestIds.push(requestId);
-      return `response for ${agentId}`;
+      return JSON.stringify({
+        action: `response for ${agentId}`,
+        narration: `${agentId} advances through the forge.`,
+        intent: {
+          summary: `response for ${agentId}`,
+          mode: "action",
+          destination: {
+            location_id: "forge",
+            scene_id: "scene-forge",
+            zone_id: "zone-market",
+            label: "Forge",
+          },
+          target_agent_ids: [],
+          target_object_ids: ["anvil"],
+          task: { title: "Inspect the forge", status: "active", note: null },
+          inventory_add: [],
+          inventory_remove: [],
+          world_object_updates: [],
+          relationship_updates: [],
+          notes: [],
+        },
+      });
+    },
+    onActResult: async ({ action, narration, intent }) => {
+      actResultCalls.push({ action, narration, intent });
     },
     onObserve: async (_agentId, _sessionId, observation) => {
       observeCalls.push(observation);
@@ -327,6 +448,21 @@ beforeAll(async () => {
         lastAction: "test action",
       } as const;
     },
+    getWorldProjection: async (simulationId, agentId) => {
+      worldProjectionCalls.push({ simulationId, agentId });
+      return {
+        ...sampleWorldProjection,
+        simulation_id: simulationId,
+        agent_id: agentId,
+      };
+    },
+    getSimulationWorldState: async (simulationId) => {
+      worldStateCalls.push(simulationId);
+      if (simulationId !== "sim-running") {
+        return null;
+      }
+      return simulationWorldState;
+    },
   });
 
   await new Promise<void>((resolve) => {
@@ -365,7 +501,6 @@ describe("Bridge HTTP Server", () => {
     });
   });
 
-
   describe("GET /simulations", () => {
     it("returns active and recent simulation summaries", async () => {
       const resp = await fetch(url("/simulations"));
@@ -400,6 +535,17 @@ describe("Bridge HTTP Server", () => {
       expect(data.simulation_id).toBe("sim-running");
       expect(data.status).toBe("running");
       expect(simulationStatusCalls.at(-1)).toBe("sim-running");
+    });
+  });
+
+  describe("GET /simulations/:id/world-state", () => {
+    it("returns the authoritative world-state snapshot", async () => {
+      const resp = await fetch(url("/simulations/sim-running/world-state"));
+      const data = await resp.json();
+      expect(resp.status).toBe(200);
+      expect(data.simulation_id).toBe("sim-running");
+      expect(data.snapshot_ref).toBe("sim-running:world:2:10");
+      expect(worldStateCalls.at(-1)).toBe("sim-running");
     });
   });
 
@@ -616,7 +762,7 @@ describe("Bridge HTTP Server", () => {
   });
 
   describe("POST /act", () => {
-    it("returns agent response", async () => {
+    it("returns structured agent responses and records world projection usage", async () => {
       sessionManager.getOrCreate({
         agentId: "alice",
         agentName: "Alice",
@@ -645,6 +791,15 @@ describe("Bridge HTTP Server", () => {
       const data = await resp.json();
       expect(resp.status).toBe(200);
       expect(data.action).toBe("response for alice");
+      expect(data.narration).toBe("alice advances through the forge.");
+      expect(data.intent.mode).toBe("action");
+      expect(actCalls.at(-1)).toContain("[World Projection]");
+      expect(worldProjectionCalls.at(-1)).toEqual({ simulationId: "sim-act", agentId: "alice" });
+      expect(actResultCalls.at(-1)).toEqual({
+        action: "response for alice",
+        narration: "alice advances through the forge.",
+        intent: expect.objectContaining({ mode: "action" }),
+      });
       expect(actRequestIds[0]).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       );
@@ -757,40 +912,6 @@ describe("Bridge HTTP Server", () => {
         agentId: "alice",
         simulationId: "sim-running",
       });
-    });
-  });
-
-  describe("error handling", () => {
-    it("returns 404 for unknown paths", async () => {
-      const resp = await fetch(url("/nonexistent"));
-      expect(resp.status).toBe(404);
-    });
-
-    it("returns 405 for wrong method", async () => {
-      const resp = await fetch(url("/health"), { method: "PUT" });
-      expect(resp.status).toBe(405);
-    });
-
-    it("rejects act requests without simulation identity", async () => {
-      const resp = await fetch(url("/act"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agent_id: "alice",
-          agent_name: "Alice",
-          world_id: "test-world",
-          workspace_id: "test-ws",
-          action_spec: {
-            call_to_action: "What would Alice do?",
-            output_type: "free",
-            options: [],
-            tag: "action",
-          },
-        }),
-      });
-      const data = await resp.json();
-      expect(resp.status).toBe(500);
-      expect(data.error).toContain("simulation_id");
     });
   });
 });

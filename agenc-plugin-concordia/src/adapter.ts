@@ -32,11 +32,14 @@ import type {
 } from "@tetsuo-ai/plugin-kit";
 import type {
   ConcordiaChannelConfig,
+  ActRequest,
   SetupRequest,
   EventNotification,
   LaunchRequest,
   GenerateAgentsRequest,
   GeneratedAgent,
+  AgentIntent,
+  AgentOutcome,
   AgentStateResponse,
   CheckpointRequest,
   ResumeRequest,
@@ -47,6 +50,8 @@ import type {
   SimulationLifecycleStatus,
   SimulationCommand,
   SimulationStatusResponse,
+  WorldProjection,
+  WorldStateSnapshot,
 } from "./types.js";
 import { SessionManager, type AgentSession } from "./session-manager.js";
 import {
@@ -102,6 +107,14 @@ import {
   type ResumeHandleParamsInput,
   type ResumeHandleStateInput,
 } from "./adapter-utils.js";
+import {
+  applyEventToWorldState,
+  applyStructuredActResult,
+  buildAgentStateFromWorldState,
+  buildWorldProjection,
+  createInitialWorldState,
+  reconcileWorldStateSnapshot,
+} from "./world-state.js";
 import {
   buildCheckpointMetadataFromManifest,
   buildCheckpointStatusFromManifest,
@@ -198,6 +211,14 @@ interface PendingResponseInit {
   readonly simulationId: string | null;
   readonly resolve: (content: string) => void;
   readonly reject: (error: Error) => void;
+}
+
+interface StructuredActRecord {
+  readonly action: string;
+  readonly narration: string | null;
+  readonly intent: AgentIntent | null;
+  readonly step: number;
+  readonly recordedAt: number;
 }
 
 type SimulationCleanupOptions = {
@@ -426,6 +447,8 @@ export class ConcordiaChannelAdapter
     MemoryWiringContext,
     PendingResponseRequest
   >;
+  private readonly worldStates = new Map<string, WorldStateSnapshot>();
+  private readonly structuredActs = new Map<string, Map<string, StructuredActRecord>>();
   private healthy = false;
 
   async initialize(
@@ -450,6 +473,8 @@ export class ConcordiaChannelAdapter
 
     this.registry.clear();
     this.sessionManager.clear();
+    this.worldStates.clear();
+    this.structuredActs.clear();
 
     await this.closeBridgeServer();
 
@@ -480,6 +505,217 @@ export class ConcordiaChannelAdapter
     return this.healthy;
   }
 
+  private syncWorldStateForHandle(
+    handle: ConcordiaSimulationHandle,
+  ): WorldStateSnapshot {
+    const snapshot = reconcileWorldStateSnapshot(
+      this.worldStates.get(handle.simulationId) ?? null,
+      {
+        simulation_id: handle.simulationId,
+        world_id: handle.worldId,
+        workspace_id: handle.workspaceId,
+        lineage_id: handle.lineageId ?? null,
+        parent_simulation_id: handle.parentSimulationId ?? null,
+        premise: handle.premise,
+        agents: handle.agents,
+        status: handle.status,
+      },
+    );
+
+    const sessions = this.sessionManager.getAllForSimulation(
+      handle.simulationId,
+      handle.workspaceId,
+    );
+    const agentStates = { ...snapshot.agent_states };
+    for (const session of sessions) {
+      const current = agentStates[session.agentId];
+      if (!current) {
+        continue;
+      }
+      agentStates[session.agentId] = {
+        ...current,
+        turn_count: session.turnCount,
+        last_action: session.lastAction,
+        last_observation:
+          session.observations[session.observations.length - 1] ??
+          current.last_observation,
+      };
+    }
+
+    const synced: WorldStateSnapshot = {
+      ...snapshot,
+      agent_states: agentStates,
+    };
+    this.worldStates.set(handle.simulationId, synced);
+    return synced;
+  }
+
+  private rememberStructuredAct(
+    simulationId: string,
+    agentId: string,
+    record: StructuredActRecord,
+  ): void {
+    const records = this.structuredActs.get(simulationId) ?? new Map<string, StructuredActRecord>();
+    records.set(agentId, record);
+    this.structuredActs.set(simulationId, records);
+  }
+
+  private peekStructuredAct(
+    simulationId: string,
+    agentId: string | null,
+  ): StructuredActRecord | null {
+    if (!agentId) {
+      return null;
+    }
+    return this.structuredActs.get(simulationId)?.get(agentId) ?? null;
+  }
+
+  private clearStructuredAct(
+    simulationId: string,
+    agentId: string | null,
+  ): void {
+    if (!agentId) {
+      return;
+    }
+    const records = this.structuredActs.get(simulationId);
+    if (!records) {
+      return;
+    }
+    records.delete(agentId);
+    if (records.size === 0) {
+      this.structuredActs.delete(simulationId);
+    }
+  }
+
+  private resolveEventAgentId(
+    handle: ConcordiaSimulationHandle,
+    event: EventNotification,
+  ): string | null {
+    if (event.acting_agent && handle.agentIds.includes(event.acting_agent)) {
+      return event.acting_agent;
+    }
+    if (!event.agent_name) {
+      return null;
+    }
+    const session = this.sessionManager
+      .getAllForSimulation(handle.simulationId, handle.workspaceId)
+      .find((candidate) => candidate.agentName === event.agent_name);
+    return session?.agentId ?? null;
+  }
+
+  private buildStructuredOutcome(
+    event: EventNotification,
+    pendingAct: StructuredActRecord | null,
+    snapshot: WorldStateSnapshot,
+  ): AgentOutcome | null {
+    if (event.outcome) {
+      return event.outcome;
+    }
+    if (event.type !== "resolution") {
+      return null;
+    }
+    const summary =
+      (event.resolved_event ?? event.content ?? pendingAct?.action ?? event.type).trim() ||
+      event.type;
+    return {
+      summary,
+      narration:
+        (event.resolved_event ?? event.content ?? pendingAct?.narration ?? null) as string | null,
+      succeeded: true,
+      scene_id: snapshot.active_scene_id,
+      zone_id: snapshot.active_zone_id,
+      location_id: snapshot.active_location_id,
+      task_status: "completed",
+      metadata: event.metadata ? { ...event.metadata } : null,
+    };
+  }
+
+  private applyWorldStateEvent(
+    handle: ConcordiaSimulationHandle,
+    event: EventNotification,
+  ): EventNotification {
+    const snapshot = this.syncWorldStateForHandle(handle);
+    const agentId = this.resolveEventAgentId(handle, event);
+    const pendingAct = this.peekStructuredAct(handle.simulationId, agentId);
+    const enrichedEvent: EventNotification = {
+      ...event,
+      acting_agent: event.acting_agent ?? agentId ?? undefined,
+      intent: event.intent ?? pendingAct?.intent ?? null,
+      outcome: this.buildStructuredOutcome(event, pendingAct, snapshot),
+    };
+    const applied = applyEventToWorldState(snapshot, enrichedEvent);
+    this.worldStates.set(handle.simulationId, applied.snapshot);
+
+    if (
+      enrichedEvent.type === "resolution" ||
+      enrichedEvent.type === "error" ||
+      enrichedEvent.type === "terminate"
+    ) {
+      this.clearStructuredAct(handle.simulationId, agentId);
+    }
+
+    return {
+      ...enrichedEvent,
+      world_event: {
+        ...applied.worldEvent,
+        event_id: String(handle.replayCursor + 1),
+      },
+    };
+  }
+
+  private async handleActResult(params: {
+    readonly request: ActRequest;
+    readonly sessionId: string;
+    readonly action: string;
+    readonly narration: string | null;
+    readonly intent: AgentIntent | null;
+  }): Promise<void> {
+    const session = this.sessionManager.findBySessionId(params.sessionId);
+    if (!session) {
+      return;
+    }
+    const handle = this.registry.get(session.simulationId) ?? null;
+    if (!handle) {
+      return;
+    }
+    const snapshot = this.syncWorldStateForHandle(handle);
+    const applied = applyStructuredActResult(snapshot, {
+      agentId: params.request.agent_id,
+      agentName: params.request.agent_name,
+      action: params.action,
+      narration: params.narration,
+      intent: params.intent,
+      turnCount: session.turnCount,
+      step: Math.max(handle.lastCompletedStep + 1, session.turnCount),
+    });
+    this.worldStates.set(handle.simulationId, applied.snapshot);
+    this.rememberStructuredAct(handle.simulationId, params.request.agent_id, {
+      action: params.action,
+      narration: params.narration,
+      intent: params.intent,
+      step: Math.max(handle.lastCompletedStep + 1, session.turnCount),
+      recordedAt: Date.now(),
+    });
+  }
+
+  private async handleGetSimulationWorldState(
+    simulationId: string,
+  ): Promise<WorldStateSnapshot | null> {
+    const handle = this.registry.get(simulationId) ?? null;
+    if (handle) {
+      return this.syncWorldStateForHandle(handle);
+    }
+    return this.worldStates.get(simulationId) ?? null;
+  }
+
+  private async handleGetWorldProjection(
+    simulationId: string,
+    agentId: string,
+  ): Promise<WorldProjection | null> {
+    const snapshot = await this.handleGetSimulationWorldState(simulationId);
+    return snapshot ? buildWorldProjection(snapshot, agentId) : null;
+  }
+
   // ==========================================================================
   // Internal handlers
   // ==========================================================================
@@ -498,6 +734,7 @@ export class ConcordiaChannelAdapter
 
     this.sessionManager.clearSimulation(handle.simulationId, handle.workspaceId);
     const sessions = await this.hydrateSetupSessions(handle, request, memoryCtx);
+    this.syncWorldStateForHandle(handle);
     await this.storePremiseIfPresent(memoryCtx, request.premise);
     return sessions;
   }
@@ -506,6 +743,8 @@ export class ConcordiaChannelAdapter
     await this.resetAllSimulations();
     this.registry.clear();
     this.sessionManager.clear();
+    this.worldStates.clear();
+    this.structuredActs.clear();
   }
 
   private async handleCheckpoint(
@@ -612,6 +851,7 @@ export class ConcordiaChannelAdapter
       entityStates,
       resumedFromStep,
     );
+    this.syncWorldStateForHandle(handle);
     const checkpointStatus = this.buildCheckpointStatusForHandle(checkpoint, memoryCtx);
     this.registry.setCheckpoint(handle.simulationId, checkpointStatus);
 
@@ -864,21 +1104,22 @@ export class ConcordiaChannelAdapter
       return;
     }
 
-    const replayEvent = this.registry.appendReplayEvent(handle.simulationId, event);
+    const enrichedEvent = this.applyWorldStateEvent(handle, event);
+    const replayEvent = this.registry.appendReplayEvent(handle.simulationId, enrichedEvent);
     this.context.logger.debug?.(
-      this.buildEventDebugLog(event, replayEvent.event_id),
+      this.buildEventDebugLog(enrichedEvent, replayEvent.event_id),
     );
 
     this.registry.updateLifecycle(
       handle.simulationId,
-      this.buildEventLifecycleUpdate(handle, event),
+      this.buildEventLifecycleUpdate(handle, enrichedEvent),
     );
 
     if (!handle.memoryCtx) {
       return;
     }
 
-    const memoryEvent = this.normalizeMemoryEvent(event);
+    const memoryEvent = this.normalizeMemoryEvent(enrichedEvent);
     await this.maybeRunResolutionPeriodicTasks(handle, memoryEvent);
     await this.recordSimulationEventSideEffects(handle, memoryEvent);
   }
@@ -949,6 +1190,25 @@ export class ConcordiaChannelAdapter
       session,
       memoryCtx,
     );
+
+    const worldState = handle
+      ? this.syncWorldStateForHandle(handle)
+      : this.worldStates.get(session.simulationId) ?? null;
+    if (worldState) {
+      const structuredState = buildAgentStateFromWorldState(worldState, agentId, {
+        identity: persistedState?.identity ?? this.buildFallbackIdentity(session),
+        memoryCount: persistedState?.memoryCount ?? session.observations.length,
+        recentMemories:
+          persistedState?.recentMemories ?? this.buildFallbackRecentMemories(session),
+        simulationId: session.simulationId,
+        lineageId: session.lineageId ?? null,
+        parentSimulationId: session.parentSimulationId ?? null,
+      });
+      if (structuredState) {
+        return structuredState;
+      }
+    }
+
     if (persistedState) {
       return persistedState;
     }
@@ -1546,6 +1806,7 @@ export class ConcordiaChannelAdapter
       this.buildSetupLifecycleReset(),
     );
     this.registry.setCurrentAlias(updatedHandle.simulationId);
+    this.syncWorldStateForHandle(updatedHandle);
     return updatedHandle;
   }
 
@@ -1745,10 +2006,12 @@ export class ConcordiaChannelAdapter
       );
     }
 
-    return this.registry.setLaunchMetadata(
+    const updatedHandle = this.registry.setLaunchMetadata(
       existingHandle.simulationId,
       buildCheckpointLaunchMetadata(request, existingHandle),
     );
+    this.syncWorldStateForHandle(updatedHandle);
+    return updatedHandle;
   }
 
   private async hydrateSetupSessions(
@@ -1898,6 +2161,7 @@ export class ConcordiaChannelAdapter
     memoryCtx: MemoryWiringContext | null,
   ): ConcordiaCheckpointManifest {
     const namespaceRefs = this.buildCheckpointMemoryNamespaceRefs(manifest, memoryCtx);
+    const worldState = this.worldStates.get(handle.simulationId) ?? null;
     const replayCursor = Math.max(manifest.replay_cursor.replay_cursor, handle.replayCursor);
     const replayEventCount = Math.max(
       manifest.replay_cursor.replay_event_count,
@@ -1932,6 +2196,13 @@ export class ConcordiaChannelAdapter
         last_event_id:
           manifest.replay_cursor.last_event_id ??
           (replayCursor > 0 ? String(replayCursor) : null),
+      },
+      world_state_refs: {
+        ...manifest.world_state_refs,
+        authoritative_snapshot_ref:
+          worldState?.snapshot_ref ??
+          manifest.world_state_refs.authoritative_snapshot_ref ??
+          null,
       },
       memory_namespace_refs: namespaceRefs,
       subsystem_state:
@@ -2109,6 +2380,11 @@ export class ConcordiaChannelAdapter
       onEvent: (event) => this.handleEvent(event),
       getAgentState: (agentId, simulationId) =>
         this.handleGetAgentState(agentId, simulationId),
+      getWorldProjection: (simulationId, agentId) =>
+        this.handleGetWorldProjection(simulationId, agentId),
+      getSimulationWorldState: (simulationId) =>
+        this.handleGetSimulationWorldState(simulationId),
+      onActResult: (result) => this.handleActResult({ ...result, intent: result.intent ?? null }),
       getCurrentSimulationId: () => this.handleGetCurrentSimulationId(),
       listSimulations: () => this.handleListSimulations(),
       getSimulation: (simulationId) => this.handleGetSimulation(simulationId),
@@ -2332,9 +2608,11 @@ export class ConcordiaChannelAdapter
     } = {},
   ): Promise<ConcordiaSimulationHandle> {
     const reserved = await this.resolveHandleReservedPorts(request, options);
-    return this.registry.createHandle(
+    const handle = this.registry.createHandle(
       this.buildCreateHandleInput(request, reserved, options),
     );
+    this.syncWorldStateForHandle(handle);
+    return handle;
   }
 
   private async fetchRunnerStatus(
@@ -3072,6 +3350,7 @@ export class ConcordiaChannelAdapter
     }
 
     this.clearPendingResponsesForSimulation(handle, reason);
+    this.structuredActs.delete(handle.simulationId);
 
     let runnerToStop: SpawnedSimulationRunner | null = null;
     if (handle.runner) {
@@ -3097,6 +3376,8 @@ export class ConcordiaChannelAdapter
 
     if (options.removeHandle) {
       this.registry.deleteHandle(handle.simulationId);
+      this.worldStates.delete(handle.simulationId);
+      this.structuredActs.delete(handle.simulationId);
     }
   }
 

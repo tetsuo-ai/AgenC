@@ -2,21 +2,23 @@
  * Response post-processing for Concordia bridge.
  *
  * Handles: name prefix stripping, choice fuzzy matching, float parsing,
- * content sanitization, and whitespace trimming.
+ * content sanitization, structured intent extraction, and whitespace trimming.
  *
  * @module
  */
 
-import type { ConcordiaActionSpec } from "./types.js";
+import type { ConcordiaActionSpec } from './types.js';
+import {
+  buildFallbackIntent,
+  parseStructuredSimulationResponse,
+  type ParsedStructuredResponse,
+} from './structured-response.js';
+
+export type StructuredSimulationResponse = ParsedStructuredResponse;
 
 /**
  * Strip the agent name prefix if the LLM included it.
  * Concordia adds "AgentName: " itself — we must return just the action text.
- *
- * Examples:
- *   "Alice: goes to store" -> "goes to store"
- *   "Alice -- \"hello\"" -> "\"hello\""
- *   "goes to store" -> "goes to store" (no prefix to strip)
  */
 export function stripNamePrefix(response: string, agentName: string): string {
   const trimmed = response.trim();
@@ -40,8 +42,6 @@ export function stripNamePrefix(response: string, agentName: string): string {
 
 /**
  * Strip surrounding quotes from a response.
- * "hello world" -> hello world
- * 'hello world' -> hello world
  */
 export function stripQuotes(response: string): string {
   const trimmed = response.trim();
@@ -56,8 +56,6 @@ export function stripQuotes(response: string): string {
 
 /**
  * For CHOICE output type, find the closest matching option.
- * Uses exact match first, then case-insensitive, then substring,
- * then Levenshtein distance.
  */
 export function fuzzyMatchChoice(
   response: string,
@@ -66,23 +64,19 @@ export function fuzzyMatchChoice(
   if (options.length === 0) return response;
   const trimmed = response.trim();
 
-  // 1. Exact match
-  const exact = options.find((o) => o === trimmed);
+  const exact = options.find((option) => option === trimmed);
   if (exact) return exact;
 
-  // 2. Case-insensitive match
   const lower = trimmed.toLowerCase();
-  const caseMatch = options.find((o) => o.toLowerCase() === lower);
+  const caseMatch = options.find((option) => option.toLowerCase() === lower);
   if (caseMatch) return caseMatch;
 
-  // 3. Strip numbering prefix ("1. Accept" -> "Accept")
-  const stripped = trimmed.replace(/^\d+\.\s*/, "");
+  const stripped = trimmed.replace(/^\d+\.\s*/, '');
   const strippedMatch = options.find(
-    (o) => o.toLowerCase() === stripped.toLowerCase(),
+    (option) => option.toLowerCase() === stripped.toLowerCase(),
   );
   if (strippedMatch) return strippedMatch;
 
-  // 4. Substring match (response contains option or option contains response)
   for (const option of options) {
     if (
       lower.includes(option.toLowerCase()) ||
@@ -92,7 +86,6 @@ export function fuzzyMatchChoice(
     }
   }
 
-  // 5. Levenshtein distance — pick closest
   let bestOption = options[0];
   let bestDist = Infinity;
   for (const option of options) {
@@ -110,33 +103,51 @@ export function fuzzyMatchChoice(
  */
 export function parseFloatResponse(response: string): string {
   const trimmed = response.trim();
-  // Extract first number-like substring
   const match = trimmed.match(/-?\d+\.?\d*/);
   if (match) return match[0];
-  return "0.0";
+  return '0.0';
+}
+
+export function processStructuredResponse(
+  response: string,
+  agentName: string,
+  actionSpec: ConcordiaActionSpec,
+): StructuredSimulationResponse {
+  let result = stripNamePrefix(response, agentName);
+  result = stripQuotes(result);
+
+  if (actionSpec.output_type === 'choice') {
+    const action = fuzzyMatchChoice(result, actionSpec.options);
+    return { action, narration: null, intent: buildFallbackIntent(action, actionSpec) };
+  }
+
+  if (actionSpec.output_type === 'float') {
+    const action = parseFloatResponse(result);
+    return { action, narration: null, intent: buildFallbackIntent(action, actionSpec) };
+  }
+
+  const parsed = parseStructuredSimulationResponse(result, actionSpec, result);
+  if (parsed) {
+    return parsed;
+  }
+
+  const action = sanitizeFreeformSimulationResponse(result, actionSpec);
+  return {
+    action,
+    narration: actionSpec.tag === 'speech' ? action : null,
+    intent: buildFallbackIntent(action, actionSpec),
+  };
 }
 
 /**
- * Full post-processing pipeline for an agent response.
+ * Compatibility wrapper used by older code paths/tests that only need the action string.
  */
 export function processResponse(
   response: string,
   agentName: string,
   actionSpec: ConcordiaActionSpec,
 ): string {
-  let result = stripNamePrefix(response, agentName);
-  result = stripQuotes(result);
-
-  switch (actionSpec.output_type) {
-    case "choice":
-      return fuzzyMatchChoice(result, actionSpec.options);
-    case "float":
-      return parseFloatResponse(result);
-    case "free":
-      return sanitizeFreeformSimulationResponse(result, actionSpec);
-    default:
-      return result;
-  }
+  return processStructuredResponse(response, agentName, actionSpec).action;
 }
 
 /**
@@ -144,7 +155,7 @@ export function processResponse(
  * prompt injection when memory entries are injected into prompts.
  */
 export function sanitizeContent(content: string): string {
-  return content.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // ============================================================================

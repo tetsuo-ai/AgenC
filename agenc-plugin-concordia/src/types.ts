@@ -31,6 +31,208 @@ export type {
 } from "./checkpoint-manifest.js";
 
 // ============================================================================
+// Lifecycle and structured world state types
+// ============================================================================
+
+export type SimulationLifecycleStatus =
+  | "launching"
+  | "running"
+  | "paused"
+  | "stopping"
+  | "stopped"
+  | "finished"
+  | "failed"
+  | "archived"
+  | "deleted";
+
+export type WorldTaskStatus = "pending" | "active" | "completed" | "blocked";
+
+export interface WorldCoordinate {
+  readonly location_id: string | null;
+  readonly scene_id: string | null;
+  readonly zone_id: string | null;
+  readonly label?: string | null;
+}
+
+export interface WorldTask {
+  readonly task_id: string;
+  readonly title: string;
+  readonly status: WorldTaskStatus;
+  readonly assigned_agent_id?: string | null;
+  readonly description?: string | null;
+  readonly due_step?: number | null;
+  readonly scene_id?: string | null;
+  readonly zone_id?: string | null;
+  readonly location_id?: string | null;
+}
+
+export interface RelationshipSummary {
+  readonly otherAgentId: string;
+  readonly relationship: string;
+  readonly sentiment: number;
+  readonly interactionCount: number;
+}
+
+export interface WorldFactSummary {
+  readonly content: string;
+  readonly observedBy: string;
+  readonly confirmations: number;
+}
+
+export interface WorldObjectState {
+  readonly object_id: string;
+  readonly label: string;
+  readonly kind: string;
+  readonly location_id: string | null;
+  readonly scene_id: string | null;
+  readonly zone_id: string | null;
+  readonly status?: string | null;
+  readonly tags: readonly string[];
+  readonly metadata?: Record<string, unknown> | null;
+}
+
+export interface AgentIntentTask {
+  readonly title: string;
+  readonly status?: WorldTaskStatus | null;
+  readonly note?: string | null;
+}
+
+export interface AgentIntentWorldObjectUpdate {
+  readonly object_id: string;
+  readonly label?: string | null;
+  readonly kind?: string | null;
+  readonly location_id?: string | null;
+  readonly scene_id?: string | null;
+  readonly zone_id?: string | null;
+  readonly status?: string | null;
+  readonly tags?: readonly string[];
+}
+
+export interface AgentIntentRelationshipUpdate {
+  readonly other_agent_id: string;
+  readonly relationship?: string | null;
+  readonly sentiment_delta?: number | null;
+  readonly note?: string | null;
+}
+
+export interface AgentIntent {
+  readonly summary: string;
+  readonly mode:
+    | "action"
+    | "speech"
+    | "move"
+    | "interact"
+    | "observe"
+    | "wait"
+    | "choice"
+    | "measurement";
+  readonly destination: WorldCoordinate | null;
+  readonly target_agent_ids: readonly string[];
+  readonly target_object_ids: readonly string[];
+  readonly task: AgentIntentTask | null;
+  readonly inventory_add: readonly string[];
+  readonly inventory_remove: readonly string[];
+  readonly world_object_updates: readonly AgentIntentWorldObjectUpdate[];
+  readonly relationship_updates: readonly AgentIntentRelationshipUpdate[];
+  readonly notes: readonly string[];
+}
+
+export interface AgentOutcome {
+  readonly summary: string;
+  readonly narration: string | null;
+  readonly succeeded: boolean;
+  readonly scene_id?: string | null;
+  readonly zone_id?: string | null;
+  readonly location_id?: string | null;
+  readonly task_status?: WorldTaskStatus | null;
+  readonly inventory_add?: readonly string[];
+  readonly inventory_remove?: readonly string[];
+  readonly metadata?: Record<string, unknown> | null;
+}
+
+export interface WorldEvent {
+  readonly event_id?: string;
+  readonly type: string;
+  readonly step: number;
+  readonly timestamp: number;
+  readonly summary: string;
+  readonly agent_id?: string | null;
+  readonly agent_name?: string | null;
+  readonly scene_id?: string | null;
+  readonly zone_id?: string | null;
+  readonly location_id?: string | null;
+  readonly intent?: AgentIntent | null;
+  readonly outcome?: AgentOutcome | null;
+  readonly metadata?: Record<string, unknown> | null;
+}
+
+export interface EmbodiedAgentState {
+  readonly agent_id: string;
+  readonly agent_name: string;
+  readonly location_id: string | null;
+  readonly scene_id: string | null;
+  readonly zone_id: string | null;
+  readonly nearby_agent_ids: readonly string[];
+  readonly inventory: readonly string[];
+  readonly world_object_ids: readonly string[];
+  readonly relationships: readonly RelationshipSummary[];
+  readonly schedule: readonly WorldTask[];
+  readonly current_task: WorldTask | null;
+  readonly last_observation: string | null;
+  readonly last_action: string | null;
+  readonly last_intent: AgentIntent | null;
+  readonly last_outcome: AgentOutcome | null;
+  readonly turn_count: number;
+  readonly metadata?: Record<string, unknown> | null;
+}
+
+export interface WorldProjection {
+  readonly simulation_id: string;
+  readonly world_id: string;
+  readonly workspace_id: string;
+  readonly agent_id: string;
+  readonly clock: {
+    readonly tick: number;
+    readonly step: number;
+    readonly phase: SimulationLifecycleStatus;
+    readonly updated_at: number;
+  };
+  readonly premise: string;
+  readonly self: EmbodiedAgentState | null;
+  readonly active_scene_id: string | null;
+  readonly active_zone_id: string | null;
+  readonly active_location_id: string | null;
+  readonly visible_agents: readonly EmbodiedAgentState[];
+  readonly visible_objects: readonly WorldObjectState[];
+  readonly world_facts: readonly WorldFactSummary[];
+  readonly recent_events: readonly WorldEvent[];
+}
+
+export interface WorldStateSnapshot {
+  readonly simulation_id: string;
+  readonly world_id: string;
+  readonly workspace_id: string;
+  readonly lineage_id?: string | null;
+  readonly parent_simulation_id?: string | null;
+  readonly premise: string;
+  readonly clock: {
+    readonly tick: number;
+    readonly step: number;
+    readonly phase: SimulationLifecycleStatus;
+    readonly updated_at: number;
+  };
+  readonly active_scene_id: string | null;
+  readonly active_zone_id: string | null;
+  readonly active_location_id: string | null;
+  readonly agent_states: Record<string, EmbodiedAgentState>;
+  readonly world_objects: Record<string, WorldObjectState>;
+  readonly world_facts: readonly WorldFactSummary[];
+  readonly recent_events: readonly WorldEvent[];
+  readonly updated_at: number;
+  readonly snapshot_ref: string;
+}
+
+// ============================================================================
 // Bridge HTTP request/response types
 // ============================================================================
 
@@ -51,10 +253,13 @@ export interface ActRequest {
   readonly parent_simulation_id?: string | null;
   readonly action_spec: ConcordiaActionSpec;
   readonly turn_count?: number;
+  readonly world_projection?: WorldProjection | null;
 }
 
 export interface ActResponse {
   readonly action: string;
+  readonly narration?: string | null;
+  readonly intent?: AgentIntent | null;
 }
 
 export interface ObserveRequest {
@@ -127,7 +332,6 @@ export interface ResumeRequest {
 }
 
 export interface GeneratedAgent {
-
   readonly id: string;
   readonly name: string;
   readonly personality: string;
@@ -165,20 +369,12 @@ export interface EventNotification {
   readonly resolved_event?: string | null;
   readonly scene?: string | null;
   readonly metadata?: Record<string, unknown> | null;
+  readonly intent?: AgentIntent | null;
+  readonly outcome?: AgentOutcome | null;
+  readonly world_event?: WorldEvent | null;
 }
 
 export type SimulationCommand = "play" | "pause" | "step" | "stop";
-
-export type SimulationLifecycleStatus =
-  | "launching"
-  | "running"
-  | "paused"
-  | "stopping"
-  | "stopped"
-  | "finished"
-  | "failed"
-  | "archived"
-  | "deleted";
 
 export interface SimulationSummary {
   readonly simulation_id: string;
@@ -210,6 +406,13 @@ export interface SimulationRecord extends SimulationSummary {
   readonly gm_provider?: string;
 }
 
+export interface MemoryEntrySummary {
+  readonly content: string;
+  readonly role: string;
+  readonly timestamp: number;
+  readonly metadata?: Record<string, unknown>;
+}
+
 export interface AgentStateResponse {
   readonly simulationId?: string;
   readonly lineageId?: string | null;
@@ -221,26 +424,8 @@ export interface AgentStateResponse {
   readonly worldFacts: readonly WorldFactSummary[];
   readonly turnCount: number;
   readonly lastAction: string | null;
-}
-
-export interface MemoryEntrySummary {
-  readonly content: string;
-  readonly role: string;
-  readonly timestamp: number;
-  readonly metadata?: Record<string, unknown>;
-}
-
-export interface RelationshipSummary {
-  readonly otherAgentId: string;
-  readonly relationship: string;
-  readonly sentiment: number;
-  readonly interactionCount: number;
-}
-
-export interface WorldFactSummary {
-  readonly content: string;
-  readonly observedBy: string;
-  readonly confirmations: number;
+  readonly embodiedState?: EmbodiedAgentState | null;
+  readonly worldProjection?: WorldProjection | null;
 }
 
 export interface SimulationStatusResponse {
@@ -272,6 +457,8 @@ export interface SimulationEventsResponse {
   readonly events: readonly SimulationReplayEvent[];
   readonly next_cursor: string | null;
 }
+
+export type SimulationWorldStateResponse = WorldStateSnapshot;
 
 // ============================================================================
 // Plugin configuration
