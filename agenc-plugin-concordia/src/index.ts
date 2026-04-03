@@ -169,6 +169,18 @@ export type {
   ConcordiaMemoryNamespaceRefs,
 } from "./memory-namespaces.js";
 
+// Re-export benchmark alignment helpers (Phase 12)
+export {
+  MEMORY_ARENA_INSPIRED_SCENARIOS,
+  summarizeConcordiaBenchmarkResults,
+} from "./benchmark-alignment.js";
+export type {
+  ConcordiaBenchmarkDimension,
+  ConcordiaBenchmarkScenario,
+  ConcordiaBenchmarkScenarioResult,
+  ConcordiaBenchmarkSummary,
+} from "./benchmark-alignment.js";
+
 // Re-export migration compatibility helpers (Phase 11)
 export {
   buildConcordiaMigrationStatus,

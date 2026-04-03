@@ -66,4 +66,28 @@ describe("memory namespace resolution", () => {
     expect(resumed.lifecycle).toBe("lineage");
     expect(resumed.sharedMemory).toBe("shared");
   });
+
+  it("keeps concurrent runs of the same world isolated even when agent rosters overlap", () => {
+    const left = buildConcordiaMemoryNamespaces({
+      worldId: "market-town",
+      workspaceId: "ws-1",
+      simulationId: "sim-a",
+      lineageId: null,
+      parentSimulationId: null,
+    });
+    const right = buildConcordiaMemoryNamespaces({
+      worldId: "market-town",
+      workspaceId: "ws-1",
+      simulationId: "sim-b",
+      lineageId: null,
+      parentSimulationId: null,
+    });
+
+    expect(left.namespaces.worldScopeId).toBe("world:market-town::sim:sim-a");
+    expect(right.namespaces.worldScopeId).toBe("world:market-town::sim:sim-b");
+    expect(left.namespaces.worldScopeId).not.toBe(right.namespaces.worldScopeId);
+    expect(left.namespaces.identityWorkspaceId).not.toBe(right.namespaces.identityWorkspaceId);
+    expect(left.namespaces.graphWorkspaceId).not.toBe(right.namespaces.graphWorkspaceId);
+  });
+
 });

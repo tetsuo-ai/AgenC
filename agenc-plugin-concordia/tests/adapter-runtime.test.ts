@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const simulationRunnerMocks = vi.hoisted(() => {
   let nextPid = 4000;
@@ -79,10 +79,100 @@ function createSession(adapter: PrivateAdapter, simulationId: string, agentId: s
   });
 }
 
+function jsonResponse(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function flushCleanupTurn(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+const LOOPBACK_HOST = "127.0.0.1";
+const PLAY_CONTROL_PORT = 4101;
+const PLAY_EVENT_PORT = 4102;
+const STEP_CONTROL_PORT = 4201;
+const STEP_EVENT_PORT = 4202;
+
+function controlUrl(controlPort: number, command: string): string {
+  return `http://${LOOPBACK_HOST}:${controlPort}/simulation/${command}`;
+}
+
+function statusUrl(controlPort: number): string {
+  return `http://${LOOPBACK_HOST}:${controlPort}/simulation/status`;
+}
+
+function makeRunnerStatus(overrides: Record<string, unknown> = {}) {
+  return {
+    step: 2,
+    max_steps: 10,
+    running: true,
+    paused: false,
+    world_id: "world-sim-play",
+    simulation_id: "sim-play",
+    agent_count: 1,
+    last_step_outcome: "step_complete",
+    terminal_reason: null,
+    last_transition_at: 1,
+    ...overrides,
+  };
+}
+
+function stubLifecycleFetch(
+  controlPort: number,
+  command: "play" | "step",
+  statusPayload: Record<string, unknown>,
+) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === controlUrl(controlPort, command)) {
+      expect(init?.method).toBe("POST");
+      return jsonResponse({ status: "ok" });
+    }
+    if (url === statusUrl(controlPort)) {
+      return jsonResponse(statusPayload);
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+async function launchControllableSimulation(
+  adapter: PrivateAdapter,
+  params: {
+    readonly worldId: string;
+    readonly workspaceId: string;
+    readonly simulationId: string;
+    readonly premise: string;
+    readonly controlPort: number;
+    readonly eventPort: number;
+    readonly maxSteps?: number;
+  },
+): Promise<void> {
+  await adapter.handleLaunch({
+    world_id: params.worldId,
+    workspace_id: params.workspaceId,
+    simulation_id: params.simulationId,
+    agents: [{ agent_id: "agent-a", agent_name: "Agent A", personality: "steady" }],
+    premise: params.premise,
+    control_port: params.controlPort,
+    event_port: params.eventPort,
+    max_steps: params.maxSteps ?? 10,
+  });
+}
+
 describe("ConcordiaChannelAdapter registry-backed pending response handling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     simulationRunnerMocks.reset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("resolves a pending act via session fallback when request_id is missing", async () => {
@@ -405,5 +495,264 @@ describe("ConcordiaChannelAdapter registry-backed pending response handling", ()
       4_321,
     );
   });
+
+  it("advances a paused simulation past step 1 when play is issued", async () => {
+    const fetchMock = stubLifecycleFetch(
+      PLAY_CONTROL_PORT,
+      "play",
+      makeRunnerStatus({
+        world_id: "world-sim-play",
+        simulation_id: "sim-play",
+      }),
+    );
+
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    await adapter.initialize(makeContext() as never);
+    await launchControllableSimulation(adapter, {
+      worldId: "world-sim-play",
+      workspaceId: "ws-sim-play",
+      simulationId: "sim-play",
+      premise: "play premise",
+      controlPort: PLAY_CONTROL_PORT,
+      eventPort: PLAY_EVENT_PORT,
+    });
+
+    adapter.registry.updateLifecycle("sim-play", {
+      status: "paused",
+      lastCompletedStep: 1,
+      lastStepOutcome: "idle",
+    });
+
+    const status = await adapter.handleControlSimulation("sim-play", "play");
+
+    expect(status).toEqual(expect.objectContaining({
+      simulation_id: "sim-play",
+      status: "running",
+      paused: false,
+      step: 2,
+      last_step_outcome: "step_complete",
+    }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("advances exactly one step and remains paused when step is issued", async () => {
+    const fetchMock = stubLifecycleFetch(
+      STEP_CONTROL_PORT,
+      "step",
+      makeRunnerStatus({
+        paused: true,
+        world_id: "world-sim-step",
+        simulation_id: "sim-step",
+        last_step_outcome: "single_step_complete",
+      }),
+    );
+
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    await adapter.initialize(makeContext() as never);
+    await launchControllableSimulation(adapter, {
+      worldId: "world-sim-step",
+      workspaceId: "ws-sim-step",
+      simulationId: "sim-step",
+      premise: "step premise",
+      controlPort: STEP_CONTROL_PORT,
+      eventPort: STEP_EVENT_PORT,
+    });
+
+    adapter.registry.updateLifecycle("sim-step", {
+      status: "paused",
+      lastCompletedStep: 1,
+      lastStepOutcome: "idle",
+    });
+
+    const stepped = await adapter.handleControlSimulation("sim-step", "step");
+    const refreshed = await adapter.handleGetSimulationStatus("sim-step");
+
+    expect(stepped).toEqual(expect.objectContaining({
+      simulation_id: "sim-step",
+      status: "paused",
+      paused: true,
+      step: 2,
+    }));
+    expect(refreshed?.step).toBe(2);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/simulation/status"))).toHaveLength(2);
+  });
+
+  it("stops a simulation by clearing pending responses and shutting down the runner", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    await adapter.initialize(makeContext() as never);
+    await adapter.handleLaunch({
+      world_id: "world-stop",
+      workspace_id: "ws-stop",
+      simulation_id: "sim-stop",
+      agents: [{ agent_id: "agent-a", agent_name: "Agent A", personality: "steady" }],
+      premise: "stop premise",
+      control_port: 4301,
+      event_port: 4302,
+    });
+
+    const handle = adapter.registry.get("sim-stop");
+    const session = createSession(adapter, "sim-stop", "agent-a");
+    const pending = adapter.createPendingResponse(
+      handle,
+      "req-stop",
+      session.sessionId,
+      "agent-a",
+      5_000,
+      "timeout",
+      session.worldId,
+      3,
+      handle.simulationId,
+    ) as Promise<string>;
+
+    await adapter.cleanupSimulationHandle(handle, "stop requested", {
+      status: "stopped",
+      stopRunner: true,
+      removeSessions: true,
+      runPostCleanup: false,
+      clearMemoryContext: true,
+    });
+
+    await expect(pending).rejects.toThrow(/stop requested/i);
+    expect(adapter.registry.getPendingResponseCount()).toBe(0);
+    expect(simulationRunnerMocks.stopSimulationRunnerMock).toHaveBeenCalledOnce();
+    expect(adapter.registry.get("sim-stop")?.status).toBe("stopped");
+  });
+
+  it("terminalizes one simulation on unexpected child exit without corrupting others", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    await adapter.initialize(makeContext() as never);
+
+    await adapter.handleLaunch({
+      world_id: "world-sim-a",
+      workspace_id: "ws-sim-a",
+      simulation_id: "sim-a",
+      agents: [],
+      premise: "alpha premise",
+      control_port: 4401,
+      event_port: 4402,
+    });
+    await adapter.handleLaunch({
+      world_id: "world-sim-b",
+      workspace_id: "ws-sim-b",
+      simulation_id: "sim-b",
+      agents: [],
+      premise: "beta premise",
+      control_port: 4501,
+      event_port: 4502,
+    });
+
+    adapter.registry.updateLifecycle("sim-a", { status: "running" });
+    adapter.registry.updateLifecycle("sim-b", { status: "running" });
+    const runnerA = adapter.registry.get("sim-a")?.runner;
+    const runnerB = adapter.registry.get("sim-b")?.runner;
+
+    adapter.handleRunnerExit("sim-a", runnerA, 1, null);
+    await flushCleanupTurn();
+
+    expect(adapter.registry.get("sim-a")?.status).toBe("failed");
+    expect(adapter.registry.get("sim-a")?.error).toContain("runner exited code=1");
+    expect(adapter.registry.get("sim-b")?.status).toBe("running");
+    expect(adapter.registry.get("sim-b")?.runner).toBe(runnerB);
+  });
+
+  it("ignores events whose simulation identity does not match a known run", async () => {
+    const context = makeContext();
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    await adapter.initialize(context as never);
+    createHandle(adapter, "sim-known");
+
+    await adapter.handleEvent({
+      type: "resolution",
+      step: 4,
+      acting_agent: "agent-a",
+      content: "This should be ignored.",
+      world_id: "world-sim-known",
+      workspace_id: "ws-sim-known",
+      simulation_id: "sim-unknown",
+    });
+
+    expect(adapter.registry.listReplayEvents("sim-known")).toHaveLength(0);
+    expect(context.logger.warn).toHaveBeenCalledWith(
+      "[concordia] Ignoring event for unknown simulation sim-unknown",
+    );
+  });
+
+
+  it("resumes a stopped simulation into a lineage-linked child run without reusing sessions", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    await adapter.initialize(makeContext() as never);
+
+    const originalSession = createSession(adapter, "sim-a", "agent-a");
+    const resumed = await adapter.handleResume({
+      simulation_id: "sim-c",
+      checkpoint: {
+        checkpoint_id: "sim-a:step:5",
+        checkpoint_path: "/tmp/sim-a_step_5.json",
+        schema_version: 3,
+        version: 3,
+        world_id: "world-sim-a",
+        workspace_id: "ws-sim-a",
+        simulation_id: "sim-a",
+        lineage_id: "lineage-a",
+        parent_simulation_id: null,
+        step: 5,
+        timestamp: 123,
+        max_steps: 12,
+        user_id: null,
+        config: {
+          world_id: "world-sim-a",
+          workspace_id: "ws-sim-a",
+          simulation_id: "sim-a",
+          premise: "resume premise",
+          agents: [{ id: "agent-a", name: "Agent A", personality: "steady", goal: "watch" }],
+        },
+        restored_sessions: [],
+        scene_cursor: null,
+        runtime_cursor: {
+          current_step: 5,
+          start_step: 6,
+          max_steps: 12,
+          last_acting_agent: "agent-a",
+          last_step_outcome: "resolved",
+          engine_type: "simultaneous",
+        },
+        replay_cursor: {
+          replay_cursor: 9,
+          replay_event_count: 9,
+          last_event_id: "9",
+        },
+        world_state_refs: {
+          source: "inline_checkpoint",
+          gm_state_key: "gm_state",
+          entity_state_keys: ["agent-a"],
+          authoritative_snapshot_ref: null,
+        },
+        memory_namespace_refs: {},
+        subsystem_state: {
+          resumed: ["gm_state", "entity_states", "scene_cursor", "runtime_cursor", "replay_cursor", "session_mappings", "world_state_refs", "memory_namespaces"],
+          reset: ["control_port", "event_port", "pending_responses", "live_subscribers", "runner_process"],
+        },
+        entity_logs: {},
+        entity_states: {
+          "agent-a": { turn_count: 5, last_action: "Inspect the square" },
+        },
+        gm_state: {},
+        agent_ids: ["agent-a"],
+      },
+    });
+
+    const resumedSession = adapter.sessionManager.getAllForSimulation("sim-c", "ws-sim-a")[0];
+    expect(resumed).toEqual(expect.objectContaining({
+      simulation_id: "sim-c",
+      lineage_id: "lineage-a",
+      parent_simulation_id: "sim-a",
+      resumed_from_step: 5,
+    }));
+    expect(resumedSession?.sessionId).toBeTruthy();
+    expect(resumedSession?.sessionId).not.toBe(originalSession.sessionId);
+    expect(adapter.registry.get("sim-c")?.status).toBe("paused");
+    expect(adapter.registry.get("sim-c")?.lineageId).toBe("lineage-a");
+  });
+
 
 });

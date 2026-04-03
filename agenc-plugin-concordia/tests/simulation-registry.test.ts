@@ -273,4 +273,33 @@ describe("SimulationRegistry", () => {
     expect(registry.listReplayEvents("sim-keep")).toHaveLength(2);
   });
 
+  it("reserves distinct internal ports for concurrent simulations", async () => {
+    const registry = new SimulationRegistry();
+    const first = await registry.reservePorts({});
+    const second = await registry.reservePorts({});
+
+    expect(new Set([
+      first.controlPort,
+      first.eventPort,
+      second.controlPort,
+      second.eventPort,
+    ]).size).toBe(4);
+    expect(registry.getReservedPortCount()).toBe(4);
+
+    const handle = registry.createHandle({
+      request: {
+        ...buildHandleRequest("sim-ports", "world-ports", "ws-ports"),
+        control_port: first.controlPort,
+        event_port: first.eventPort,
+      },
+      status: "running",
+      currentAlias: false,
+      controlPort: first.controlPort,
+      eventPort: first.eventPort,
+    });
+    registry.releasePorts(handle);
+    expect(registry.getReservedPortCount()).toBe(2);
+  });
+
+
 });
