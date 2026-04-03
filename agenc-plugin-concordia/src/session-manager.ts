@@ -1,19 +1,24 @@
 /**
  * Session manager for the Concordia bridge.
  *
- * Maps agent_id -> session_id and tracks per-agent state (turn count,
- * last action, observations buffer).
+ * Maps simulation-scoped agent identities to deterministic session IDs and
+ * tracks per-agent state (turn count, last action, observations buffer).
  *
  * @module
  */
 
 import { createHash } from "node:crypto";
 
+export const CONCORDIA_SESSION_DERIVATION_VERSION = 2;
+
 export interface AgentSession {
   readonly agentId: string;
   readonly agentName: string;
   readonly worldId: string;
   readonly workspaceId: string;
+  readonly simulationId: string;
+  readonly lineageId?: string | null;
+  readonly parentSimulationId?: string | null;
   readonly sessionId: string;
   turnCount: number;
   lastAction: string | null;
@@ -22,14 +27,14 @@ export interface AgentSession {
 
 /**
  * Session ID derivation for Concordia agents.
- * The same world/agent tuple always produces the same sessionId so runs can
- * resume against stable memory threads.
+ * The same simulation/agent tuple always produces the same sessionId while
+ * same-world concurrent runs stay isolated from each other.
  */
 export function deriveSessionId(
-  worldId: string,
+  simulationId: string,
   agentId: string,
 ): string {
-  const input = `concordia:${worldId}:${agentId}`;
+  const input = `concordia:${simulationId}:${agentId}`;
   const hash = createHash("sha256").update(input).digest("hex");
   return `concordia:${hash}`;
 }
@@ -39,10 +44,10 @@ export class SessionManager {
 
   private keyFor(params: {
     agentId: string;
-    worldId: string;
+    simulationId: string;
     workspaceId: string;
   }): string {
-    return `${params.workspaceId}:${params.worldId}:${params.agentId}`;
+    return `${params.workspaceId}:${params.simulationId}:${params.agentId}`;
   }
 
   /**
@@ -53,6 +58,9 @@ export class SessionManager {
     agentName: string;
     worldId: string;
     workspaceId: string;
+    simulationId: string;
+    lineageId?: string | null;
+    parentSimulationId?: string | null;
   }): AgentSession {
     const key = this.keyFor(params);
     const existing = this.sessions.get(key);
@@ -63,7 +71,10 @@ export class SessionManager {
       agentName: params.agentName,
       worldId: params.worldId,
       workspaceId: params.workspaceId,
-      sessionId: deriveSessionId(params.worldId, params.agentId),
+      simulationId: params.simulationId,
+      lineageId: params.lineageId ?? null,
+      parentSimulationId: params.parentSimulationId ?? null,
+      sessionId: deriveSessionId(params.simulationId, params.agentId),
       turnCount: 0,
       lastAction: null,
       observations: [],
@@ -72,11 +83,19 @@ export class SessionManager {
     return session;
   }
 
-  get(agentId: string): AgentSession | undefined {
-    for (const session of this.sessions.values()) {
-      if (session.agentId === agentId) {
-        return session;
-      }
+  findForSimulation(params: {
+    agentId: string;
+    simulationId?: string;
+    workspaceId?: string;
+  }): AgentSession | undefined {
+    const matches = Array.from(this.sessions.values()).filter((session) => (
+      session.agentId === params.agentId &&
+      (params.simulationId === undefined || session.simulationId === params.simulationId) &&
+      (params.workspaceId === undefined || session.workspaceId === params.workspaceId)
+    ));
+
+    if (matches.length === 1) {
+      return matches[0];
     }
     return undefined;
   }
@@ -85,6 +104,7 @@ export class SessionManager {
     agentId: string;
     worldId: string;
     workspaceId?: string;
+    simulationId?: string;
   }): AgentSession | undefined;
   getForWorld(agentId: string, worldId: string): AgentSession | undefined;
   getForWorld(
@@ -93,6 +113,7 @@ export class SessionManager {
           agentId: string;
           worldId: string;
           workspaceId?: string;
+          simulationId?: string;
         }
       | string,
     worldIdArg?: string,
@@ -111,6 +132,12 @@ export class SessionManager {
       if (
         params.workspaceId !== undefined &&
         session.workspaceId !== params.workspaceId
+      ) {
+        continue;
+      }
+      if (
+        params.simulationId !== undefined &&
+        session.simulationId !== params.simulationId
       ) {
         continue;
       }
@@ -136,20 +163,58 @@ export class SessionManager {
     return Array.from(this.sessions.values());
   }
 
-  getAllForWorld(worldId: string, workspaceId?: string): AgentSession[] {
+  getAllForWorld(
+    worldId: string,
+    workspaceId?: string,
+    simulationId?: string,
+  ): AgentSession[] {
     return Array.from(this.sessions.values()).filter(
       (session) =>
         session.worldId === worldId &&
+        (workspaceId === undefined || session.workspaceId === workspaceId) &&
+        (simulationId === undefined || session.simulationId === simulationId),
+    );
+  }
+
+  getAllForSimulation(
+    simulationId: string,
+    workspaceId?: string,
+  ): AgentSession[] {
+    return Array.from(this.sessions.values()).filter(
+      (session) =>
+        session.simulationId === simulationId &&
         (workspaceId === undefined || session.workspaceId === workspaceId),
     );
+  }
+
+  clearSimulation(
+    simulationId?: string,
+    workspaceId?: string,
+  ): void {
+    if (simulationId === undefined) {
+      this.sessions.clear();
+      return;
+    }
+    for (const [key, session] of this.sessions.entries()) {
+      if (session.simulationId !== simulationId) {
+        continue;
+      }
+      if (workspaceId !== undefined && session.workspaceId !== workspaceId) {
+        continue;
+      }
+      this.sessions.delete(key);
+    }
   }
 
   clear(): void {
     this.sessions.clear();
   }
 
-  resetSimulation(): void {
-    this.clear();
+  resetSimulation(
+    simulationId?: string,
+    workspaceId?: string,
+  ): void {
+    this.clearSimulation(simulationId, workspaceId);
   }
 
   get size(): number {

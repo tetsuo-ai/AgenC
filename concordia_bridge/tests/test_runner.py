@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import builtins
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
+from concordia_bridge.bridge_types import (
+    AgentConfig,
+    SimulationConfig,
+    SimulationEvent,
+    build_simulation_config,
+)
 from concordia_bridge.observation_component import FreshObservationComponent
 from concordia_bridge.runner import (
+    _post_bridge_event,
     _configure_observation_override,
     _resolve_gm_api_key,
     create_embedder,
@@ -48,12 +55,34 @@ class TestSimulationConfig:
         assert config.bridge_url == "http://localhost:3200"
         assert config.event_port == 3201
         assert config.control_port == 3202
+        assert config.simultaneous_max_workers == 8
+        assert config.proxy_action_timeout_seconds == 120.0
+        assert config.proxy_action_max_retries == 2
+        assert config.proxy_retry_delay_seconds == 2.0
         assert config.reflection_interval == 5
         assert config.consolidation_interval == 20
 
     def test_agent_config_defaults(self) -> None:
         agent = AgentConfig(id="test", name="Test", personality="Nice")
         assert agent.goal == ""
+
+    def test_build_simulation_config_applies_runtime_budget_overrides(self) -> None:
+        config = build_simulation_config(
+            {
+                "world_id": "world-budget",
+                "workspace_id": "ws-budget",
+                "premise": "budget premise",
+                "simultaneous_max_workers": 3,
+                "proxy_action_timeout_seconds": 15.0,
+                "proxy_action_max_retries": 1,
+                "proxy_retry_delay_seconds": 0.5,
+            },
+            [],
+        )
+        assert config.simultaneous_max_workers == 3
+        assert config.proxy_action_timeout_seconds == 15.0
+        assert config.proxy_action_max_retries == 1
+        assert config.proxy_retry_delay_seconds == 0.5
 
 
 class TestRunnerApiKeyResolution:
@@ -204,3 +233,33 @@ class TestObservationOverride:
         )
 
         assert prefab.params == {"name": "conversation rules"}
+
+
+class TestBridgeEventPosting:
+    def test_posts_runner_events_to_bridge(self) -> None:
+        config = SimulationConfig(
+            world_id="test-world",
+            workspace_id="test-ws",
+            premise="Test premise",
+            agents=[],
+            simulation_id="sim-bridge",
+            bridge_url="http://127.0.0.1:3200",
+        )
+
+        with patch("concordia_bridge.runner.requests.post") as mock_post:
+            _post_bridge_event(
+                config,
+                SimulationEvent(
+                    type="step",
+                    step=4,
+                    simulation_id="sim-bridge",
+                    world_id="test-world",
+                    workspace_id="test-ws",
+                    timestamp=123.0,
+                ),
+            )
+
+        mock_post.assert_called_once()
+        _, kwargs = mock_post.call_args
+        assert kwargs["json"]["simulation_id"] == "sim-bridge"
+        assert kwargs["json"]["type"] == "step"

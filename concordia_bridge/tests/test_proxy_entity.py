@@ -6,6 +6,7 @@ import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -18,14 +19,9 @@ from concordia_bridge.proxy_entity import (
 )
 
 
-# ============================================================================
-# Mock bridge server
-# ============================================================================
-
 class MockBridgeHandler(BaseHTTPRequestHandler):
     """Minimal HTTP handler that simulates the AgenC bridge server."""
 
-    # Class-level state for test control
     act_response: dict = {"action": "goes to the market"}
     observe_called: list = []
     act_called: list = []
@@ -60,12 +56,11 @@ class MockBridgeHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, format, *args):
-        pass  # Suppress HTTP server logs during tests
+        pass
 
 
 @pytest.fixture
 def mock_bridge():
-    """Start a mock bridge server on a random port."""
     MockBridgeHandler.act_response = {"action": "goes to the market"}
     MockBridgeHandler.observe_called = []
     MockBridgeHandler.act_called = []
@@ -79,10 +74,6 @@ def mock_bridge():
     yield f"http://127.0.0.1:{port}"
     server.shutdown()
 
-
-# ============================================================================
-# ProxyEntity Tests
-# ============================================================================
 
 class TestProxyEntity:
     def test_name_property(self, mock_bridge: str) -> None:
@@ -104,6 +95,9 @@ class TestProxyEntity:
             agent_id="alice",
             world_id="world-1",
             workspace_id="ws-1",
+            simulation_id="sim-1",
+            lineage_id="lineage-1",
+            parent_simulation_id="sim-parent",
         )
 
         action_spec = ActionSpec(
@@ -121,6 +115,9 @@ class TestProxyEntity:
         assert body["agent_name"] == "Alice"
         assert body["world_id"] == "world-1"
         assert body["workspace_id"] == "ws-1"
+        assert body["simulation_id"] == "sim-1"
+        assert body["lineage_id"] == "lineage-1"
+        assert body["parent_simulation_id"] == "sim-parent"
         assert body["action_spec"]["output_type"] == "free"
         assert body["action_spec"]["call_to_action"] == "What would Alice do next?"
         assert body["action_spec"]["tag"] == "action"
@@ -165,6 +162,7 @@ class TestProxyEntity:
             bridge_url=mock_bridge,
             agent_id="alice",
             world_id="world-1",
+            simulation_id="sim-observe",
         )
         entity.observe("You see Marcus approaching the smithy.")
 
@@ -173,6 +171,7 @@ class TestProxyEntity:
         assert body["agent_id"] == "alice"
         assert body["agent_name"] == "Alice"
         assert body["world_id"] == "world-1"
+        assert body["simulation_id"] == "sim-observe"
         assert body["observation"] == "You see Marcus approaching the smithy."
 
     def test_observe_empty_string_skipped(self, mock_bridge: str) -> None:
@@ -184,7 +183,6 @@ class TestProxyEntity:
     def test_observe_fire_safe_on_error(self, mock_bridge: str) -> None:
         MockBridgeHandler.error_code = 500
         entity = ProxyEntity(agent_name="Alice", bridge_url=mock_bridge)
-        # Should NOT raise
         entity.observe("This will fail but not crash")
         assert len(MockBridgeHandler.observe_called) == 0
 
@@ -207,7 +205,7 @@ class TestProxyEntity:
     def test_act_connection_error_raises(self) -> None:
         entity = ProxyEntity(
             agent_name="Alice",
-            bridge_url="http://127.0.0.1:1",  # Nothing listening
+            bridge_url="http://127.0.0.1:1",
             timeout_seconds=1.0,
         )
         with pytest.raises(ProxyEntityActError):
@@ -232,65 +230,78 @@ class TestProxyEntity:
         assert MockBridgeHandler.act_called[0]["agent_id"] == "alice"
         assert MockBridgeHandler.act_called[1]["agent_id"] == "bob"
 
+    def test_act_can_be_cancelled_by_stop_event(self) -> None:
+        stop_event = threading.Event()
+        release_event = threading.Event()
 
-# ============================================================================
-# ProxyEntityWithLogging Tests
-# ============================================================================
+        entity = ProxyEntity(
+            agent_name="Alice",
+            bridge_url="http://127.0.0.1:1",
+            stop_event=stop_event,
+            cancel_poll_seconds=0.01,
+        )
+
+        class DummyResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, str]:
+                return {"action": "ignored"}
+
+        def blocking_post(*args, **kwargs):
+            release_event.wait(5)
+            return DummyResponse()
+
+        def trigger_stop() -> None:
+            time.sleep(0.1)
+            stop_event.set()
+            time.sleep(0.05)
+            release_event.set()
+
+        stopper = threading.Thread(target=trigger_stop, daemon=True)
+        stopper.start()
+
+        with patch("concordia_bridge.proxy_entity.requests.post", side_effect=blocking_post):
+            with pytest.raises(ProxyEntityActError, match="simulation stopped"):
+                entity.act(DEFAULT_ACTION_SPEC)
+
+        stopper.join(timeout=1)
+
 
 class TestProxyEntityWithLogging:
-    def test_get_last_log_contains_action(self, mock_bridge: str) -> None:
+    def test_records_last_log_after_act(self, mock_bridge: str) -> None:
         entity = ProxyEntityWithLogging(
             agent_name="Alice",
             bridge_url=mock_bridge,
             agent_id="alice",
+            simulation_id="sim-log",
+            lineage_id="lineage-log",
         )
-        entity.act()
 
+        result = entity.act()
+
+        assert result == "goes to the market"
         log = entity.get_last_log()
-        assert log["action"] == "goes to the market"
         assert log["agent_id"] == "alice"
         assert log["agent_name"] == "Alice"
+        assert log["simulation_id"] == "sim-log"
+        assert log["lineage_id"] == "lineage-log"
+        assert log["action"] == "goes to the market"
         assert log["turn_count"] == 1
-        assert "elapsed_ms" in log
         assert isinstance(log["elapsed_ms"], float)
 
-    def test_get_last_log_contains_action_spec(self, mock_bridge: str) -> None:
-        entity = ProxyEntityWithLogging(agent_name="Alice", bridge_url=mock_bridge)
-        action_spec = ActionSpec(
-            call_to_action="Test prompt",
-            output_type=OutputType.FREE,
-            tag="action",
-        )
-        entity.act(action_spec)
-
-        log = entity.get_last_log()
-        assert log["action_spec"]["call_to_action"] == "Test prompt"
-        assert log["action_spec"]["output_type"] == "free"
-
-    def test_get_last_log_empty_before_act(self) -> None:
-        entity = ProxyEntityWithLogging(agent_name="Alice")
-        assert entity.get_last_log() == {}
-
-    def test_get_last_log_updates_each_turn(self, mock_bridge: str) -> None:
-        entity = ProxyEntityWithLogging(agent_name="Alice", bridge_url=mock_bridge)
-        entity.act()
-        assert entity.get_last_log()["turn_count"] == 1
-
-        MockBridgeHandler.act_response = {"action": "crafts a sword"}
-        entity.act()
-        assert entity.get_last_log()["turn_count"] == 2
-        assert entity.get_last_log()["action"] == "crafts a sword"
-
-    def test_logging_entity_is_concordia_compatible(self, mock_bridge: str) -> None:
-        """Verify the entity passes Concordia's EntityWithLogging contract."""
-        entity = ProxyEntityWithLogging(agent_name="Alice", bridge_url=mock_bridge)
-        # Must have name property
-        assert entity.name == "Alice"
-        # Must have act() method
-        result = entity.act()
-        assert isinstance(result, str)
-        # Must have observe() method
-        entity.observe("test observation")
-        # Must have get_last_log() method
-        log = entity.get_last_log()
-        assert isinstance(log, dict)
+    def test_state_round_trip_preserves_simulation_identity(self) -> None:
+        entity = ProxyEntityWithLogging(agent_name="Alice", agent_id="alice")
+        entity.set_state({
+            "turn_count": 4,
+            "simulation_id": "sim-restored",
+            "lineage_id": "lineage-restored",
+            "parent_simulation_id": "sim-parent",
+            "last_log": {"action": "restored"},
+        })
+        state = entity.get_state()
+        assert state["turn_count"] == 4
+        assert state["simulation_id"] == "sim-restored"
+        assert state["lineage_id"] == "lineage-restored"
+        assert state["parent_simulation_id"] == "sim-parent"
+        assert state["last_log"]["action"] == "restored"

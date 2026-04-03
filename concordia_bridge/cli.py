@@ -19,11 +19,12 @@ import importlib
 import json
 import logging
 import sys
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agenc-concordia",
         description="AgenC x Concordia simulation bridge",
@@ -33,7 +34,6 @@ def main() -> None:
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    # --- run ---
     run_parser = subparsers.add_parser("run", help="Run a simulation")
     run_parser.add_argument(
         "--config", required=True,
@@ -44,7 +44,6 @@ def main() -> None:
     run_parser.add_argument("--event-port", type=int, default=3201)
     run_parser.add_argument("--control-port", type=int, default=3202)
 
-    # --- run-json ---
     run_json_parser = subparsers.add_parser(
         "run-json", help="Run a simulation from a JSON config file",
     )
@@ -53,7 +52,6 @@ def main() -> None:
         help="Path to a JSON file matching SimulationConfig fields",
     )
 
-    # --- resume ---
     resume_parser = subparsers.add_parser(
         "resume", help="Resume a simulation from a checkpoint",
     )
@@ -62,32 +60,40 @@ def main() -> None:
         help="Path to a checkpoint JSON file",
     )
 
-    # --- examples ---
     subparsers.add_parser("examples", help="List available example configs")
 
-    # --- status ---
     status_parser = subparsers.add_parser("status", help="Check simulation status")
     status_parser.add_argument("--control-port", type=int, default=3202)
+    return parser
 
-    args = parser.parse_args()
 
+def configure_logging(verbose: bool) -> None:
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
     )
 
-    if args.command == "run":
-        cmd_run(args)
-    elif args.command == "run-json":
-        cmd_run_json(args)
-    elif args.command == "resume":
-        cmd_resume(args)
-    elif args.command == "examples":
-        cmd_examples()
-    elif args.command == "status":
-        cmd_status(args)
-    else:
+
+def dispatch_command(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    command_handlers = {
+        "run": lambda: cmd_run(args),
+        "run-json": lambda: cmd_run_json(args),
+        "resume": lambda: cmd_resume(args),
+        "examples": cmd_examples,
+        "status": lambda: cmd_status(args),
+    }
+    handler = command_handlers.get(args.command)
+    if handler is None:
         parser.print_help()
+        return
+    handler()
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    configure_logging(args.verbose)
+    dispatch_command(parser, args)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -121,7 +127,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 def cmd_run_json(args: argparse.Namespace) -> None:
     """Run a simulation from a JSON config file."""
-    from concordia_bridge.bridge_types import AgentConfig, SimulationConfig
+    from concordia_bridge.bridge_types import AgentConfig, build_simulation_config
 
     try:
         with open(args.config_file, "r", encoding="utf-8") as f:
@@ -150,36 +156,16 @@ def cmd_run_json(args: argparse.Namespace) -> None:
             )
         )
 
-    config = SimulationConfig(
-        world_id=raw.get("world_id", "default"),
-        workspace_id=raw.get("workspace_id", "concordia-sim"),
-        premise=raw.get("premise", ""),
-        agents=agents,
-        user_id=raw.get("user_id"),
-        max_steps=raw.get("max_steps", 50),
-        gm_instructions=raw.get("gm_instructions", ""),
-        gm_model=raw.get("gm_model", "grok-3-mini"),
-        gm_provider=raw.get("gm_provider", "ollama"),
-        gm_api_key=raw.get("gm_api_key", ""),
-        gm_base_url=raw.get("gm_base_url", ""),
-        engine_type=raw.get("engine_type", "simultaneous"),
-        gm_prefab=raw.get("gm_prefab", "generic"),
-        bridge_url=raw.get("bridge_url", "http://localhost:3200"),
-        event_port=raw.get("event_port", 3201),
-        control_port=raw.get("control_port", 3202),
-        embedding_model=raw.get("embedding_model", "all-MiniLM-L6-v2"),
-        reflection_interval=raw.get("reflection_interval", 5),
-        consolidation_interval=raw.get("consolidation_interval", 20),
-        retention_interval=raw.get("retention_interval", 20),
-        encryption_key=raw.get("encryption_key", ""),
-        scenes=raw.get("scenes"),
-    )
+    config = build_simulation_config(raw, agents)
 
     _run_config(config)
 
 
 def _run_config(config) -> None:
+    from concordia_bridge.parent_death import install_parent_death_guard
     from concordia_bridge.runner import run_simulation
+
+    install_parent_death_guard()
 
     print(f"Running simulation: {config.world_id}")
     print(f"  Agents: {', '.join(a.name for a in config.agents)}")
@@ -215,6 +201,15 @@ def cmd_resume(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     config = simulation_config_from_checkpoint(checkpoint)
+    resumed_simulation_id = str(uuid4())
+    resumed_lineage_id = checkpoint.get("lineage_id") or checkpoint.get("simulation_id")
+    resumed_parent_simulation_id = checkpoint.get("simulation_id")
+    config = dataclasses.replace(
+        config,
+        simulation_id=resumed_simulation_id,
+        lineage_id=resumed_lineage_id,
+        parent_simulation_id=resumed_parent_simulation_id,
+    )
 
     print(f"Resuming simulation: {config.world_id}")
     print(f"  Checkpoint: {args.checkpoint}")

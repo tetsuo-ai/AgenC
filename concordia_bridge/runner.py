@@ -13,6 +13,7 @@ import logging
 import os
 import time
 from collections.abc import Collection, Sequence
+from dataclasses import asdict
 from typing import Optional
 
 import requests
@@ -36,6 +37,11 @@ from concordia_bridge.control_server import (
     start_control_server,
 )
 from concordia_bridge.checkpoint import save_checkpoint
+from concordia_bridge.simulation_identity import (
+    apply_identity_to_event,
+    identity_from_config,
+    with_identity_payload,
+)
 
 logger = logging.getLogger(__name__)
 _MAX_MULTIPLE_CHOICE_ATTEMPTS = 20
@@ -242,6 +248,12 @@ def run_simulation(
         config.max_steps,
     )
 
+    identity = identity_from_config(config)
+
+    def emit_event(event: SimulationEvent) -> None:
+        event_server.broadcast(event)
+        _post_bridge_event(config, event)
+
     # 1. Start event server
     event_server = EventServer(port=config.event_port)
     event_server.start()
@@ -249,12 +261,26 @@ def run_simulation(
     # 2. Create step controller and control server
     controller = StepController()
     sim_state = SimulationState()
+    checkpoint_runtime_cursor = (
+        checkpoint.get("runtime_cursor")
+        if checkpoint and isinstance(checkpoint.get("runtime_cursor"), dict)
+        else {}
+    )
+    initial_step = (
+        max(int(checkpoint_runtime_cursor.get("current_step", checkpoint.get("step", 0))), 0)
+        if checkpoint
+        else 0
+    )
     sim_state.update(
         max_steps=config.max_steps,
         world_id=config.world_id,
+        simulation_id=config.simulation_id,
         agent_count=len(config.agents),
         running=True,
-        step=max(int(checkpoint.get("step", 0)), 0) if checkpoint else 0,
+        step=initial_step,
+        last_step_outcome=(
+            checkpoint_runtime_cursor.get("last_step_outcome") if checkpoint else None
+        ),
     )
     control_srv = start_control_server(
         controller, sim_state, port=config.control_port,
@@ -272,6 +298,13 @@ def run_simulation(
                 agent_id=agent.id,
                 world_id=config.world_id,
                 workspace_id=config.workspace_id,
+                simulation_id=identity.simulation_id,
+                lineage_id=identity.lineage_id,
+                parent_simulation_id=identity.parent_simulation_id,
+                timeout_seconds=config.proxy_action_timeout_seconds,
+                max_retries=config.proxy_action_max_retries,
+                retry_delay_seconds=config.proxy_retry_delay_seconds,
+                stop_event=controller.stop_event,
             )
             for agent in config.agents
         ]
@@ -293,51 +326,99 @@ def run_simulation(
         # 7. Create instrumented engine
         if config.engine_type == "simultaneous":
             engine = InstrumentedSimultaneousEngine(
-                event_callback=event_server.broadcast,
+                event_callback=emit_event,
                 bridge_url=config.bridge_url,
                 world_id=config.world_id,
+                max_workers=config.simultaneous_max_workers,
+                simulation_id=identity.simulation_id,
+                workspace_id=config.workspace_id,
+                lineage_id=identity.lineage_id,
+                parent_simulation_id=identity.parent_simulation_id,
             )
         else:
             engine = InstrumentedSequentialEngine(
-                event_callback=event_server.broadcast,
+                event_callback=emit_event,
                 bridge_url=config.bridge_url,
                 world_id=config.world_id,
+                simulation_id=identity.simulation_id,
+                workspace_id=config.workspace_id,
+                lineage_id=identity.lineage_id,
+                parent_simulation_id=identity.parent_simulation_id,
             )
 
+        if checkpoint:
+            engine.restore_checkpoint_state(checkpoint, scenes=config.scenes)
+
         # 8. Run the simulation
-        def step_callback(step: int) -> None:
-            sim_state.update(step=step)
-            event_server.broadcast(SimulationEvent(
-                type="step",
+        def step_callback(step: int, outcome: str = "resolved") -> None:
+            sim_state.update(
                 step=step,
-                timestamp=time.time(),
-                metadata={"phase": "step_complete"},
+                running=not controller.is_stopped,
+                last_step_outcome=outcome,
+            )
+            emit_event(apply_identity_to_event(
+                SimulationEvent(
+                    type="step",
+                    step=step,
+                    timestamp=time.time(),
+                    world_id=config.world_id,
+                    workspace_id=config.workspace_id,
+                    metadata={
+                        "phase": "step_complete",
+                        "outcome": outcome,
+                    },
+                ),
+                identity,
+                world_id=config.world_id,
+                workspace_id=config.workspace_id,
             ))
 
         def checkpoint_callback(step: int) -> None:
+            checkpoint_state = engine.get_checkpoint_state(
+                max_steps=config.max_steps,
+                replay_event_count=event_server.event_count,
+            )
             save_checkpoint(
                 config=config,
                 step=step,
                 game_master=game_master,
                 entities=proxy_entities,
+                scene_cursor=checkpoint_state.get("scene_cursor"),
+                runtime_cursor=checkpoint_state.get("runtime_cursor"),
+                replay_cursor=checkpoint_state.get("replay_cursor"),
             )
 
-        engine.run_loop(
-            game_masters=[game_master],
-            entities=proxy_entities,
-            premise=config.premise,
-            max_steps=config.max_steps,
-            start_step=max(int(checkpoint.get("step", 0)), 0) + 1 if checkpoint else 1,
-            step_controller=controller,
-            step_callback=step_callback,
-            checkpoint_callback=checkpoint_callback,
-            scenes=config.scenes,
-        )
+        try:
+            engine.run_loop(
+                game_masters=[game_master],
+                entities=proxy_entities,
+                premise=config.premise,
+                max_steps=config.max_steps,
+                start_step=(_checkpoint_start_step(checkpoint) if checkpoint else 1),
+                step_controller=controller,
+                step_callback=step_callback,
+                checkpoint_callback=checkpoint_callback,
+                scenes=config.scenes,
+            )
+        except Exception as exc:
+            sim_state.update(
+                running=False,
+                paused=False,
+                terminal_reason=f"error:{type(exc).__name__}",
+                last_step_outcome="failed",
+            )
+            logger.exception("Simulation run failed")
+            raise
 
-        sim_state.update(running=False)
+        sim_state.update(
+            running=False,
+            paused=False,
+            terminal_reason="stopped" if controller.is_stopped else "completed",
+        )
 
         summary = {
             "world_id": config.world_id,
+            "simulation_id": config.simulation_id,
             "steps_completed": sim_state.step,
             "max_steps": config.max_steps,
             "agent_count": len(config.agents),
@@ -347,8 +428,10 @@ def run_simulation(
         return summary
 
     finally:
+        controller.stop()
         event_server.stop()
         control_srv.shutdown()
+        control_srv.server_close()
 
 
 def _setup_agents(config: SimulationConfig) -> None:
@@ -356,7 +439,7 @@ def _setup_agents(config: SimulationConfig) -> None:
     try:
         response = requests.post(
             f"{config.bridge_url}/setup",
-            json={
+            json=with_identity_payload({
                 "world_id": config.world_id,
                 "workspace_id": config.workspace_id,
                 "user_id": config.user_id,
@@ -370,13 +453,38 @@ def _setup_agents(config: SimulationConfig) -> None:
                     for agent in config.agents
                 ],
                 "premise": config.premise,
-            },
+            }, identity_from_config(config)),
             timeout=30,
         )
         response.raise_for_status()
         logger.info("Agent setup complete: %s", response.json())
     except Exception as exc:
         logger.warning("Agent setup via bridge failed: %s", exc)
+
+
+def _post_bridge_event(config: SimulationConfig, event: SimulationEvent) -> None:
+    """Send a simulation event to the bridge replay/control layer."""
+    try:
+        requests.post(
+            f"{config.bridge_url}/event",
+            json=asdict(event),
+            timeout=10,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Bridge event notification failed (simulation=%s step=%s type=%s): %s",
+            config.simulation_id,
+            event.step,
+            event.type,
+            exc,
+        )
+
+
+def _checkpoint_start_step(checkpoint: dict) -> int:
+    runtime_cursor = checkpoint.get("runtime_cursor")
+    if isinstance(runtime_cursor, dict):
+        return max(int(runtime_cursor.get("start_step", checkpoint.get("step", 0) + 1) or 1), 1)
+    return max(int(checkpoint.get("step", 0)), 0) + 1
 
 
 def _restore_checkpoint_state(

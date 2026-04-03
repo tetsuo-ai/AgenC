@@ -32,6 +32,31 @@ const DEFAULT_CONFIG: PeriodicTaskConfig = {
   retentionInterval: 20,
 };
 
+function buildLifecycleMarkerKey(
+  ctx: MemoryWiringContext,
+  kind: 'reflection' | 'consolidation' | 'retention',
+  agentId?: string,
+): string {
+  const suffix = kind === 'reflection' && agentId ? `:${agentId}:latest` : ':latest';
+  return `${ctx.namespaces.lifecycleKeyPrefix}:${kind}${suffix}`;
+}
+
+function buildLifecycleMarkerPayload(
+  ctx: MemoryWiringContext,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    worldId: ctx.worldId,
+    memoryScopeId: ctx.namespaces.worldScopeId,
+    simulationId: ctx.simulationId ?? ctx.worldId,
+    lineageId: ctx.lineageId ?? null,
+    effectiveStorageKey: ctx.effectiveStorageKey,
+    continuityMode: ctx.continuityMode,
+    timestamp: Date.now(),
+    ...extra,
+  };
+}
+
 /**
  * Check and run periodic memory tasks based on current step.
  * Fire-safe — errors are logged but never propagate.
@@ -97,26 +122,24 @@ async function runReflectionForAgent(
   if (ctx.lifecycle) {
     await ctx.lifecycle.reflectAgent({
       agentId,
-      sessionId: deriveSessionId(ctx.worldId, agentId),
-      workspaceId: ctx.workspaceId,
+      sessionId: deriveSessionId(ctx.simulationId ?? ctx.worldId, agentId),
+      workspaceId: ctx.namespaces.identityWorkspaceId,
     });
     return;
   }
 
   // Load the agent's identity
-  const identity = await ctx.identityManager.load(agentId, ctx.workspaceId);
+  const identity = await ctx.identityManager.load(agentId, ctx.namespaces.identityWorkspaceId);
   if (!identity) return;
 
   // Store a reflection marker so the system knows when it last ran
   await ctx.memoryBackend.set(
-    `${ctx.workspaceId}:reflection:${agentId}:latest`,
-    {
+    buildLifecycleMarkerKey(ctx, 'reflection', agentId),
+    buildLifecycleMarkerPayload(ctx, {
       agentId,
-      worldId: ctx.worldId,
-      timestamp: Date.now(),
       beliefCount: Object.keys(identity.beliefs).length,
       traitCount: identity.learnedTraits.length,
-    },
+    }),
   );
 }
 
@@ -128,17 +151,13 @@ async function runReflectionForAgent(
  */
 async function runConsolidation(ctx: MemoryWiringContext): Promise<void> {
   if (ctx.lifecycle) {
-    await ctx.lifecycle.consolidate({ workspaceId: ctx.workspaceId });
+    await ctx.lifecycle.consolidate({ workspaceId: ctx.namespaces.memoryWorkspaceId });
     return;
   }
 
   await ctx.memoryBackend.set(
-    `${ctx.workspaceId}:consolidation:${ctx.worldId}:latest`,
-    {
-      worldId: ctx.worldId,
-      timestamp: Date.now(),
-      status: "completed",
-    },
+    buildLifecycleMarkerKey(ctx, 'consolidation'),
+    buildLifecycleMarkerPayload(ctx, { status: 'completed' }),
   );
 }
 
@@ -155,12 +174,8 @@ async function runRetention(ctx: MemoryWiringContext): Promise<void> {
   }
 
   await ctx.memoryBackend.set(
-    `${ctx.workspaceId}:retention:${ctx.worldId}:latest`,
-    {
-      worldId: ctx.worldId,
-      timestamp: Date.now(),
-      status: "completed",
-    },
+    buildLifecycleMarkerKey(ctx, 'retention'),
+    buildLifecycleMarkerPayload(ctx, { status: 'completed' }),
   );
 }
 
@@ -202,11 +217,15 @@ export async function postSimulationCleanup(
   const summary: Record<string, unknown> = {
     worldId: ctx.worldId,
     workspaceId: ctx.workspaceId,
+    simulationId: ctx.simulationId ?? ctx.worldId,
+    lineageId: ctx.lineageId ?? null,
+    effectiveStorageKey: ctx.effectiveStorageKey,
+    continuityMode: ctx.continuityMode,
     agentCount: agentIds.length,
     timestamp: Date.now(),
   };
 
-  logger?.info?.(`[concordia] Post-simulation cleanup complete for ${ctx.worldId}`);
+  logger?.info?.(`[concordia] Post-simulation cleanup complete for ${ctx.worldId} (${ctx.effectiveStorageKey})`);
   return summary;
 }
 

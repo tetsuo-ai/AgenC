@@ -251,6 +251,26 @@ class TestRunLoop:
         action_events = [e for e in events if e.type == "action"]
         assert len(action_events) == 3
 
+    def test_observation_steps_advance_in_execution_order(self):
+        events = []
+        engine = InstrumentedSequentialEngine(
+            event_callback=events.append,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        alice = make_mock_entity("Alice", action="goes to market")
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[alice],
+                premise="Test premise",
+                max_steps=3,
+            )
+
+        observation_steps = [event.step for event in events if event.type == "observation"]
+        assert observation_steps == [1, 2, 3]
+
     def test_emits_premise_event(self):
         events = []
         engine = InstrumentedSequentialEngine(
@@ -325,6 +345,64 @@ class TestRunLoop:
         action_events = [e for e in events if e.type == "action"]
         assert len(action_events) <= 3  # Should stop early
 
+    def test_restore_checkpoint_state_skips_scene_restart_event(self):
+        events = []
+        engine = InstrumentedSequentialEngine(
+            event_callback=events.append,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        scene1 = type("Scene", (), {"num_rounds": 1, "scene_type": {"name": "intro"}})()
+        scene2 = type("Scene", (), {"num_rounds": 2, "scene_type": {"name": "market"}})()
+        engine.restore_checkpoint_state({
+            "step": 5,
+            "scene_cursor": {
+                "scene_index": 1,
+                "scene_round": 1,
+                "current_scene_name": "market",
+            },
+            "runtime_cursor": {
+                "current_step": 5,
+                "start_step": 6,
+                "max_steps": 8,
+                "last_step_outcome": "resolved",
+            },
+        }, scenes=[scene1, scene2])
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[make_mock_entity("A")],
+                max_steps=6,
+                start_step=6,
+                scenes=[scene1, scene2],
+            )
+
+        scene_events = [e for e in events if e.type == "scene_change"]
+        assert all(event.step != 0 for event in scene_events)
+
+    def test_get_checkpoint_state_reports_runtime_and_replay_cursor(self):
+        engine = InstrumentedSequentialEngine(
+            event_callback=lambda _event: None,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        scene = type("Scene", (), {"num_rounds": 2, "scene_type": {"name": "intro"}})()
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[make_mock_entity("A")],
+                max_steps=1,
+                scenes=[scene],
+            )
+
+        state = engine.get_checkpoint_state(max_steps=5, replay_event_count=4)
+        assert state["runtime_cursor"]["current_step"] == 1
+        assert state["runtime_cursor"]["engine_type"] == "sequential"
+        assert state["replay_cursor"]["replay_cursor"] == 4
+        assert state["scene_cursor"]["scene_index"] == 0
+
     def test_scene_transitions(self):
         events = []
         engine = InstrumentedSequentialEngine(
@@ -369,3 +447,65 @@ class TestRunLoop:
             )
 
         assert controller.wait_for_step_permission.call_count == 3
+
+
+    def test_stopped_controller_breaks_before_observation(self):
+        events = []
+        engine = InstrumentedSequentialEngine(
+            event_callback=events.append,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        alice = make_mock_entity("Alice", action="goes to market")
+
+        class StopAfterWaitController:
+            def __init__(self) -> None:
+                self.wait_calls = 0
+
+            def wait_for_step_permission(self) -> None:
+                self.wait_calls += 1
+
+            @property
+            def is_stopped(self) -> bool:
+                return True
+
+        controller = StopAfterWaitController()
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[alice],
+                max_steps=3,
+                step_controller=controller,
+            )
+
+        assert controller.wait_calls == 1
+        assert gm.act.call_count == 0
+        alice.observe.assert_not_called()
+        assert not [
+            event for event in events
+            if event.type in {"observation", "action", "resolution"}
+        ]
+
+    def test_invalid_actions_still_advance_step_callback(self):
+        callback = MagicMock()
+        engine = InstrumentedSequentialEngine(
+            event_callback=lambda e: None,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        hesitant = make_mock_entity("A", action="hesitates.")
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[hesitant],
+                max_steps=2,
+                step_callback=callback,
+            )
+
+        assert callback.call_count == 2
+        assert [record.args for record in callback.call_args_list] == [
+            (1, "invalid_action"),
+            (2, "invalid_action"),
+        ]

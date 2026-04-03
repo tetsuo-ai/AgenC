@@ -185,6 +185,9 @@ Last updated: 2026-03-25
   bundle around if it depends on `import.meta.url`; either make the package
   ESM-only or add a genuinely dual-format-safe path resolver.
 ## 2026-04-02
+- Concordia run isolation must use `simulationId` as the live run key. `worldId` is scenario metadata only; reusing it as the session namespace will collapse concurrent runs of the same world back together.
+- Concordia resume must mint a new `simulationId` and carry continuity through `lineageId` / `parentSimulationId`. Reusing the checkpoint run ID for the resumed run makes checkpoints, sessions, and live events indistinguishable.
+- Concordia bridge routes that create or mutate run state (`/setup`, `/act`, `/observe`, `/event`, `/checkpoint`) must reject missing `simulation_id` instead of silently deriving one from `worldId`. Silent fallback reintroduces cross-run collisions.
 
 - Concordia isolation must be keyed by world as well as agent. If the daemon session layer keys only by channel and sender, observations and history bleed across simulations with the same agent ID.
 - Concordia periodic memory tasks must run on completed simulation steps, not on every `/act` call. In simultaneous mode, per-agent action counting fires reflection/consolidation too often and distorts memory behavior.
@@ -193,3 +196,14 @@ Last updated: 2026-03-25
 - Concordia adapter session state must update `turnCount` and `lastAction` when `/act` returns successfully. Waiting for checkpoint/resume state to catch up leaves the live UI and prompt framing stale.
 - Concordia simultaneous and sequential engine `run_loop(...)` signatures must stay in lockstep for shared runner inputs like `scenes`. The Python runner always forwards scene configs, so a signature mismatch turns every launch into an immediate 500.
 - Concordia observation prompt overrides must preserve the upstream `call_to_make_observation` prefix and suffix around `{name}`. The custom `FreshObservationComponent` still relies on Concordia's stock parser contract, and changing the trailing prompt text will crash the first observation step.
+- In Concordia Phase 0 lifecycle work, stopping a simulation must short-circuit after the step gate and before every expensive phase: observation, action collection, resolution, checkpointing, and callback emission. If the engines only check stop before waiting, the sim can still hang or mutate state after a user presses Stop.
+- In Concordia bridge request routing, missing `request_id` metadata must not leave pending `/act` promises hanging. Use a unique session-level fallback only as a recovery path, and reject mismatched session responses immediately so the runner fails fast instead of timing out silently.
+- Concordia request correlation is only mandatory for actionable turns. `ingest_only` observations and other out-of-band bridge writes should bypass the runtime correlation guard, and adapter-side sends with no pending request should log at debug rather than warn.
+- Concordia session and agent-state lookups must never key on `agentId` alone once concurrent runs exist. Use `simulationId`-aware lookup APIs or the state/read path becomes ambiguous the moment the same agent appears in two runs.
+- Concordia TS/Python bridge payloads should be assembled through the shared simulation-identity helpers, not by hand. Rebuilding `simulation_id` / `lineage_id` / `parent_simulation_id` inline across adapters, runners, checkpoints, and events is how cross-run bugs creep back in.
+
+- Concordia bridge state must stay keyed by `simulationId` all the way through runner handles, pending responses, and session lookup. Keeping even one fallback singleton path in the adapter is enough to make concurrent sims bleed back together.
+- Concordia request-id recovery fallback must stay simulation-scoped. If a send path ever searches pending requests outside the matched simulation handle, one sim can resolve or reject another sim's `/act` promise.
+- Concordia browser refresh recovery should read the bridge registry (`GET /simulations`, `GET /simulations/:id`), not React-local launch state. The bridge is now the source of truth for active/recent sim summaries while it stays alive.
+- Concordia config reconstruction must use the shared `build_simulation_config(...)` helper. If CLI JSON launch and checkpoint resume rebuild `SimulationConfig` separately, defaults and identity fields drift and break parity between fresh runs and resumed runs.
+- The repo-root `scripts/techdebt.mjs` nesting scan is intended to measure control-block depth, not object-literal depth. If the report starts flagging builder-heavy files for “nested control flow,” fix the analyzer before doing broad refactors just to satisfy brace counting.

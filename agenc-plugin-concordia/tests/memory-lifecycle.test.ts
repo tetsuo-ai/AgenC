@@ -9,14 +9,15 @@ import {
   TRUST_SOURCE_EXTERNAL,
 } from "../src/memory-lifecycle.js";
 import type { MemoryWiringContext } from "../src/memory-wiring.js";
+import { buildBaseMemoryContextProps } from "./helpers/memory-context-fixture.js";
 import { deriveSessionId } from "../src/session-manager.js";
 
 function createMockContext(
   overrides?: Partial<MemoryWiringContext>,
 ): MemoryWiringContext {
+  const baseContext = buildBaseMemoryContextProps(overrides);
   return {
-    worldId: "test-world",
-    workspaceId: "test-ws",
+    ...baseContext,
     memoryBackend: {
       addEntry: vi.fn().mockResolvedValue({ id: "e1", timestamp: Date.now() }),
       getThread: vi.fn().mockResolvedValue([]),
@@ -39,7 +40,9 @@ function createMockContext(
       getRelationship: vi.fn().mockResolvedValue(null),
       listKnownAgents: vi.fn().mockResolvedValue([]),
       addWorldFact: vi.fn().mockResolvedValue({}),
+      confirmWorldFact: vi.fn().mockResolvedValue(null),
       getWorldFacts: vi.fn().mockResolvedValue([]),
+      checkCollectiveEmergence: vi.fn().mockResolvedValue([]),
     },
     ...overrides,
   };
@@ -49,7 +52,6 @@ describe("runPeriodicTasks", () => {
   it("runs reflection at configured interval", async () => {
     const ctx = createMockContext();
     await runPeriodicTasks(ctx, 5, ["alice", "bob"], { reflectionInterval: 5 });
-    // Should have stored reflection markers for both agents
     expect(ctx.memoryBackend.set).toHaveBeenCalledTimes(2);
   });
 
@@ -68,7 +70,7 @@ describe("runPeriodicTasks", () => {
     });
     expect(ctx.memoryBackend.set).toHaveBeenCalledWith(
       expect.stringContaining("consolidation"),
-      expect.objectContaining({ status: "completed" }),
+      expect.objectContaining({ status: "completed", simulationId: "sim-test" }),
     );
   });
 
@@ -81,7 +83,7 @@ describe("runPeriodicTasks", () => {
     });
     expect(ctx.memoryBackend.set).toHaveBeenCalledWith(
       expect.stringContaining("retention"),
-      expect.objectContaining({ status: "completed" }),
+      expect.objectContaining({ status: "completed", simulationId: "sim-test" }),
     );
   });
 
@@ -90,24 +92,23 @@ describe("runPeriodicTasks", () => {
     (ctx.identityManager.load as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("identity load failed"),
     );
-    // Should not throw
     await runPeriodicTasks(ctx, 5, ["alice"], { reflectionInterval: 5 });
   });
 
   it("prefers runtime lifecycle hooks when available", async () => {
     const ctx = createMockContext({
       lifecycle: {
-      reflectAgent: vi.fn().mockResolvedValue(true),
-      consolidate: vi.fn().mockResolvedValue({
-        processed: 5,
-        consolidated: 2,
-        skippedDuplicates: 0,
-        durationMs: 10,
-      }),
-      retain: vi.fn().mockResolvedValue({
-        expiredDeleted: 0,
-        logsDeleted: 0,
-      }),
+        reflectAgent: vi.fn().mockResolvedValue(true),
+        consolidate: vi.fn().mockResolvedValue({
+          processed: 5,
+          consolidated: 2,
+          skippedDuplicates: 0,
+          durationMs: 10,
+        }),
+        retain: vi.fn().mockResolvedValue({
+          expiredDeleted: 0,
+          logsDeleted: 0,
+        }),
       },
     });
 
@@ -119,11 +120,11 @@ describe("runPeriodicTasks", () => {
 
     expect(ctx.lifecycle.reflectAgent).toHaveBeenCalledWith({
       agentId: "alice",
-      sessionId: deriveSessionId("test-world", "alice"),
-      workspaceId: "test-ws",
+      sessionId: deriveSessionId("sim-test", "alice"),
+      workspaceId: ctx.namespaces.identityWorkspaceId,
     });
     expect(ctx.lifecycle.consolidate).toHaveBeenCalledWith({
-      workspaceId: "test-ws",
+      workspaceId: ctx.namespaces.memoryWorkspaceId,
     });
     expect(ctx.lifecycle.retain).toHaveBeenCalled();
   });
@@ -134,8 +135,8 @@ describe("postSimulationCleanup", () => {
     const ctx = createMockContext();
     const summary = await postSimulationCleanup(ctx, ["alice", "bob"]);
     expect(summary.worldId).toBe("test-world");
+    expect(summary.simulationId).toBe("sim-test");
     expect(summary.agentCount).toBe(2);
-    // Should have called set for consolidation + retention + 2 reflections
     expect(ctx.memoryBackend.set).toHaveBeenCalledTimes(4);
   });
 });

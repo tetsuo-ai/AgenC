@@ -15,15 +15,22 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Callable, Optional, Sequence
+from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import Callable, Optional, Sequence, TypedDict
 
 import requests
 
+from concordia.components.game_master import next_acting as next_acting_components
 from concordia.typing.entity import Entity, ActionSpec, OutputType
 from concordia.environment.engine import Engine
 from concordia.environment import engine as engine_lib
 
 from concordia_bridge.bridge_types import SimulationEvent
+from concordia_bridge.simulation_identity import (
+    SimulationIdentity,
+    apply_identity_to_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +79,30 @@ def sanitize_story_text(text: str) -> str:
     return cleaned.strip()
 
 
+@dataclass
+class _SceneState:
+    index: int = 0
+    round: int = 0
+    current: object | None = None
+
+
+CheckpointCallback = Optional[Callable[[int], None]]
+StepCallback = Optional[Callable[..., None]]
+LoopStepDisposition = str
+
+
+class RunLoopOptions(TypedDict, total=False):
+    premise: str
+    max_steps: int
+    verbose: bool
+    log: bool
+    checkpoint_callback: CheckpointCallback
+    step_controller: object
+    step_callback: StepCallback
+    scenes: Optional[list]
+    start_step: int
+
+
 class InstrumentedSequentialEngine(Engine):
     """Sequential simulation engine with event hooks for real-time streaming.
 
@@ -85,6 +116,10 @@ class InstrumentedSequentialEngine(Engine):
         event_callback: Callable[[SimulationEvent], None],
         bridge_url: str = "http://localhost:3200",
         world_id: str = "default",
+        simulation_id: str = "",
+        workspace_id: str = "",
+        lineage_id: Optional[str] = None,
+        parent_simulation_id: Optional[str] = None,
         call_to_make_observation: str = (
             "What is the current situation faced by {name}? "
             "What do they now observe? Only include information of which "
@@ -99,9 +134,16 @@ class InstrumentedSequentialEngine(Engine):
         ),
         call_to_check_termination: str = "Is the game/simulation finished?",
     ) -> None:
-        self._event_callback = event_callback
-        self._bridge_url = bridge_url.rstrip("/")
+        self._raw_event_callback = event_callback
+        del bridge_url
         self._world_id = world_id
+        self._identity = SimulationIdentity(
+            simulation_id=simulation_id,
+            lineage_id=lineage_id,
+            parent_simulation_id=parent_simulation_id,
+        )
+        self._workspace_id = workspace_id
+        self._event_callback = lambda event: self._raw_event_callback(self._decorate_event(event))
         self._call_to_make_observation = call_to_make_observation
         self._call_to_next_acting = call_to_next_acting
         self._call_to_next_action_spec = call_to_next_action_spec
@@ -109,6 +151,157 @@ class InstrumentedSequentialEngine(Engine):
         self._call_to_check_termination = call_to_check_termination
         self._current_step = 0
         self._last_acting_entity_name: Optional[str] = None
+        self._last_step_outcome: Optional[str] = None
+        self._scene_state: Optional[_SceneState] = None
+        self._premise_emitted = False
+
+    def _emit_premise(
+        self,
+        game_master: Entity,
+        premise: str,
+        start_step: int,
+    ) -> None:
+        if not premise:
+            return
+        if start_step > 1 or self._premise_emitted:
+            self._premise_emitted = True
+            return
+        game_master.observe(f"[event] {premise}")
+        self._premise_emitted = True
+        self._event_callback(SimulationEvent(
+            type="step",
+            step=0,
+            timestamp=time.time(),
+            content=premise,
+            metadata={"phase": "premise"},
+        ))
+
+    def _scene_name(self, scene: object, fallback_index: int) -> str:
+        scene_type = getattr(scene, "scene_type", None)
+        if isinstance(scene_type, dict):
+            name = scene_type.get("name")
+            if isinstance(name, str) and name:
+                return name
+        return str(fallback_index)
+
+    def _initialize_scene_state(
+        self,
+        scenes: Optional[Sequence[object]],
+    ) -> _SceneState:
+        if self._scene_state is not None:
+            state = _SceneState(
+                index=self._scene_state.index,
+                round=self._scene_state.round,
+            )
+            if scenes and 0 <= state.index < len(scenes):
+                state.current = scenes[state.index]
+            else:
+                state.current = self._scene_state.current
+            self._scene_state = state
+            return state
+
+        current_scene = scenes[0] if scenes else None
+        state = _SceneState(current=current_scene)
+        self._scene_state = state
+        if current_scene is not None:
+            self._event_callback(SimulationEvent(
+                type="scene_change",
+                step=0,
+                timestamp=time.time(),
+                scene=self._scene_name(current_scene, state.index),
+                content=f"Scene started: {state.index}",
+            ))
+        return state
+
+    def _advance_scene_state(
+        self,
+        step: int,
+        scenes: Optional[Sequence[object]],
+        state: _SceneState,
+    ) -> None:
+        self._scene_state = state
+        if not scenes or state.current is None:
+            return
+
+        state.round += 1
+        num_rounds = getattr(state.current, "num_rounds", None) or 999
+        if state.round <= num_rounds:
+            self._scene_state = state
+            return
+
+        state.index += 1
+        state.round = 0
+        if state.index < len(scenes):
+            state.current = scenes[state.index]
+            self._scene_state = state
+            self._event_callback(SimulationEvent(
+                type="scene_change",
+                step=step,
+                timestamp=time.time(),
+                scene=self._scene_name(state.current, state.index),
+                content=f"Scene transition to scene {state.index}",
+            ))
+            return
+
+        state.current = None
+        self._scene_state = state
+
+    def _engine_type(self) -> str:
+        return "sequential"
+
+    def restore_checkpoint_state(
+        self,
+        checkpoint: dict,
+        scenes: Optional[Sequence[object]] = None,
+    ) -> None:
+        runtime_cursor = checkpoint.get("runtime_cursor") if isinstance(checkpoint.get("runtime_cursor"), dict) else {}
+        scene_cursor = checkpoint.get("scene_cursor") if isinstance(checkpoint.get("scene_cursor"), dict) else {}
+        self._current_step = int(runtime_cursor.get("current_step", checkpoint.get("step", 0)) or 0)
+        self._last_acting_entity_name = runtime_cursor.get("last_acting_agent")
+        self._last_step_outcome = runtime_cursor.get("last_step_outcome")
+        self._premise_emitted = self._current_step > 0
+        if scene_cursor:
+            scene_index = int(scene_cursor.get("scene_index", 0) or 0)
+            current_scene = None
+            if scenes and 0 <= scene_index < len(scenes):
+                current_scene = scenes[scene_index]
+            self._scene_state = _SceneState(
+                index=scene_index,
+                round=int(scene_cursor.get("scene_round", 0) or 0),
+                current=current_scene,
+            )
+
+    def get_checkpoint_state(
+        self,
+        *,
+        max_steps: int,
+        replay_event_count: int,
+    ) -> dict[str, object]:
+        scene_cursor = None
+        if self._scene_state is not None:
+            scene_cursor = {
+                "scene_index": self._scene_state.index,
+                "scene_round": self._scene_state.round,
+                "current_scene_name": self._scene_name(self._scene_state.current, self._scene_state.index)
+                if self._scene_state.current is not None
+                else None,
+            }
+        return {
+            "scene_cursor": scene_cursor,
+            "runtime_cursor": {
+                "current_step": self._current_step,
+                "start_step": self._current_step + 1,
+                "max_steps": max_steps,
+                "last_acting_agent": self._last_acting_entity_name,
+                "last_step_outcome": self._last_step_outcome,
+                "engine_type": self._engine_type(),
+            },
+            "replay_cursor": {
+                "replay_cursor": replay_event_count,
+                "replay_event_count": replay_event_count,
+                "last_event_id": str(replay_event_count) if replay_event_count > 0 else None,
+            },
+        }
 
     def build_entity_action_spec(self, entity: Entity) -> ActionSpec:
         """Build an explicit, per-entity action prompt for the next move."""
@@ -142,6 +335,40 @@ class InstrumentedSequentialEngine(Engine):
             )
             fallback_entity = type("FallbackEntity", (), {"name": entity_name})()
             return self.build_entity_action_spec(fallback_entity)
+
+    def _set_active_entity_context(
+        self,
+        game_master: Entity,
+        entity_name: str | None,
+    ) -> None:
+        """Mirror the active actor into the GM's NextActing component when available."""
+        self._last_acting_entity_name = entity_name
+        get_component = getattr(game_master, "get_component", None)
+        if not callable(get_component):
+            return
+        try:
+            next_acting_component = game_master.get_component(
+                next_acting_components.DEFAULT_NEXT_ACTING_COMPONENT_KEY,
+                type_=next_acting_components.NextActing,
+            )
+        except Exception:
+            return
+
+        set_state = getattr(next_acting_component, "set_state", None)
+        if not callable(set_state):
+            return
+
+        get_state = getattr(next_acting_component, "get_state", None)
+        try:
+            state = dict(get_state() or {}) if callable(get_state) else {}
+            state["currently_active_player"] = entity_name
+            set_state(state)
+        except Exception as exc:
+            logger.debug(
+                "Unable to sync GM active entity context for %s: %s",
+                self._world_id,
+                exc,
+            )
 
     def make_observation(self, game_master: Entity, entity: Entity) -> str:
         """Generate observation for an entity and emit event."""
@@ -179,7 +406,7 @@ class InstrumentedSequentialEngine(Engine):
                 next_entity = entity
                 break
 
-        self._last_acting_entity_name = next_entity.name
+        self._set_active_entity_context(game_master, next_entity.name)
         return (
             next_entity,
             self.build_entity_action_spec_from_game_master(
@@ -212,9 +439,6 @@ class InstrumentedSequentialEngine(Engine):
             content=event,
             resolved_event=resolved,
         ))
-
-        # Notify bridge for social memory recording
-        self._notify_bridge_event(event, resolved)
 
     def terminate(self, game_master: Entity) -> bool:
         """Check if the simulation should end."""
@@ -252,6 +476,87 @@ class InstrumentedSequentialEngine(Engine):
                 return gm
         return game_master
 
+    def _initialize_run_loop(
+        self,
+        game_masters: Sequence[Entity],
+        premise: str,
+        scenes: Optional[list],
+        start_step: int,
+    ) -> tuple[Entity, _SceneState]:
+        gm = game_masters[0]
+        self._emit_premise(gm, premise, start_step)
+        scene_state = self._initialize_scene_state(scenes)
+        return gm, scene_state
+
+    def _prepare_loop_step(
+        self,
+        step: int,
+        gm: Entity,
+        game_masters: Sequence[Entity],
+        entities: Sequence[Entity],
+        step_controller: object,
+        scenes: Optional[list],
+        scene_state: _SceneState,
+        step_callback: StepCallback,
+    ) -> tuple[LoopStepDisposition, Entity]:
+        self._current_step = step
+
+        if step_controller and hasattr(step_controller, "wait_for_step_permission"):
+            step_controller.wait_for_step_permission()
+
+        if self._stop_requested(step_controller, "before_step"):
+            return "break", gm
+
+        if not self._validate_pre_step(gm, entities):
+            logger.warning("Pre-step validation failed at step %d — skipping", step)
+            self._finish_step(step, "skipped_pre_step_validation", step_callback)
+            return "continue", gm
+
+        if self.terminate(gm):
+            return "break", gm
+
+        self._advance_scene_state(step, scenes, scene_state)
+
+        if len(game_masters) > 1:
+            gm = self.next_game_master(gm, game_masters)
+
+        return "proceed", gm
+
+    def _iter_prepared_steps(
+        self,
+        game_masters: Sequence[Entity],
+        entities: Sequence[Entity],
+        premise: str,
+        max_steps: int,
+        step_controller: object,
+        step_callback: StepCallback,
+        scenes: Optional[list],
+        start_step: int,
+    ) -> Iterator[tuple[int, Entity]]:
+        gm, scene_state = self._initialize_run_loop(
+            game_masters,
+            premise,
+            scenes,
+            start_step,
+        )
+
+        for step in range(start_step, max_steps + 1):
+            disposition, gm = self._prepare_loop_step(
+                step,
+                gm,
+                game_masters,
+                entities,
+                step_controller,
+                scenes,
+                scene_state,
+                step_callback,
+            )
+            if disposition == "break":
+                break
+            if disposition == "continue":
+                continue
+            yield step, gm
+
     def run_loop(
         self,
         game_masters: Sequence[Entity],
@@ -260,88 +565,38 @@ class InstrumentedSequentialEngine(Engine):
         max_steps: int = 100,
         verbose: bool = False,
         log: bool = False,
-        checkpoint_callback: Optional[Callable[[int], None]] = None,
+        checkpoint_callback: CheckpointCallback = None,
         step_controller: object = None,
-        step_callback: Optional[Callable] = None,
+        step_callback: StepCallback = None,
         scenes: Optional[list] = None,
         start_step: int = 1,
     ) -> None:
         """Run the full simulation loop with optional scene support."""
-        gm = game_masters[0]
-
-        # Inject premise
-        if premise and start_step <= 1:
-            gm.observe(f"[event] {premise}")
-            self._event_callback(SimulationEvent(
-                type="step",
-                step=0,
-                timestamp=time.time(),
-                content=premise,
-                metadata={"phase": "premise"},
-            ))
-
-        # Scene tracking (Phase 7.2)
-        scene_index = 0
-        scene_round = 0
-        current_scene = scenes[0] if scenes else None
-        if current_scene:
-            self._event_callback(SimulationEvent(
-                type="scene_change",
-                step=0,
-                timestamp=time.time(),
-                scene=getattr(current_scene, "scene_type", {}).get("name", "scene_0")
-                    if isinstance(getattr(current_scene, "scene_type", None), dict)
-                    else str(scene_index),
-                content=f"Scene started: {scene_index}",
-            ))
-
-        for step in range(start_step, max_steps + 1):
-            self._current_step = step
-
-            # Optional step controller (play/pause/step)
-            if step_controller and hasattr(step_controller, "wait_for_step_permission"):
-                step_controller.wait_for_step_permission()
-
-            # Pre-step validation (Phase 8.5)
-            if not self._validate_pre_step(gm, entities):
-                logger.warning("Pre-step validation failed at step %d — skipping", step)
-                continue
-
-            # Check termination
-            if self.terminate(gm):
-                break
-
-            # Scene transition check (Phase 7.2)
-            if scenes and current_scene:
-                scene_round += 1
-                num_rounds = getattr(current_scene, "num_rounds", None) or 999
-                if scene_round > num_rounds:
-                    scene_index += 1
-                    scene_round = 0
-                    if scene_index < len(scenes):
-                        current_scene = scenes[scene_index]
-                        self._event_callback(SimulationEvent(
-                            type="scene_change",
-                            step=step,
-                            timestamp=time.time(),
-                            scene=str(scene_index),
-                            content=f"Scene transition to scene {scene_index}",
-                        ))
-                    else:
-                        current_scene = None  # No more scenes
-
-            # Multi-GM selection
-            if len(game_masters) > 1:
-                gm = self.next_game_master(gm, game_masters)
-
-            # Generate observations for all entities
+        for step, gm in self._iter_prepared_steps(
+            game_masters,
+            entities,
+            premise,
+            max_steps,
+            step_controller,
+            step_callback,
+            scenes,
+            start_step,
+        ):
+            stop_during_observation = False
             for entity in entities:
+                if self._stop_requested(step_controller, f"before_observation:{entity.name}"):
+                    stop_during_observation = True
+                    break
                 self.make_observation(gm, entity)
 
-            # Determine who acts
+            if stop_during_observation or self._stop_requested(step_controller, "before_next_acting"):
+                break
+
             acting_entity, action_spec = self.next_acting(gm, entities)
 
-            # Entity acts
+            if self._stop_requested(step_controller, f"before_action:{acting_entity.name}"):
+                break
+
             try:
                 raw_action = acting_entity.act(action_spec)
             except Exception as exc:
@@ -353,6 +608,7 @@ class InstrumentedSequentialEngine(Engine):
                     agent_name=acting_entity.name,
                     content=f"Agent action failed: {exc}",
                 ))
+                self._finish_step(step, "agent_action_failed", step_callback)
                 continue
 
             if is_invalid_agent_action(raw_action):
@@ -370,6 +626,7 @@ class InstrumentedSequentialEngine(Engine):
                     content="Dropped invalid action text before GM resolution.",
                     metadata={"raw_action": raw_action},
                 ))
+                self._finish_step(step, "invalid_action", step_callback)
                 continue
 
             event_text = f"{acting_entity.name}: {raw_action}"
@@ -383,20 +640,75 @@ class InstrumentedSequentialEngine(Engine):
                 action_spec=action_spec.to_dict() if hasattr(action_spec, "to_dict") else None,
             ))
 
-            # Resolve the event
+            if self._stop_requested(step_controller, f"before_resolution:{acting_entity.name}"):
+                break
+
             self.resolve(gm, event_text)
 
-            # Callbacks
-            if checkpoint_callback:
+            stop_before_checkpoint = self._stop_requested(
+                step_controller,
+                f"before_checkpoint:{acting_entity.name}",
+            )
+            if checkpoint_callback and not stop_before_checkpoint:
                 checkpoint_callback(step)
 
-            if step_callback:
-                try:
-                    step_callback(step)
-                except Exception as exc:
-                    logger.warning("step_callback error: %s", exc)
+            outcome = "resolved_stop_pending" if stop_before_checkpoint else "resolved"
+            self._finish_step(step, outcome, step_callback)
 
             logger.info("Step %d/%d complete: %s", step, max_steps, event_text[:100])
+
+            if stop_before_checkpoint:
+                break
+
+    def _finish_step(
+        self,
+        step: int,
+        outcome: str,
+        step_callback: Optional[Callable[..., None]],
+    ) -> None:
+        self._current_step = step
+        self._last_step_outcome = outcome
+        logger.info(
+            "Step %d outcome=%s world=%s",
+            step,
+            outcome,
+            self._world_id,
+        )
+        if not step_callback:
+            return
+        try:
+            step_callback(step, outcome)
+        except TypeError:
+            step_callback(step)
+        except Exception as exc:
+            logger.warning("step_callback error: %s", exc)
+
+    def _stop_requested(self, step_controller: object, phase: str) -> bool:
+        stopped = False
+        if step_controller is not None:
+            value = getattr(step_controller, "is_stopped", False)
+            if callable(value):
+                try:
+                    value = value()
+                except TypeError:
+                    pass
+            stopped = value is True
+        if stopped:
+            logger.info(
+                "Stopping sequential engine world=%s step=%d phase=%s",
+                self._world_id,
+                self._current_step,
+                phase,
+            )
+        return stopped
+
+    def _decorate_event(self, event: SimulationEvent) -> SimulationEvent:
+        return apply_identity_to_event(
+            event,
+            self._identity,
+            world_id=self._world_id,
+            workspace_id=self._workspace_id,
+        )
 
     def _validate_pre_step(self, gm: Entity, entities: Sequence[Entity]) -> bool:
         """Pre-step validation: check GM and entity health (Phase 8.5)."""
@@ -414,20 +726,3 @@ class InstrumentedSequentialEngine(Engine):
         except Exception as exc:
             logger.warning("Pre-step validation error: %s", exc)
             return False
-
-    def _notify_bridge_event(self, putative: str, resolved: str) -> None:
-        """Notify the AgenC bridge about a resolved event for social memory."""
-        try:
-            requests.post(
-                f"{self._bridge_url}/event",
-                json={
-                    "type": "resolution",
-                    "step": self._current_step,
-                    "acting_agent": self._last_acting_entity_name,
-                    "content": resolved or putative,
-                    "world_id": self._world_id,
-                },
-                timeout=15,
-            )
-        except Exception as exc:
-            logger.warning("Bridge event notification failed (step=%d): %s", self._current_step, exc)

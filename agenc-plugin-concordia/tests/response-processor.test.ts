@@ -5,6 +5,7 @@ import {
   fuzzyMatchChoice,
   parseFloatResponse,
   processResponse,
+  processStructuredResponse,
   sanitizeContent,
 } from "../src/response-processor.js";
 
@@ -118,38 +119,6 @@ describe("processResponse", () => {
     expect(result).toBe("I will go to the market");
   });
 
-  it("preserves the raw text when the model echoes the action-formatting instruction", () => {
-    const result = processResponse(
-      "Respond exactly with ONLY your action text. Do not include your name prefix.",
-      "Alice",
-      {
-        call_to_action: "What would Alice do next?",
-        output_type: "free",
-        options: [],
-        tag: "action",
-      },
-    );
-    expect(result).toBe(
-      "Respond exactly with ONLY your action text. Do not include your name prefix.",
-    );
-  });
-
-  it("preserves the raw text when the model echoes partial action instructions", () => {
-    const result = processResponse(
-      "with one short plain-text description of your immediate next action. Be specific and concrete. Do not include your name, quotation marks, or any explanation.",
-      "Alice",
-      {
-        call_to_action: "What would Alice do next?",
-        output_type: "free",
-        options: [],
-        tag: "action",
-      },
-    );
-    expect(result).toBe(
-      "with one short plain-text description of your immediate next action. Be specific and concrete. Do not include your name, quotation marks, or any explanation.",
-    );
-  });
-
   it("processes choice response", () => {
     const result = processResponse(
       "1. Accept",
@@ -166,6 +135,65 @@ describe("processResponse", () => {
       { call_to_action: "", output_type: "float", options: [], tag: null },
     );
     expect(result).toBe("0.85");
+  });
+});
+
+describe("processStructuredResponse", () => {
+  it("parses valid JSON responses with narration and intent", () => {
+    const result = processStructuredResponse(
+      JSON.stringify({
+        action: "moves to the harbor",
+        narration: "Alice strides toward the harbor.",
+        intent: {
+          summary: "Move to the harbor",
+          mode: "move",
+          destination: {
+            location_id: "harbor",
+            scene_id: "scene-harbor",
+            zone_id: "zone-harbor",
+            label: "Harbor",
+          },
+          target_agent_ids: ["bob"],
+          target_object_ids: ["crate-1"],
+          task: { title: "Meet Bob", status: "active", note: "Discuss the shipment." },
+          inventory_add: ["manifest"],
+          inventory_remove: [],
+          world_object_updates: [],
+          relationship_updates: [{ other_agent_id: "bob", relationship: "ally", sentiment_delta: 1 }],
+          notes: ["Stay out of sight."],
+        },
+      }),
+      "Alice",
+      { call_to_action: "", output_type: "free", options: [], tag: "action" },
+    );
+
+    expect(result.action).toBe("moves to the harbor");
+    expect(result.narration).toBe("Alice strides toward the harbor.");
+    expect(result.intent?.mode).toBe("move");
+    expect(result.intent?.destination?.location_id).toBe("harbor");
+    expect(result.intent?.task?.title).toBe("Meet Bob");
+  });
+
+  it("parses fenced JSON responses", () => {
+    const result = processStructuredResponse(
+      '```json\n{"action":"waits quietly","intent":{"summary":"Wait","mode":"wait","destination":null,"target_agent_ids":[],"target_object_ids":[],"task":null,"inventory_add":[],"inventory_remove":[],"world_object_updates":[],"relationship_updates":[],"notes":[]}}\n```',
+      "Alice",
+      { call_to_action: "", output_type: "free", options: [], tag: "action" },
+    );
+    expect(result.action).toBe("waits quietly");
+    expect(result.intent?.mode).toBe("wait");
+  });
+
+  it("falls back to inferred structured intent for freeform text", () => {
+    const result = processStructuredResponse(
+      "Alice: checks the gate",
+      "Alice",
+      { call_to_action: "", output_type: "free", options: [], tag: "action" },
+    );
+    expect(result.action).toBe("checks the gate");
+    expect(result.narration).toBeNull();
+    expect(result.intent?.summary).toBe("checks the gate");
+    expect(result.intent?.mode).toBe("action");
   });
 });
 

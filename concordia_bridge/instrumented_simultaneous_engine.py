@@ -12,16 +12,17 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Optional, Sequence
-
-import requests
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from typing import Callable, Optional, Sequence, Unpack
 
 from concordia.typing.entity import Entity, ActionSpec, OutputType
 
 from concordia_bridge.bridge_types import SimulationEvent
 from concordia_bridge.instrumented_engine import (
+    CheckpointCallback,
     InstrumentedSequentialEngine,
+    RunLoopOptions,
+    StepCallback,
     is_invalid_agent_action,
 )
 
@@ -47,82 +48,53 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
         )
         self._max_workers = max_workers
 
+    def _engine_type(self) -> str:
+        return "simultaneous"
+
+    def _iter_simultaneous_steps(
+        self,
+        game_masters: Sequence[Entity],
+        entities: Sequence[Entity],
+        options: RunLoopOptions,
+    ) -> Sequence[tuple[int, Entity]]:
+        return self._iter_prepared_steps(
+            game_masters,
+            entities,
+            options.get("premise", ""),
+            options.get("max_steps", 100),
+            options.get("step_controller"),
+            options.get("step_callback"),
+            options.get("scenes"),
+            options.get("start_step", 1),
+        )
+
     def run_loop(
         self,
         game_masters: Sequence[Entity],
         entities: Sequence[Entity],
-        premise: str = "",
-        max_steps: int = 100,
-        verbose: bool = False,
-        log: bool = False,
-        checkpoint_callback: Optional[Callable[[int], None]] = None,
-        step_controller: object = None,
-        step_callback: Optional[Callable] = None,
-        scenes: Optional[list] = None,
-        start_step: int = 1,
+        **options: Unpack[RunLoopOptions],
     ) -> None:
         """Run simulation with simultaneous agent actions per step."""
-        gm = game_masters[0]
+        max_steps = options.get("max_steps", 100)
+        checkpoint_callback = options.get("checkpoint_callback")
+        step_controller = options.get("step_controller")
+        step_callback = options.get("step_callback")
 
-        if premise and start_step <= 1:
-            gm.observe(f"[event] {premise}")
-            self._event_callback(SimulationEvent(
-                type="step",
-                step=0,
-                timestamp=time.time(),
-                content=premise,
-                metadata={"phase": "premise"},
-            ))
-
-        scene_index = 0
-        scene_round = 0
-        current_scene = scenes[0] if scenes else None
-        if current_scene:
-            self._event_callback(SimulationEvent(
-                type="scene_change",
-                step=0,
-                timestamp=time.time(),
-                scene=getattr(current_scene, "scene_type", {}).get("name", "scene_0")
-                    if isinstance(getattr(current_scene, "scene_type", None), dict)
-                    else str(scene_index),
-                content=f"Scene started: {scene_index}",
-            ))
-
-        for step in range(start_step, max_steps + 1):
-            self._current_step = step
-
-            if step_controller and hasattr(step_controller, "wait_for_step_permission"):
-                step_controller.wait_for_step_permission()
-
-            if self.terminate(gm):
-                break
-
-            if scenes and current_scene:
-                scene_round += 1
-                num_rounds = getattr(current_scene, "num_rounds", None) or 999
-                if scene_round > num_rounds:
-                    scene_index += 1
-                    scene_round = 0
-                    if scene_index < len(scenes):
-                        current_scene = scenes[scene_index]
-                        self._event_callback(SimulationEvent(
-                            type="scene_change",
-                            step=step,
-                            timestamp=time.time(),
-                            scene=str(scene_index),
-                            content=f"Scene transition to scene {scene_index}",
-                        ))
-                    else:
-                        current_scene = None
-
-            if len(game_masters) > 1:
-                gm = self.next_game_master(gm, game_masters)
-
-            # Generate observations for all entities
+        for step, gm in self._iter_simultaneous_steps(
+            game_masters,
+            entities,
+            options,
+        ):
+            stop_during_observation = False
             for entity in entities:
+                if self._stop_requested(step_controller, f"before_observation:{entity.name}"):
+                    stop_during_observation = True
+                    break
                 self.make_observation(gm, entity)
 
-            # ALL agents act simultaneously
+            if stop_during_observation or self._stop_requested(step_controller, "before_action_collection"):
+                break
+
             actions: dict[str, str] = {}
             action_specs = {
                 entity.name: self.build_entity_action_spec_from_game_master(
@@ -131,46 +103,70 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                 )
                 for entity in entities
             }
-            with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
+
+            stop_during_actions = False
+            executor = ThreadPoolExecutor(max_workers=self._max_workers)
+            try:
                 futures = {
-                    pool.submit(entity.act, action_specs[entity.name]): entity
+                    executor.submit(entity.act, action_specs[entity.name]): entity
                     for entity in entities
                 }
-                for future in as_completed(futures):
-                    entity = futures[future]
-                    try:
-                        action = future.result(timeout=120)
-                        if is_invalid_agent_action(action):
+                pending = set(futures)
+                while pending:
+                    done, pending = wait(
+                        pending,
+                        timeout=0.1,
+                        return_when=FIRST_COMPLETED,
+                    )
+                    if self._stop_requested(step_controller, "during_action_collection"):
+                        stop_during_actions = True
+                        for future in pending:
+                            future.cancel()
+                        break
+                    for future in done:
+                        entity = futures[future]
+                        try:
+                            action = future.result()
+                            if is_invalid_agent_action(action):
+                                logger.warning(
+                                    "Dropping invalid action text for %s at step %d: %s",
+                                    entity.name,
+                                    step,
+                                    action[:200],
+                                )
+                                self._event_callback(SimulationEvent(
+                                    type="error",
+                                    step=step,
+                                    timestamp=time.time(),
+                                    agent_name=entity.name,
+                                    content="Dropped invalid action text before GM resolution.",
+                                    metadata={"raw_action": action},
+                                ))
+                                continue
+                            actions[entity.name] = action
+                        except Exception as exc:
                             logger.warning(
-                                "Dropping invalid action text for %s at step %d: %s",
-                                entity.name,
-                                step,
-                                action[:200],
+                                "Agent %s act() failed: %s", entity.name, exc,
                             )
                             self._event_callback(SimulationEvent(
                                 type="error",
                                 step=step,
                                 timestamp=time.time(),
                                 agent_name=entity.name,
-                                content="Dropped invalid action text before GM resolution.",
-                                metadata={"raw_action": action},
+                                content=f"Agent action failed: {exc}",
                             ))
-                            continue
-                        actions[entity.name] = action
-                    except Exception as exc:
-                        logger.warning(
-                            "Agent %s act() failed: %s", entity.name, exc,
-                        )
-                        self._event_callback(SimulationEvent(
-                            type="error",
-                            step=step,
-                            timestamp=time.time(),
-                            agent_name=entity.name,
-                            content=f"Agent action failed: {exc}",
-                        ))
+            finally:
+                executor.shutdown(wait=not stop_during_actions, cancel_futures=stop_during_actions)
 
-            # Emit action events
-            for name, action in actions.items():
+            if stop_during_actions:
+                break
+
+            ordered_actor_names = [
+                entity.name for entity in entities if entity.name in actions
+            ]
+
+            for name in ordered_actor_names:
+                action = actions[name]
                 self._event_callback(SimulationEvent(
                     type="action",
                     step=step,
@@ -179,24 +175,36 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                     content=action,
                 ))
 
-            # Combine all actions into one event for GM resolution
             if not actions:
                 logger.warning("No valid agent actions at step %d; skipping GM resolution", step)
+                self._finish_step(step, "no_valid_actions", step_callback)
                 continue
 
-            combined = "\n".join(f"{name}: {action}" for name, action in actions.items())
-            self._last_acting_entity_name = None  # Multiple actors
+            combined = "\n".join(
+                f"{name}: {actions[name]}"
+                for name in ordered_actor_names
+            )
+            self._set_active_entity_context(
+                gm,
+                ordered_actor_names[0] if ordered_actor_names else None,
+            )
+
+            if self._stop_requested(step_controller, "before_resolution"):
+                break
+
             self.resolve(gm, combined)
 
-            if checkpoint_callback:
+            stop_before_checkpoint = self._stop_requested(step_controller, "before_checkpoint")
+            if checkpoint_callback and not stop_before_checkpoint:
                 checkpoint_callback(step)
-            if step_callback:
-                try:
-                    step_callback(step)
-                except Exception as exc:
-                    logger.warning("step_callback error: %s", exc)
+
+            outcome = "resolved_stop_pending" if stop_before_checkpoint else "resolved"
+            self._finish_step(step, outcome, step_callback)
 
             logger.info(
                 "Step %d/%d complete: %d agents acted",
                 step, max_steps, len(actions),
             )
+
+            if stop_before_checkpoint:
+                break

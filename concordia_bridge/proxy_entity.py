@@ -12,12 +12,18 @@ from __future__ import annotations
 
 import functools
 import logging
+import threading
 import time
 from typing import Any
 
 import requests
 
 from concordia_bridge.resilience import CircuitBreaker
+from concordia_bridge.simulation_identity import (
+    SimulationIdentity,
+    identity_from_payload,
+    with_identity_payload,
+)
 
 from concordia.typing.entity import (
     ActionSpec,
@@ -49,18 +55,30 @@ class ProxyEntity(Entity):
         agent_id: str = "",
         world_id: str = "default",
         workspace_id: str = "concordia-sim",
+        simulation_id: str = "",
+        lineage_id: str | None = None,
+        parent_simulation_id: str | None = None,
         timeout_seconds: float = 120.0,
         max_retries: int = 2,
         retry_delay_seconds: float = 2.0,
+        stop_event: threading.Event | None = None,
+        cancel_poll_seconds: float = 0.1,
     ) -> None:
         self._name = agent_name
         self._bridge_url = bridge_url.rstrip("/")
         self._agent_id = agent_id or agent_name.lower().replace(" ", "-")
         self._world_id = world_id
         self._workspace_id = workspace_id
+        self._identity = SimulationIdentity(
+            simulation_id=simulation_id,
+            lineage_id=lineage_id,
+            parent_simulation_id=parent_simulation_id,
+        )
         self._timeout = timeout_seconds
         self._max_retries = max_retries
         self._retry_delay = retry_delay_seconds
+        self._stop_event = stop_event
+        self._cancel_poll_seconds = cancel_poll_seconds
         self._turn_count = 0
         self._circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout_s=30.0)
 
@@ -80,14 +98,42 @@ class ProxyEntity(Entity):
     def turn_count(self) -> int:
         return self._turn_count
 
-    def act(self, action_spec: ActionSpec = DEFAULT_ACTION_SPEC) -> str:
-        """Send action_spec to AgenC bridge, return the agent's action string.
+    def _bridge_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return with_identity_payload(payload, self._identity)
 
-        Retries on ConnectionError with exponential backoff (Phase 8.3).
-        Raises ProxyEntityActError after all retries are exhausted.
-        """
-        self._turn_count += 1
+    def _act_payload(self, action_spec: ActionSpec) -> dict[str, Any]:
+        return self._bridge_payload({
+            "agent_id": self._agent_id,
+            "agent_name": self._name,
+            "world_id": self._world_id,
+            "workspace_id": self._workspace_id,
+            "action_spec": action_spec.to_dict(),
+            "turn_count": self._turn_count,
+        })
 
+    def _observe_payload(self, observation: str) -> dict[str, Any]:
+        return self._bridge_payload({
+            "agent_id": self._agent_id,
+            "agent_name": self._name,
+            "world_id": self._world_id,
+            "workspace_id": self._workspace_id,
+            "observation": observation,
+        })
+
+    def _parse_action_response(self, response: requests.Response) -> str:
+        response.raise_for_status()
+        result = response.json()
+        action = result.get("action", "")
+        self._circuit_breaker.record_success()
+        logger.debug(
+            "ProxyEntity %s act() turn=%d: %s",
+            self._name,
+            self._turn_count,
+            action[:100],
+        )
+        return action
+
+    def _perform_act_request(self, action_spec: ActionSpec) -> str:
         if self._circuit_breaker.is_open:
             logger.warning(
                 "ProxyEntity %s act() circuit breaker open",
@@ -100,30 +146,17 @@ class ProxyEntity(Entity):
         last_exc: Exception | None = None
 
         for attempt in range(self._max_retries + 1):
+            if self._stop_event and self._stop_event.is_set():
+                raise ProxyEntityActError(
+                    f"{self._name} action cancelled because the simulation stopped",
+                )
             try:
                 response = requests.post(
                     f"{self._bridge_url}/act",
-                    json={
-                        "agent_id": self._agent_id,
-                        "agent_name": self._name,
-                        "world_id": self._world_id,
-                        "workspace_id": self._workspace_id,
-                        "action_spec": action_spec.to_dict(),
-                        "turn_count": self._turn_count,
-                    },
+                    json=self._act_payload(action_spec),
                     timeout=self._timeout,
                 )
-                response.raise_for_status()
-                result = response.json()
-                action = result.get("action", "")
-                self._circuit_breaker.record_success()
-                logger.debug(
-                    "ProxyEntity %s act() turn=%d: %s",
-                    self._name,
-                    self._turn_count,
-                    action[:100],
-                )
-                return action
+                return self._parse_action_response(response)
             except requests.Timeout:
                 logger.warning(
                     "ProxyEntity %s act() timed out after %.1fs",
@@ -169,6 +202,56 @@ class ProxyEntity(Entity):
             f"{self._name} bridge unreachable after {self._max_retries + 1} attempts",
         ) from last_exc
 
+    def act(self, action_spec: ActionSpec = DEFAULT_ACTION_SPEC) -> str:
+        """Send action_spec to AgenC bridge, return the agent's action string.
+
+        Retries on ConnectionError with exponential backoff (Phase 8.3).
+        Raises ProxyEntityActError after all retries are exhausted.
+        """
+        self._turn_count += 1
+
+        if self._stop_event and self._stop_event.is_set():
+            raise ProxyEntityActError(
+                f"{self._name} action cancelled because the simulation stopped",
+            )
+
+        result: dict[str, str] = {}
+        errors: list[BaseException] = []
+        finished = threading.Event()
+
+        def _worker() -> None:
+            try:
+                result["action"] = self._perform_act_request(action_spec)
+            except BaseException as exc:  # pragma: no cover - exercised via act()
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        worker = threading.Thread(
+            target=_worker,
+            name=f"proxy-entity-act-{self._agent_id}",
+            daemon=True,
+        )
+        worker.start()
+
+        while not finished.wait(self._cancel_poll_seconds):
+            if self._stop_event and self._stop_event.is_set():
+                logger.info(
+                    "ProxyEntity %s act() cancelled because the simulation stopped",
+                    self._name,
+                )
+                raise ProxyEntityActError(
+                    f"{self._name} action cancelled because the simulation stopped",
+                )
+
+        if errors:
+            error = errors[0]
+            if isinstance(error, ProxyEntityActError):
+                raise error
+            raise ProxyEntityActError(str(error)) from error
+
+        return result.get("action", "")
+
     def observe(self, observation: str) -> None:
         """Send observation to AgenC bridge for memory ingestion.
 
@@ -180,13 +263,7 @@ class ProxyEntity(Entity):
         try:
             response = requests.post(
                 f"{self._bridge_url}/observe",
-                json={
-                    "agent_id": self._agent_id,
-                    "agent_name": self._name,
-                    "world_id": self._world_id,
-                    "workspace_id": self._workspace_id,
-                    "observation": observation,
-                },
+                json=self._observe_payload(observation),
                 timeout=self._timeout,
             )
             response.raise_for_status()
@@ -225,6 +302,8 @@ class ProxyEntityWithLogging(ProxyEntity, EntityWithLogging):
             "agent_id": self._agent_id,
             "agent_name": self._name,
             "world_id": self._world_id,
+            "workspace_id": self._workspace_id,
+            **self._bridge_payload({}),
             "turn_count": self._turn_count,
             "elapsed_ms": round(elapsed_ms, 1),
         }
@@ -239,12 +318,14 @@ class ProxyEntityWithLogging(ProxyEntity, EntityWithLogging):
             "agent_name": self._name,
             "world_id": self._world_id,
             "workspace_id": self._workspace_id,
+            **self._bridge_payload({}),
             "turn_count": self._turn_count,
             "last_log": self._last_log,
         }
 
     def set_state(self, state: dict[str, Any]) -> None:
         self._turn_count = int(state.get("turn_count", self._turn_count))
+        self._identity = identity_from_payload(state)
         last_log = state.get("last_log")
         if isinstance(last_log, dict):
             self._last_log = last_log

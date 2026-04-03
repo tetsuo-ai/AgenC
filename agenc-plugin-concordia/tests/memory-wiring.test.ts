@@ -32,6 +32,7 @@ import {
   type MemoryIngestionEngineLike,
   type MemoryRetrieverLike,
 } from "../src/memory-wiring.js";
+import { buildBaseMemoryContextProps } from "./helpers/memory-context-fixture.js";
 
 function createMockBackend(): MemoryBackendLike {
   return {
@@ -87,6 +88,15 @@ function createMockSocialMemory(): SocialMemoryLike {
       observedBy: "gm",
       confirmations: 1,
       confirmedBy: ["gm"],
+      visibility: "world-visible",
+      trust: { source: "system", score: 0.95, confidence: 0.95, threshold: 0.58 },
+      provenance: [{
+        type: "concordia_premise",
+        source: "system",
+        source_id: "concordia-gm",
+        timestamp: 1000,
+      }],
+      auditTrail: [{ timestamp: 1000, action: "write", actor: "gm", visibility: "world-visible" }],
     }),
     confirmWorldFact: vi.fn().mockResolvedValue({
       id: "fact-1",
@@ -94,12 +104,46 @@ function createMockSocialMemory(): SocialMemoryLike {
       observedBy: "gm",
       confirmations: 2,
       confirmedBy: ["gm", "alice"],
+      visibility: "private",
+      trust: { source: "system", score: 0.98, confidence: 0.95, threshold: 0.58 },
+      provenance: [{
+        type: "concordia_observation_confirmation",
+        source: "system",
+        source_id: "alice",
+        timestamp: 1000,
+      }],
+      auditTrail: [{ timestamp: 1000, action: "confirm", actor: "alice", visibility: "private" }],
     }),
     getWorldFacts: vi.fn().mockResolvedValue([
-      { content: "It is morning", observedBy: "gm", confirmations: 0 },
+      {
+        id: "fact-1",
+        content: "It is morning",
+        observedBy: "gm",
+        confirmations: 2,
+        confirmedBy: ["gm", "alice"],
+        visibility: "world-visible",
+        trust: { source: "system", score: 0.96, confidence: 0.95, threshold: 0.58 },
+        provenance: [{
+          type: "gm_observation",
+          source: "system",
+          source_id: "concordia-gm",
+          timestamp: 1000,
+        }],
+        auditTrail: [{ timestamp: 1000, action: "write", actor: "gm", visibility: "world-visible" }],
+      },
     ]),
     checkCollectiveEmergence: vi.fn().mockResolvedValue([
-      { content: "The market opens at dawn", confirmedBy: ["alice", "bob", "sera"] },
+      {
+        content: "The market opens at dawn",
+        confirmedBy: ["alice", "bob", "sera"],
+        trust: { source: "system", score: 0.98, confidence: 0.97, threshold: 0.58 },
+        provenance: [{
+          type: "collective_emergence",
+          source: "system",
+          source_id: "concordia-gm",
+          timestamp: 1000,
+        }],
+      },
     ]),
   };
 }
@@ -134,12 +178,27 @@ function createMockGraph(): MemoryGraphLike {
   };
 }
 
+function buildSharedFactFixture() {
+  return {
+    id: "shared-1",
+    content: "User prefers detailed simulations",
+    author: "concordia:prev-sim",
+    visibility: "shared" as const,
+    trust: { source: "system" as const, score: 0.92, confidence: 0.9, threshold: 0.72 },
+    provenance: [{
+      type: "concordia_shared_promotion",
+      source: "system" as const,
+      source_id: "concordia:prev-sim",
+      timestamp: 1000,
+    }],
+    authorization: { mode: "auto" as const, approved: true, approved_by: "system:auto" },
+  };
+}
+
 function createMockSharedMemory(): SharedMemoryLike {
   return {
-    writeFact: vi.fn().mockResolvedValue({}),
-    getFacts: vi.fn().mockResolvedValue([
-      { content: "User prefers detailed simulations", author: "concordia:prev-sim" },
-    ]),
+    writeFact: vi.fn().mockResolvedValue(buildSharedFactFixture()),
+    getFacts: vi.fn().mockResolvedValue([buildSharedFactFixture()]),
   };
 }
 
@@ -180,9 +239,10 @@ function createMockRetriever(): MemoryRetrieverLike {
 }
 
 function createContext(overrides?: Partial<MemoryWiringContext>): MemoryWiringContext {
+  const baseContext = buildBaseMemoryContextProps(overrides);
+
   return {
-    worldId: "test-world",
-    workspaceId: "test-ws",
+    ...baseContext,
     memoryBackend: createMockBackend(),
     identityManager: createMockIdentityManager(),
     socialMemory: createMockSocialMemory(),
@@ -200,9 +260,9 @@ describe("ingestObservation", () => {
         sessionId: "session-1",
         role: "system",
         content: "[observation] You see Marcus approaching.",
-        workspaceId: "test-ws",
+        workspaceId: ctx.namespaces.memoryWorkspaceId,
         agentId: "alice",
-        worldId: "test-world",
+        worldId: ctx.namespaces.worldScopeId,
         channel: "concordia",
         metadata: expect.objectContaining({
           type: "concordia_observation",
@@ -224,9 +284,9 @@ describe("ingestObservation", () => {
       "You see Marcus approaching.",
       "[Observation recorded for future simulation turns.]",
       expect.objectContaining({
-        workspaceId: "test-ws",
+        workspaceId: ctx.namespaces.memoryWorkspaceId,
         agentId: "alice",
-        worldId: "test-world",
+        worldId: ctx.namespaces.worldScopeId,
       }),
     );
   });
@@ -243,10 +303,15 @@ describe("recordObservationWorldFact", () => {
     );
 
     expect(ctx.socialMemory.addWorldFact).toHaveBeenCalledWith(
-      "test-world",
+      ctx.namespaces.worldScopeId,
       "A red sell order flashes across the board.",
       "alice",
       "private",
+      undefined,
+      expect.objectContaining({
+        trustSource: "system",
+        confidence: 0.92,
+      }),
     );
     expect(ctx.memoryBackend.set).toHaveBeenCalled();
   });
@@ -273,8 +338,12 @@ describe("recordObservationWorldFact", () => {
 
     expect(ctx.socialMemory.confirmWorldFact).toHaveBeenCalledWith(
       "fact-1",
-      "test-world",
+      ctx.namespaces.worldScopeId,
       "bob",
+      expect.objectContaining({
+        trustSource: "system",
+        confidence: 0.94,
+      }),
     );
   });
 });
@@ -290,9 +359,9 @@ describe("recordAgentAction", () => {
         sessionId: "session-1",
         role: "assistant",
         content: "places a bid for 10 contracts",
-        workspaceId: "test-ws",
+        workspaceId: ctx.namespaces.memoryWorkspaceId,
         agentId: "alice",
-        worldId: "test-world",
+        worldId: ctx.namespaces.worldScopeId,
         channel: "concordia",
         metadata: expect.objectContaining({
           type: "concordia_action",
@@ -313,7 +382,7 @@ describe("setupAgentIdentity", () => {
       agentId: "elena",
       name: "Elena",
       corePersonality: "Town blacksmith\n\nGoal: Forge a sword",
-      workspaceId: "test-ws",
+      workspaceId: ctx.namespaces.identityWorkspaceId,
     });
   });
 
@@ -325,7 +394,7 @@ describe("setupAgentIdentity", () => {
       agentId: "bob",
       name: "Bob",
       corePersonality: "Merchant",
-      workspaceId: "test-ws",
+      workspaceId: ctx.namespaces.identityWorkspaceId,
     });
   });
 });
@@ -352,7 +421,7 @@ describe("recordSocialEvent", () => {
     expect(ctx.socialMemory.recordInteraction).toHaveBeenCalledWith(
       "alice",
       "bob",
-      "test-world",
+      ctx.namespaces.worldScopeId,
       expect.objectContaining({
         summary: expect.stringContaining("Alice trades iron"),
         context: "step:5:resolution",
@@ -361,7 +430,7 @@ describe("recordSocialEvent", () => {
     expect(ctx.socialMemory.recordInteraction).toHaveBeenCalledWith(
       "bob",
       "alice",
-      "test-world",
+      ctx.namespaces.worldScopeId,
       expect.objectContaining({
         summary: expect.stringContaining("Alice trades iron"),
         context: "step:5:resolution",
@@ -430,10 +499,45 @@ describe("storePremise", () => {
     await storePremise(ctx, "It is morning in Thornfield.");
 
     expect(ctx.socialMemory.addWorldFact).toHaveBeenCalledWith(
-      "test-world",
+      ctx.namespaces.worldScopeId,
       "It is morning in Thornfield.",
-      "concordia:gm",
-      "world",
+      ctx.namespaces.sharedAuthor,
+      "world-visible",
+      undefined,
+      expect.objectContaining({
+        trustSource: "system",
+        confidence: 0.99,
+      }),
+    );
+  });
+});
+
+
+describe("phase 4 isolation scopes", () => {
+  it("uses lineage-scoped world facts only for explicit resume continuity", async () => {
+    const ctx = createContext({
+      simulationId: "sim-child",
+      lineageId: "lineage-42",
+      parentSimulationId: "sim-parent",
+      continuityMode: "lineage_resume",
+      checkpointMetadata: {
+        checkpointSimulationId: "sim-parent",
+        resumedFromStep: 4,
+      },
+    });
+
+    await recordObservationWorldFact(ctx, "alice", "The forge fire has gone cold.");
+
+    expect(ctx.namespaces.worldScopeId).toBe("world:test-world::lineage:lineage-42");
+    expect(ctx.socialMemory.addWorldFact).toHaveBeenCalledWith(
+      "world:test-world::lineage:lineage-42",
+      "The forge fire has gone cold.",
+      "alice",
+      "private",
+      undefined,
+      expect.objectContaining({
+        trustSource: "system",
+      }),
     );
   });
 });
@@ -476,7 +580,7 @@ describe("recordProcedure", () => {
     expect(proc.record).toHaveBeenCalledWith(expect.objectContaining({
       trigger: "negotiation with merchant",
       steps: ["greet", "offer", "close"],
-      workspaceId: "test-ws",
+      workspaceId: ctx.namespaces.proceduralWorkspaceId,
     }));
   });
 
@@ -523,7 +627,7 @@ describe("buildFullActContext", () => {
 
     expect(result).toContain("Relevant fact");
     expect(ctx.memoryBackend.set).toHaveBeenCalledWith(
-      "test-ws:activation:entry-7",
+      `${ctx.namespaces.activationKeyPrefix}:entry-7`,
       expect.objectContaining({ accessCount: 1 }),
     );
     expect(traceLogger.traceRetrieval).toHaveBeenCalled();
@@ -538,7 +642,7 @@ describe("updateActivationScores", () => {
     await updateActivationScores(ctx, "s1", ["entry-1", "entry-2"]);
     expect(ctx.memoryBackend.set).toHaveBeenCalledTimes(2);
     expect(ctx.memoryBackend.set).toHaveBeenCalledWith(
-      "test-ws:activation:entry-1",
+      `${ctx.namespaces.activationKeyPrefix}:entry-1`,
       expect.objectContaining({ accessCount: 1 }),
     );
   });
@@ -549,7 +653,7 @@ describe("updateActivationScores", () => {
     const ctx = createContext({ memoryBackend: backend });
     await updateActivationScores(ctx, "s1", ["entry-1"]);
     expect(backend.set).toHaveBeenCalledWith(
-      "test-ws:activation:entry-1",
+      `${ctx.namespaces.activationKeyPrefix}:entry-1`,
       expect.objectContaining({ accessCount: 6 }),
     );
   });
@@ -618,7 +722,12 @@ describe("promoteToSharedMemory", () => {
     expect(shared.writeFact).toHaveBeenCalledWith(expect.objectContaining({
       scope: "user",
       content: "User enjoys medieval sims",
+      author: ctx.namespaces.sharedAuthor,
       userId: "user-1",
+      visibility: "shared",
+      trustSource: "system",
+      authorization: expect.objectContaining({ approved: true }),
+      provenance: expect.any(Array),
     }));
   });
 });
@@ -645,10 +754,15 @@ describe("promoteCollectiveEmergenceFacts", () => {
 
     expect(promoted).toHaveLength(1);
     expect(ctx.socialMemory.addWorldFact).toHaveBeenCalledWith(
-      "test-world",
+      ctx.namespaces.worldScopeId,
       "The market opens at dawn",
-      "concordia:collective-emergence",
-      "world",
+      ctx.namespaces.sharedAuthor,
+      "world-visible",
+      undefined,
+      expect.objectContaining({
+        trustSource: "system",
+        confidence: 0.97,
+      }),
     );
   });
 });
