@@ -147,11 +147,6 @@ const CREATE_SETUP_HANDLE_OPTIONS = {
   reservePorts: false,
   currentAlias: true,
 };
-const CREATE_PENDING_HANDLE_OPTIONS = {
-  status: "running" as const,
-  reservePorts: false,
-  currentAlias: false,
-};
 const CREATE_CHECKPOINT_HANDLE_OPTIONS = {
   status: "paused" as const,
   reservePorts: false,
@@ -317,20 +312,6 @@ function buildSingleAgentSetup(
     agent_id: agentId,
     agent_name: agentName,
     personality: "",
-  };
-}
-
-function buildPendingHandleRequestFromSession(
-  session: AgentSession,
-): MutableNormalizedLaunchRequest {
-  return {
-    world_id: session.worldId,
-    workspace_id: session.workspaceId,
-    simulation_id: session.simulationId,
-    lineage_id: session.lineageId ?? null,
-    parent_simulation_id: session.parentSimulationId ?? null,
-    agents: [buildSingleAgentSetup(session.agentId, session.agentName)],
-    premise: "",
   };
 }
 
@@ -1058,11 +1039,18 @@ export class ConcordiaChannelAdapter
     }
 
     const handle = this.registry.get(session.simulationId) ?? null;
+    if (!handle) {
+      this.context.logger.warn?.(
+        `[concordia] Rejecting /act for unknown simulation ${session.simulationId}`,
+      );
+      throw new Error(`Simulation ${session.simulationId} is not active`);
+    }
+
     const simulationContext = buildSimulationSystemContext({
       worldId: session.worldId,
       agentName: session.agentName,
       turnCount: session.turnCount + 1,
-      premise: handle?.premise ?? "",
+      premise: handle.premise,
     });
     const contextBlocks: string[] = [simulationContext];
     const memoryContext = await this.loadActMemoryContext(
@@ -1085,20 +1073,15 @@ export class ConcordiaChannelAdapter
       enrichedMessage,
     });
 
-    const pendingHandle = await this.ensurePendingHandleForSession(
-      session,
-      handle,
-    );
-
-    const action = await this.dispatchInboundAwaitingResponse(pendingHandle, {
+    const action = await this.dispatchInboundAwaitingResponse(handle, {
       requestId,
       inbound,
       sessionId,
       agentId,
-      timeoutMs: pendingHandle.launchRequest.run_budget?.act_timeout_ms ?? this.operations.actTimeoutMs,
-      timeoutLog: `[concordia] /act timeout for ${session.agentName} after ${pendingHandle.launchRequest.run_budget?.act_timeout_ms ?? this.operations.actTimeoutMs}ms`,
+      timeoutMs: handle.launchRequest.run_budget?.act_timeout_ms ?? this.operations.actTimeoutMs,
+      timeoutLog: `[concordia] /act timeout for ${session.agentName} after ${handle.launchRequest.run_budget?.act_timeout_ms ?? this.operations.actTimeoutMs}ms`,
       worldId: session.worldId,
-      step: pendingHandle.lastCompletedStep,
+      step: handle.lastCompletedStep,
       simulationId: session.simulationId,
       logMessageLength: message.length,
     });
@@ -1107,7 +1090,7 @@ export class ConcordiaChannelAdapter
     session.turnCount += 1;
 
     await this.recordAgentActionIfAvailable(
-      pendingHandle,
+      handle,
       agentId,
       sessionId,
       action,
@@ -1123,6 +1106,12 @@ export class ConcordiaChannelAdapter
   ): Promise<void> {
     const session = this.sessionManager.findBySessionId(sessionId);
     const handle = session ? this.registry.get(session.simulationId) ?? null : null;
+    if (session && !handle) {
+      this.context.logger.warn?.(
+        `[concordia] Ignoring /observe for unknown simulation ${session.simulationId}`,
+      );
+      return;
+    }
 
     await this.recordObservationIfAvailable(
       handle,
@@ -1725,15 +1714,25 @@ export class ConcordiaChannelAdapter
     if (!currentHandle || currentHandle.runner !== runner) {
       return;
     }
-    const status: SimulationLifecycleStatus =
-      signal === "SIGTERM"
+    const stopRequested = currentHandle.status === "stopping" ||
+      currentHandle.status === "stopped" ||
+      currentHandle.reason === "stop_requested" ||
+      currentHandle.reason === "stopped_by_user";
+    const status: SimulationLifecycleStatus = stopRequested
+      ? "stopped"
+      : signal === "SIGTERM"
         ? "stopped"
         : code === 0
           ? "finished"
           : "failed";
+    const reason = stopRequested
+      ? "stopped_by_user"
+      : status === "finished"
+        ? currentHandle.reason ?? "completed"
+        : exitMessage;
     void this.cleanupSimulationHandle(
       currentHandle,
-      exitMessage,
+      reason,
       this.buildRunnerExitCleanupOptions(status, exitMessage),
     );
   }
@@ -2152,19 +2151,6 @@ export class ConcordiaChannelAdapter
       return;
     }
     await this.cleanupSimulationHandle(existingHandle, reason, options);
-  }
-
-  private async ensurePendingHandleForSession(
-    session: AgentSession,
-    handle: ConcordiaSimulationHandle | null,
-  ): Promise<ConcordiaSimulationHandle> {
-    if (handle) {
-      return handle;
-    }
-    return this.createSimulationHandle(
-      buildPendingHandleRequestFromSession(session),
-      CREATE_PENDING_HANDLE_OPTIONS,
-    );
   }
 
   private async stopAllSimulations(): Promise<void> {

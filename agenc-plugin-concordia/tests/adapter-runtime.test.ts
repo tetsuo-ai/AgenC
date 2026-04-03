@@ -655,6 +655,34 @@ describe("ConcordiaChannelAdapter registry-backed pending response handling", ()
     expect(adapter.registry.get("sim-b")?.runner).toBe(runnerB);
   });
 
+  it("preserves stopped status when a user-stopped runner exits cleanly", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    await adapter.initialize(makeContext() as never);
+
+    await adapter.handleLaunch({
+      world_id: "world-stop",
+      workspace_id: "ws-stop",
+      simulation_id: "sim-stop",
+      agents: [],
+      premise: "stop premise",
+      control_port: 4601,
+      event_port: 4602,
+    });
+
+    adapter.registry.updateLifecycle("sim-stop", {
+      status: "stopping",
+      reason: "stop_requested",
+    });
+    const runner = adapter.registry.get("sim-stop")?.runner;
+
+    adapter.handleRunnerExit("sim-stop", runner, 0, null);
+    await flushCleanupTurn();
+
+    expect(adapter.registry.get("sim-stop")?.status).toBe("stopped");
+    expect(adapter.registry.get("sim-stop")?.reason).toBe("stopped_by_user");
+    expect(adapter.registry.get("sim-stop")?.error).toBeNull();
+  });
+
   it("ignores events whose simulation identity does not match a known run", async () => {
     const context = makeContext();
     const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
@@ -677,6 +705,27 @@ describe("ConcordiaChannelAdapter registry-backed pending response handling", ()
     );
   });
 
+  it("rejects act requests when the session survives but the simulation handle is gone", async () => {
+    const context = makeContext();
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    await adapter.initialize(context as never);
+
+    const session = createSession(adapter, "sim-orphan", "agent-a");
+
+    await expect(
+      adapter.handleAct(
+        "agent-a",
+        session.sessionId,
+        "Take a turn.",
+        "req-orphan",
+      ),
+    ).rejects.toThrow("Simulation sim-orphan is not active");
+
+    expect(context.logger.warn).toHaveBeenCalledWith(
+      "[concordia] Rejecting /act for unknown simulation sim-orphan",
+    );
+    expect(adapter.registry.get("sim-orphan")).toBeUndefined();
+  });
 
   it("resumes a stopped simulation into a lineage-linked child run without reusing sessions", async () => {
     const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;

@@ -27,9 +27,10 @@ def make_mock_entity(name: str, action: str = "does something", delay: float = 0
     return entity
 
 
-def make_mock_gm(terminate_after: int = 999):
-    gm = MagicMock()
-    gm.name = "GM"
+def _build_gm_action_side_effect(
+    terminate_after: int,
+    next_acting_component: _FakeNextActingComponent | None = None,
+):
     call_count = [0]
 
     def gm_act(action_spec):
@@ -43,19 +44,57 @@ def make_mock_gm(terminate_after: int = 999):
             prompt = getattr(action_spec, "call_to_action", "")
             marker = "In what action spec format should "
             if prompt.startswith(marker):
-              name = prompt.removeprefix(marker).split(" respond?", 1)[0]
+                name = prompt.removeprefix(marker).split(" respond?", 1)[0]
             return (
                 '{"call_to_action": "What would '
                 f'{name}'
                 ' do next?", "output_type": "free", "options": [], "tag": "action"}'
             )
         if action_spec.output_type == OutputType.RESOLVE:
+            if (
+                next_acting_component is not None
+                and next_acting_component.get_currently_active_player() is None
+            ):
+                raise RuntimeError("No active entity suggesting an event to resolve.")
             return "Events resolved."
         return "No"
 
-    gm.act.side_effect = gm_act
+    return gm_act
+
+
+def make_mock_gm(terminate_after: int = 999):
+    gm = MagicMock()
+    gm.name = "GM"
+    gm.act.side_effect = _build_gm_action_side_effect(terminate_after)
     gm.observe.return_value = None
     return gm
+
+
+class _FakeNextActingComponent:
+    def __init__(self) -> None:
+        self._state = {"currently_active_player": None}
+
+    def get_state(self):
+        return dict(self._state)
+
+    def set_state(self, state):
+        self._state = dict(state)
+
+    def get_currently_active_player(self):
+        return self._state.get("currently_active_player")
+
+
+def make_component_aware_gm(terminate_after: int = 999):
+    gm = MagicMock()
+    gm.name = "GM"
+    next_acting_component = _FakeNextActingComponent()
+    gm.act.side_effect = _build_gm_action_side_effect(
+        terminate_after,
+        next_acting_component,
+    )
+    gm.observe.return_value = None
+    gm.get_component.side_effect = lambda key, type_=None: next_acting_component
+    return gm, next_acting_component
 
 
 class TestSimultaneousEngine:
@@ -82,6 +121,49 @@ class TestSimultaneousEngine:
 
         step_1_agents = {e.agent_name for e in action_events if e.step == 1}
         assert step_1_agents == {"Alice", "Bob"}
+
+    def test_observation_steps_stay_aligned_with_current_step(self):
+        events = []
+        engine = InstrumentedSimultaneousEngine(
+            event_callback=events.append,
+            bridge_url="http://localhost:1",
+        )
+        alice = make_mock_entity("Alice", "goes to market")
+        bob = make_mock_entity("Bob", "stays home")
+        gm = make_mock_gm()
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[alice, bob],
+                max_steps=2,
+            )
+
+        observation_steps = sorted({event.step for event in events if event.type == "observation"})
+        assert observation_steps == [1, 2]
+
+    def test_resolution_sets_active_entity_context_for_gm(self):
+        events = []
+        engine = InstrumentedSimultaneousEngine(
+            event_callback=events.append,
+            bridge_url="http://localhost:1",
+        )
+        alice = make_mock_entity("Alice", "goes to market", delay=0.1)
+        bob = make_mock_entity("Bob", "stays home")
+        gm, next_acting_component = make_component_aware_gm()
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[alice, bob],
+                max_steps=1,
+            )
+
+        resolution_events = [event for event in events if event.type == "resolution"]
+        assert len(resolution_events) == 1
+        assert resolution_events[0].agent_name == "Alice"
+        assert resolution_events[0].content == "Alice: goes to market\nBob: stays home"
+        assert next_acting_component.get_currently_active_player() == "Alice"
 
     def test_agents_act_concurrently(self):
         """Verify agents act in parallel, not sequentially."""

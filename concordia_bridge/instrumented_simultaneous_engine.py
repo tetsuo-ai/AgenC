@@ -161,7 +161,12 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
             if stop_during_actions:
                 break
 
-            for name, action in actions.items():
+            ordered_actor_names = [
+                entity.name for entity in entities if entity.name in actions
+            ]
+
+            for name in ordered_actor_names:
+                action = actions[name]
                 self._event_callback(SimulationEvent(
                     type="action",
                     step=step,
@@ -175,8 +180,14 @@ class InstrumentedSimultaneousEngine(InstrumentedSequentialEngine):
                 self._finish_step(step, "no_valid_actions", step_callback)
                 continue
 
-            combined = "\n".join(f"{name}: {action}" for name, action in actions.items())
-            self._last_acting_entity_name = None
+            combined = "\n".join(
+                f"{name}: {actions[name]}"
+                for name in ordered_actor_names
+            )
+            self._set_active_entity_context(
+                gm,
+                ordered_actor_names[0] if ordered_actor_names else None,
+            )
 
             if self._stop_requested(step_controller, "before_resolution"):
                 break

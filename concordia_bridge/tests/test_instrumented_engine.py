@@ -251,6 +251,26 @@ class TestRunLoop:
         action_events = [e for e in events if e.type == "action"]
         assert len(action_events) == 3
 
+    def test_observation_steps_advance_in_execution_order(self):
+        events = []
+        engine = InstrumentedSequentialEngine(
+            event_callback=events.append,
+            bridge_url="http://localhost:1",
+        )
+        gm = make_mock_gm()
+        alice = make_mock_entity("Alice", action="goes to market")
+
+        with patch("concordia_bridge.instrumented_engine.requests.post"):
+            engine.run_loop(
+                game_masters=[gm],
+                entities=[alice],
+                premise="Test premise",
+                max_steps=3,
+            )
+
+        observation_steps = [event.step for event in events if event.type == "observation"]
+        assert observation_steps == [1, 2, 3]
+
     def test_emits_premise_event(self):
         events = []
         engine = InstrumentedSequentialEngine(

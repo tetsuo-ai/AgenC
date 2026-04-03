@@ -606,6 +606,24 @@ async function handleReset(
   sendJson(res, HTTP_OK, { status: "ok" });
 }
 
+async function requireKnownSimulation(
+  config: BridgeServerConfig,
+  simulationId: string,
+  res: ServerResponse,
+): Promise<boolean> {
+  if (!config.getSimulation) {
+    return true;
+  }
+
+  const simulation = await config.getSimulation(simulationId);
+  if (simulation) {
+    return true;
+  }
+
+  sendJson(res, HTTP_NOT_FOUND, { error: `Simulation ${simulationId} not found` });
+  return false;
+}
+
 async function handleAct(
   request: ActRequest,
   res: ServerResponse,
@@ -616,6 +634,10 @@ async function handleAct(
   const start = Date.now();
 
   const identity = requireSimulationIdentity(request);
+  if (!(await requireKnownSimulation(config, identity.simulationId!, res))) {
+    return;
+  }
+
   const session = getOrCreateSimulationSession(config, request, identity);
   const worldProjection = await resolveActWorldProjection(request, identity.simulationId, config);
   const response = await executeActRequest(request, session.sessionId, worldProjection, config);
@@ -723,6 +745,9 @@ async function handleObserve(
   metrics.observeRequests++;
 
   const identity = requireSimulationIdentity(request);
+  if (!(await requireKnownSimulation(config, identity.simulationId!, res))) {
+    return;
+  }
 
   const session = config.sessionManager.getOrCreate({
     agentId: request.agent_id,
@@ -760,6 +785,9 @@ async function handleSetup(
   metrics.setupRequests++;
 
   const identity = requireSimulationIdentity(request);
+  if (!(await requireKnownSimulation(config, identity.simulationId!, res))) {
+    return;
+  }
 
   const sessions = await config.onSetup(request);
 
@@ -781,8 +809,11 @@ async function handleEvent(
 ): Promise<void> {
   metrics.eventNotifications++;
 
-  requireSimulationIdentity(event);
+  const identity = requireSimulationIdentity(event);
   requireStringField(event.workspace_id, "workspace_id");
+  if (!(await requireKnownSimulation(config, identity.simulationId!, res))) {
+    return;
+  }
 
   await config.onEvent(event);
 

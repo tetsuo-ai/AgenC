@@ -162,7 +162,10 @@ def cmd_run_json(args: argparse.Namespace) -> None:
 
 
 def _run_config(config) -> None:
+    from concordia_bridge.parent_death import install_parent_death_guard
     from concordia_bridge.runner import run_simulation
+
+    install_parent_death_guard()
 
     print(f"Running simulation: {config.world_id}")
     print(f"  Agents: {', '.join(a.name for a in config.agents)}")

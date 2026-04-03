@@ -15,11 +15,13 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Callable, Optional, Sequence, TypedDict
 
 import requests
 
+from concordia.components.game_master import next_acting as next_acting_components
 from concordia.typing.entity import Entity, ActionSpec, OutputType
 from concordia.environment.engine import Engine
 from concordia.environment import engine as engine_lib
@@ -334,6 +336,40 @@ class InstrumentedSequentialEngine(Engine):
             fallback_entity = type("FallbackEntity", (), {"name": entity_name})()
             return self.build_entity_action_spec(fallback_entity)
 
+    def _set_active_entity_context(
+        self,
+        game_master: Entity,
+        entity_name: str | None,
+    ) -> None:
+        """Mirror the active actor into the GM's NextActing component when available."""
+        self._last_acting_entity_name = entity_name
+        get_component = getattr(game_master, "get_component", None)
+        if not callable(get_component):
+            return
+        try:
+            next_acting_component = game_master.get_component(
+                next_acting_components.DEFAULT_NEXT_ACTING_COMPONENT_KEY,
+                type_=next_acting_components.NextActing,
+            )
+        except Exception:
+            return
+
+        set_state = getattr(next_acting_component, "set_state", None)
+        if not callable(set_state):
+            return
+
+        get_state = getattr(next_acting_component, "get_state", None)
+        try:
+            state = dict(get_state() or {}) if callable(get_state) else {}
+            state["currently_active_player"] = entity_name
+            set_state(state)
+        except Exception as exc:
+            logger.debug(
+                "Unable to sync GM active entity context for %s: %s",
+                self._world_id,
+                exc,
+            )
+
     def make_observation(self, game_master: Entity, entity: Entity) -> str:
         """Generate observation for an entity and emit event."""
         observation_spec = ActionSpec(
@@ -370,7 +406,7 @@ class InstrumentedSequentialEngine(Engine):
                 next_entity = entity
                 break
 
-        self._last_acting_entity_name = next_entity.name
+        self._set_active_entity_context(game_master, next_entity.name)
         return (
             next_entity,
             self.build_entity_action_spec_from_game_master(
@@ -496,14 +532,13 @@ class InstrumentedSequentialEngine(Engine):
         step_callback: StepCallback,
         scenes: Optional[list],
         start_step: int,
-    ) -> Sequence[tuple[int, Entity]]:
+    ) -> Iterator[tuple[int, Entity]]:
         gm, scene_state = self._initialize_run_loop(
             game_masters,
             premise,
             scenes,
             start_step,
         )
-        prepared_steps: list[tuple[int, Entity]] = []
 
         for step in range(start_step, max_steps + 1):
             disposition, gm = self._prepare_loop_step(
@@ -520,9 +555,7 @@ class InstrumentedSequentialEngine(Engine):
                 break
             if disposition == "continue":
                 continue
-            prepared_steps.append((step, gm))
-
-        return prepared_steps
+            yield step, gm
 
     def run_loop(
         self,

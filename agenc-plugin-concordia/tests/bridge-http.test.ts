@@ -214,6 +214,41 @@ const simulationRecords = new Map([
   ],
 ]);
 
+function registerSimulationRecord(
+  simulationId: string,
+  overrides: Record<string, unknown> = {},
+): void {
+  simulationRecords.set(simulationId, {
+    ...simulationRecords.get("sim-running"),
+    simulation_id: simulationId,
+    world_id: overrides.world_id ?? `world-${simulationId}`,
+    workspace_id: overrides.workspace_id ?? `ws-${simulationId}`,
+    lineage_id: overrides.lineage_id ?? null,
+    parent_simulation_id: overrides.parent_simulation_id ?? null,
+    status: overrides.status ?? "running",
+    reason: overrides.reason ?? null,
+    error: overrides.error ?? null,
+    created_at: overrides.created_at ?? Date.now(),
+    updated_at: overrides.updated_at ?? Date.now(),
+    started_at: overrides.started_at ?? Date.now(),
+    ended_at: overrides.ended_at ?? null,
+    agent_ids: overrides.agent_ids ?? ["alice"],
+    current_alias: overrides.current_alias ?? false,
+    pid: overrides.pid ?? 1234,
+    last_completed_step: overrides.last_completed_step ?? 0,
+    last_step_outcome: overrides.last_step_outcome ?? null,
+    replay_event_count: overrides.replay_event_count ?? 0,
+    checkpoint: overrides.checkpoint ?? null,
+    agents: overrides.agents ?? [
+      { agent_id: "alice", agent_name: "Alice", personality: "Helpful", goal: "Win" },
+    ],
+    premise: overrides.premise ?? "Test premise",
+    max_steps: overrides.max_steps ?? 12,
+    gm_model: overrides.gm_model ?? "grok-4",
+    gm_provider: overrides.gm_provider ?? "grok",
+  });
+}
+
 beforeAll(async () => {
   sessionManager = new SessionManager();
   port = 13300 + Math.floor(Math.random() * 100);
@@ -590,6 +625,17 @@ describe("Bridge HTTP Server", () => {
 
   describe("POST /setup", () => {
     it("creates sessions for agents and echoes simulation identity", async () => {
+      registerSimulationRecord("sim-setup", {
+        world_id: "test-world",
+        workspace_id: "test-ws",
+        agent_ids: ["alice", "bob"],
+        agents: [
+          { agent_id: "alice", agent_name: "Alice", personality: "Helpful", goal: "Win" },
+          { agent_id: "bob", agent_name: "Bob", personality: "Curious", goal: "Learn" },
+        ],
+        premise: "Test premise",
+      });
+
       const resp = await fetch(url("/setup"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -613,6 +659,27 @@ describe("Bridge HTTP Server", () => {
       expect(data.lineage_id).toBe("lineage-setup");
       expect(data.sessions.alice).toBeTruthy();
       expect(data.sessions.bob).toBeTruthy();
+    });
+
+    it("rejects setup for unknown simulations", async () => {
+      const setupCount = setupCalls.length;
+      const resp = await fetch(url("/setup"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          world_id: "test-world",
+          workspace_id: "test-ws",
+          simulation_id: "sim-missing-setup",
+          agents: [
+            { agent_id: "ghost", agent_name: "Ghost", personality: "Fleeting" },
+          ],
+          premise: "Ghost premise",
+        }),
+      });
+
+      expect(resp.status).toBe(HTTP_NOT_FOUND);
+      expect(setupCalls).toHaveLength(setupCount);
+      expect(sessionManager.getAllForSimulation("sim-missing-setup", "test-ws")).toEqual([]);
     });
   });
 
@@ -758,6 +825,10 @@ describe("Bridge HTTP Server", () => {
 
   describe("POST /act", () => {
     it("returns structured agent responses and records world projection usage", async () => {
+      registerSimulationRecord("sim-act", {
+        world_id: "test-world",
+        workspace_id: "test-ws",
+      });
       sessionManager.getOrCreate({
         agentId: "alice",
         agentName: "Alice",
@@ -799,10 +870,37 @@ describe("Bridge HTTP Server", () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       );
     });
+
+    it("rejects act requests for unknown simulations", async () => {
+      const resp = await fetch(url("/act"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: "ghost",
+          agent_name: "Ghost",
+          world_id: "test-world",
+          workspace_id: "test-ws",
+          simulation_id: "sim-missing-act",
+          action_spec: {
+            call_to_action: "What would Ghost do?",
+            output_type: "free",
+            options: [],
+            tag: "action",
+          },
+        }),
+      });
+
+      expect(resp.status).toBe(HTTP_NOT_FOUND);
+      expect(sessionManager.getAllForSimulation("sim-missing-act", "test-ws")).toEqual([]);
+    });
   });
 
   describe("POST /observe", () => {
     it("stores observation and returns ok", async () => {
+      registerSimulationRecord("sim-observe", {
+        world_id: "w1",
+        workspace_id: "ws1",
+      });
       sessionManager.getOrCreate({
         agentId: "alice",
         agentName: "Alice",
@@ -828,10 +926,32 @@ describe("Bridge HTTP Server", () => {
       expect(data.status).toBe("ok");
       expect(observeCalls).toContain("You see a market square.");
     });
+
+    it("rejects observations for unknown simulations", async () => {
+      const resp = await fetch(url("/observe"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: "ghost",
+          agent_name: "Ghost",
+          world_id: "w1",
+          workspace_id: "ws1",
+          simulation_id: "sim-missing-observe",
+          observation: "You see an abandoned square.",
+        }),
+      });
+
+      expect(resp.status).toBe(HTTP_NOT_FOUND);
+      expect(sessionManager.getAllForSimulation("sim-missing-observe", "ws1")).toEqual([]);
+    });
   });
 
   describe("POST /event", () => {
     it("accepts event notifications", async () => {
+      registerSimulationRecord("sim-event", {
+        world_id: "test-world",
+        workspace_id: "test-ws",
+      });
       const resp = await fetch(url("/event"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -848,6 +968,26 @@ describe("Bridge HTTP Server", () => {
       const data = await resp.json();
       expect(resp.status).toBe(HTTP_OK);
       expect(data.status).toBe("ok");
+    });
+
+    it("rejects events for unknown simulations", async () => {
+      const eventCount = eventCalls.length;
+      const resp = await fetch(url("/event"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "resolution",
+          step: 1,
+          acting_agent: "ghost",
+          content: "Ghost resolves nothing.",
+          world_id: "test-world",
+          workspace_id: "test-ws",
+          simulation_id: "sim-missing-event",
+        }),
+      });
+
+      expect(resp.status).toBe(HTTP_NOT_FOUND);
+      expect(eventCalls).toHaveLength(eventCount);
     });
   });
 
