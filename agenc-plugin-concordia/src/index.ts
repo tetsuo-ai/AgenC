@@ -114,7 +114,14 @@ export function createChannelAdapter(): ChannelAdapter<ConcordiaChannelConfig> {
 }
 
 // Re-export types for consumers
-export type { ConcordiaChannelConfig } from "./types.js";
+export type {
+  ConcordiaAlignedDocumentStatus,
+  ConcordiaCompatibilityShimStatus,
+  ConcordiaMigrationStatus,
+  ConcordiaRollbackPoint,
+  ConcordiaSchemaCompatibility,
+  ConcordiaChannelConfig,
+} from "./types.js";
 export type { ConcordiaChannelAdapter } from "./adapter.js";
 
 // Re-export memory wiring for consumers (Phases 5 + 10)
@@ -161,6 +168,23 @@ export type {
   ConcordiaMemoryContinuityMode,
   ConcordiaMemoryNamespaceRefs,
 } from "./memory-namespaces.js";
+
+// Re-export migration compatibility helpers (Phase 11)
+export {
+  buildConcordiaMigrationStatus,
+  CONCORDIA_REQUEST_RESPONSE_SCHEMA_VERSION,
+  CONCORDIA_REPLAY_SCHEMA_VERSION,
+  CONCORDIA_MEMORY_RESOLVER_CONTRACT_VERSION,
+  CONCORDIA_HEADER_REQUEST_SCHEMA,
+  CONCORDIA_HEADER_REPLAY_SCHEMA,
+  CONCORDIA_HEADER_MIGRATION_STATUS,
+  CONCORDIA_HEADER_COMPATIBILITY_SHIM,
+  CONCORDIA_HEADER_DEPRECATED,
+  COMPAT_SHIM_LEGACY_LAUNCH,
+  COMPAT_SHIM_LEGACY_SIMULATION_STATUS,
+  COMPAT_SHIM_LEGACY_SIMULATION_CONTROL,
+  COMPAT_SHIM_LEGACY_AGENT_STATE,
+} from "./migration-compatibility.js";
 
 // Re-export memory lifecycle for consumers (Phase 10)
 export {

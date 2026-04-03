@@ -22,6 +22,8 @@
 > from upstream. The bridge approach lets us use Concordia's simulation engine
 > as-is while AgenC agents bring persistent memory, identity, and Grok.
 
+> **Status update (2026-04-03)**: The live simulation stack is now run-scoped around `simulationId`, bridge-owned replay/control APIs, and simulation-scoped memory namespaces. Any section below that treats `world_id` or `workspace_id` as the primary runtime isolation boundary should be read as historical design context, not current behavior. The active execution plan is [TODO.MD](./TODO.MD).
+
 ---
 
 ## Architecture Overview

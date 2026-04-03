@@ -124,7 +124,10 @@ export type ConcordiaReplayCursorState = ConcordiaCheckpointReplayCursor;
 export type ConcordiaCheckpointSubsystemRestore = ConcordiaCheckpointResumeState;
 export type ConcordiaWorldStateRefs = ConcordiaCheckpointWorldStateRefs;
 
-const CHECKPOINT_SCHEMA_VERSION = 3;
+export const CONCORDIA_CHECKPOINT_SCHEMA_VERSION = 3;
+export const CONCORDIA_SUPPORTED_CHECKPOINT_SCHEMA_VERSIONS = [1, 2, 3] as const;
+
+const CHECKPOINT_SCHEMA_VERSION = CONCORDIA_CHECKPOINT_SCHEMA_VERSION;
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -220,6 +223,108 @@ function normalizeMemoryNamespaceRefs(value: unknown): ConcordiaCheckpointMemory
   return asRecord(value) as ConcordiaCheckpointMemoryNamespaceRefs;
 }
 
+interface CheckpointIdentityFields {
+  readonly simulationId: string;
+  readonly worldId: string;
+  readonly workspaceId: string;
+  readonly lineageId: string | null;
+  readonly parentSimulationId: string | null;
+}
+
+interface NormalizedCheckpointDefaults {
+  readonly checkpointId: string;
+  readonly checkpointPath: string;
+  readonly schemaVersion: number;
+  readonly maxSteps: number;
+  readonly entityStates: Record<string, unknown>;
+  readonly gmState: Record<string, unknown>;
+  readonly runtimeCursor: ConcordiaCheckpointRuntimeCursor;
+}
+
+function resolveCheckpointIdentity(
+  source: Record<string, unknown>,
+  config: Record<string, unknown>,
+): CheckpointIdentityFields {
+  const simulationId =
+    asString(source.simulation_id) ??
+    asString(config.simulation_id) ??
+    asString(source.world_id) ??
+    asString(config.world_id) ??
+    'checkpoint-simulation';
+  return {
+    simulationId,
+    worldId: asString(source.world_id) ?? asString(config.world_id) ?? 'default',
+    workspaceId: asString(source.workspace_id) ?? asString(config.workspace_id) ?? 'concordia-sim',
+    lineageId: asString(source.lineage_id) ?? asString(config.lineage_id) ?? null,
+    parentSimulationId:
+      asString(source.parent_simulation_id) ?? asString(config.parent_simulation_id) ?? null,
+  };
+}
+
+function buildEnrichedCheckpointConfig(
+  config: Record<string, unknown>,
+  identity: CheckpointIdentityFields,
+): Record<string, unknown> {
+  return {
+    ...config,
+    world_id: asString(config.world_id) ?? identity.worldId,
+    workspace_id: asString(config.workspace_id) ?? identity.workspaceId,
+    simulation_id: asString(config.simulation_id) ?? identity.simulationId,
+    lineage_id: asString(config.lineage_id) ?? identity.lineageId,
+    parent_simulation_id: asString(config.parent_simulation_id) ?? identity.parentSimulationId,
+  };
+}
+
+function buildNormalizedCheckpointDefaults(
+  source: Record<string, unknown>,
+  step: number,
+  enrichedConfig: Record<string, unknown>,
+  simulationId: string,
+): NormalizedCheckpointDefaults {
+  const maxSteps = asNumber(source.max_steps) ?? asNumber(enrichedConfig['max_steps']) ?? step;
+  const checkpointId = asString(source.checkpoint_id) ?? `${simulationId}:step:${step}`;
+  const checkpointPath = asString(source.checkpoint_path) ?? `${checkpointId}.json`;
+  const entityStates = asRecord(source.entity_states);
+  const gmState = asRecord(source.gm_state);
+  const schemaVersion =
+    asNumber(source.schema_version) ??
+    asNumber(source.version) ??
+    CHECKPOINT_SCHEMA_VERSION;
+  return {
+    checkpointId,
+    checkpointPath,
+    schemaVersion,
+    maxSteps,
+    entityStates,
+    gmState,
+    runtimeCursor: normalizeRuntimeCursor(source.runtime_cursor, {
+      step,
+      maxSteps,
+      engineType: asString(enrichedConfig['engine_type']) ?? null,
+    }),
+  };
+}
+
+function normalizeRestoredSessions(
+  value: unknown,
+): readonly ConcordiaCheckpointSessionMapping[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => normalizeSessionMapping(entry))
+    .filter((entry): entry is ConcordiaCheckpointSessionMapping => entry !== null);
+}
+
+function normalizeAgentIds(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(
+    (entry): entry is string => typeof entry === 'string' && entry.length > 0,
+  );
+}
+
 export function buildDefaultSubsystemRestore(): ConcordiaCheckpointResumeState {
   return {
     resumed: [
@@ -260,65 +365,44 @@ export function normalizeCheckpointManifest(
   const source = input as Record<string, unknown>;
   const config = asRecord(source.config);
   const step = asNumber(source.step) ?? 0;
-  const simulationId =
-    asString(source.simulation_id) ??
-    asString(config.simulation_id) ??
-    asString(source.world_id) ??
-    asString(config.world_id) ??
-    "checkpoint-simulation";
-  const worldId = asString(source.world_id) ?? asString(config.world_id) ?? "default";
-  const workspaceId =
-    asString(source.workspace_id) ?? asString(config.workspace_id) ?? "concordia-sim";
-  const maxSteps = asNumber(input.max_steps) ?? asNumber(config.max_steps) ?? step;
-  const checkpointId = asString(source.checkpoint_id) ?? `${simulationId}:step:${step}`;
-  const checkpointPath = asString(source.checkpoint_path) ?? `${checkpointId}.json`;
-  const entityStates = asRecord(source.entity_states);
-  const gmState = asRecord(source.gm_state);
-  const schemaVersion = asNumber(source.schema_version) ?? asNumber(source.version) ?? CHECKPOINT_SCHEMA_VERSION;
-  const runtimeCursor = normalizeRuntimeCursor(source.runtime_cursor, {
+  const identity = resolveCheckpointIdentity(source, config);
+  const enrichedConfig = buildEnrichedCheckpointConfig(config, identity);
+  const defaults = buildNormalizedCheckpointDefaults(
+    source,
     step,
-    maxSteps,
-    engineType: asString(config.engine_type) ?? null,
-  });
+    enrichedConfig,
+    identity.simulationId,
+  );
   return {
-    checkpoint_id: checkpointId,
-    checkpoint_path: checkpointPath,
-    schema_version: schemaVersion,
-    version: schemaVersion,
-    world_id: worldId,
-    workspace_id: workspaceId,
-    simulation_id: simulationId,
-    lineage_id: asString(source.lineage_id) ?? asString(config.lineage_id) ?? null,
-    parent_simulation_id:
-      asString(source.parent_simulation_id) ??
-      asString(config.parent_simulation_id) ??
-      null,
+    checkpoint_id: defaults.checkpointId,
+    checkpoint_path: defaults.checkpointPath,
+    schema_version: defaults.schemaVersion,
+    version: defaults.schemaVersion,
+    world_id: identity.worldId,
+    workspace_id: identity.workspaceId,
+    simulation_id: identity.simulationId,
+    lineage_id: identity.lineageId,
+    parent_simulation_id: identity.parentSimulationId,
     step,
     timestamp: asNumber(source.timestamp) ?? Date.now(),
-    user_id: asString(source.user_id) ?? asString(config.user_id) ?? null,
-    max_steps: maxSteps,
-    config,
-    restored_sessions: Array.isArray(source.restored_sessions)
-      ? source.restored_sessions
-          .map((entry) => normalizeSessionMapping(entry))
-          .filter((entry): entry is ConcordiaCheckpointSessionMapping => entry !== null)
-      : [],
+    user_id: asString(source.user_id) ?? asString(enrichedConfig['user_id']) ?? null,
+    max_steps: defaults.maxSteps,
+    config: enrichedConfig,
+    restored_sessions: normalizeRestoredSessions(source.restored_sessions),
     scene_cursor: normalizeSceneCursor(source.scene_cursor),
-    runtime_cursor: runtimeCursor,
+    runtime_cursor: defaults.runtimeCursor,
     replay_cursor: normalizeReplayCursor(source.replay_cursor),
     world_state_refs: normalizeWorldStateRefs(
       source.world_state_refs,
-      Object.keys(entityStates),
-      Object.keys(gmState).length > 0,
+      Object.keys(defaults.entityStates),
+      Object.keys(defaults.gmState).length > 0,
     ),
     memory_namespace_refs: normalizeMemoryNamespaceRefs(source.memory_namespace_refs),
     subsystem_state: normalizeSubsystemRestore(source.subsystem_state),
     entity_logs: asRecord(source.entity_logs),
-    entity_states: entityStates,
-    gm_state: gmState,
-    agent_ids: Array.isArray(source.agent_ids)
-      ? source.agent_ids.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
-      : [],
+    entity_states: defaults.entityStates,
+    gm_state: defaults.gmState,
+    agent_ids: normalizeAgentIds(source.agent_ids),
   };
 }
 

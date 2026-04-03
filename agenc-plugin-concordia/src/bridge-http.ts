@@ -36,6 +36,20 @@ import type {
 } from "./types.js";
 import { createEmptyMetrics } from "./types.js";
 import { ConcordiaAdmissionError } from "./operations.js";
+import {
+  buildConcordiaMigrationStatus,
+  COMPAT_SHIM_LEGACY_AGENT_STATE,
+  COMPAT_SHIM_LEGACY_LAUNCH,
+  COMPAT_SHIM_LEGACY_SIMULATION_CONTROL,
+  COMPAT_SHIM_LEGACY_SIMULATION_STATUS,
+  CONCORDIA_HEADER_COMPATIBILITY_SHIM,
+  CONCORDIA_HEADER_DEPRECATED,
+  CONCORDIA_HEADER_MIGRATION_STATUS,
+  CONCORDIA_HEADER_REPLAY_SCHEMA,
+  CONCORDIA_HEADER_REQUEST_SCHEMA,
+  CONCORDIA_REPLAY_SCHEMA_VERSION,
+  CONCORDIA_REQUEST_RESPONSE_SCHEMA_VERSION,
+} from "./migration-compatibility.js";
 import { buildActPrompt } from "./prompt-builder.js";
 import { processStructuredResponse } from "./response-processor.js";
 import type { SessionManager } from "./session-manager.js";
@@ -195,6 +209,11 @@ async function handleOperationalGet(
   if (path === "/simulations" && config.listSimulations) {
     const simulations = await config.listSimulations();
     sendJson(res, HTTP_OK, { simulations });
+    return true;
+  }
+
+  if (path === "/migration/status" || path === "/compatibility") {
+    sendJson(res, HTTP_OK, buildConcordiaMigrationStatus());
     return true;
   }
 
@@ -399,6 +418,8 @@ async function handleLegacySimulationStatusGet(
     return false;
   }
 
+  applyCompatibilityShimHeaders(res, COMPAT_SHIM_LEGACY_SIMULATION_STATUS);
+
   const simulationId = await resolveCurrentSimulationId(config);
   if (!simulationId) {
     sendJson(res, HTTP_NOT_FOUND, { error: "No active simulation" });
@@ -419,6 +440,8 @@ async function handleLegacyAgentStateGet(
   if (!match || !config.getAgentState) {
     return false;
   }
+
+  applyCompatibilityShimHeaders(res, COMPAT_SHIM_LEGACY_AGENT_STATE);
 
   const agentId = decodeURIComponent(match[1]);
   const simulationId =
@@ -500,6 +523,8 @@ async function handleLegacySimulationControlPost(
     return false;
   }
 
+  applyCompatibilityShimHeaders(res, COMPAT_SHIM_LEGACY_SIMULATION_CONTROL);
+
   const simulationId = await resolveCurrentSimulationId(config);
   if (!simulationId) {
     sendJson(res, HTTP_NOT_FOUND, { error: "No active simulation" });
@@ -543,8 +568,10 @@ async function dispatchPostRequest(
       await handleSetup(body as SetupRequest, res, config, metrics);
       return;
     case "/simulations":
-    case "/launch":
       await handleLaunch(body as LaunchRequest, res, config, metrics);
+      return;
+    case "/launch":
+      await handleLaunch(body as LaunchRequest, res, config, metrics, COMPAT_SHIM_LEGACY_LAUNCH);
       return;
     case "/checkpoint":
       await handleCheckpoint(body as CheckpointRequest, res, config);
@@ -771,7 +798,12 @@ async function handleLaunch(
   res: ServerResponse,
   config: BridgeServerConfig,
   metrics: BridgeMetrics,
+  compatibilityShim?: string,
 ): Promise<void> {
+  if (compatibilityShim) {
+    applyCompatibilityShimHeaders(res, compatibilityShim);
+  }
+
   if (!config.onLaunch) {
     sendJson(res, HTTP_NOT_FOUND, { error: "Launch not supported" });
     return;
@@ -897,6 +929,8 @@ function initializeSimulationSseResponse(
   history: readonly SimulationReplayEvent[],
 ): void {
   setCorsHeaders(res);
+  setDefaultCompatibilityHeaders(res);
+  res.setHeader(CONCORDIA_HEADER_REPLAY_SCHEMA, String(CONCORDIA_REPLAY_SCHEMA_VERSION));
   res.writeHead(HTTP_OK, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache, no-transform",
@@ -971,10 +1005,37 @@ function setCorsHeaders(res: ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,Last-Event-ID");
+  res.setHeader(
+    "Access-Control-Expose-Headers",
+    [
+      CONCORDIA_HEADER_REQUEST_SCHEMA,
+      CONCORDIA_HEADER_REPLAY_SCHEMA,
+      CONCORDIA_HEADER_MIGRATION_STATUS,
+      CONCORDIA_HEADER_COMPATIBILITY_SHIM,
+      CONCORDIA_HEADER_DEPRECATED,
+    ].join(","),
+  );
+}
+
+function setDefaultCompatibilityHeaders(res: ServerResponse): void {
+  res.setHeader(
+    CONCORDIA_HEADER_REQUEST_SCHEMA,
+    String(CONCORDIA_REQUEST_RESPONSE_SCHEMA_VERSION),
+  );
+  res.setHeader(CONCORDIA_HEADER_MIGRATION_STATUS, "/migration/status");
+}
+
+function applyCompatibilityShimHeaders(
+  res: ServerResponse,
+  shimId: string,
+): void {
+  res.setHeader(CONCORDIA_HEADER_COMPATIBILITY_SHIM, shimId);
+  res.setHeader(CONCORDIA_HEADER_DEPRECATED, "true");
 }
 
 function sendEmpty(res: ServerResponse, status: number): void {
   setCorsHeaders(res);
+  setDefaultCompatibilityHeaders(res);
   res.writeHead(status);
   res.end();
 }
@@ -1000,6 +1061,7 @@ function requireStringField(value: unknown, field: string): string {
 function sendJson(res: ServerResponse, status: number, data: unknown): void {
   const body = JSON.stringify(data);
   setCorsHeaders(res);
+  setDefaultCompatibilityHeaders(res);
   res.writeHead(status, {
     "Content-Type": "application/json",
     "Content-Length": Buffer.byteLength(body),

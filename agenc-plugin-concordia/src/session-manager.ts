@@ -9,6 +9,8 @@
 
 import { createHash } from "node:crypto";
 
+export const CONCORDIA_SESSION_DERIVATION_VERSION = 2;
+
 export interface AgentSession {
   readonly agentId: string;
   readonly agentName: string;

@@ -527,6 +527,48 @@ export interface SimulationEventsResponse {
 
 export type SimulationWorldStateResponse = WorldStateSnapshot;
 
+export interface ConcordiaSchemaCompatibility {
+  readonly current_version: number;
+  readonly supported_versions: readonly number[];
+  readonly compatibility_mode: string;
+  readonly migration_notes: readonly string[];
+}
+
+export interface ConcordiaCompatibilityShimStatus {
+  readonly shim_id: string;
+  readonly legacy_surface: string;
+  readonly current_surface: string;
+  readonly status: "active" | "remove-when-safe";
+  readonly removal_gate: string;
+  readonly rollback_phase: string;
+}
+
+export interface ConcordiaRollbackPoint {
+  readonly rollback_id: string;
+  readonly area: string;
+  readonly phase: string;
+  readonly rollback_boundary: string;
+  readonly rollback_strategy: string;
+}
+
+export interface ConcordiaAlignedDocumentStatus {
+  readonly path: string;
+  readonly status: "authoritative" | "historical-with-banner" | "superseded";
+  readonly notes: readonly string[];
+}
+
+export interface ConcordiaMigrationStatus {
+  readonly generated_at: number;
+  readonly request_response_schema: ConcordiaSchemaCompatibility;
+  readonly session_id_derivation: ConcordiaSchemaCompatibility;
+  readonly checkpoint_manifest_schema: ConcordiaSchemaCompatibility;
+  readonly replay_schema: ConcordiaSchemaCompatibility;
+  readonly memory_resolver_contract: ConcordiaSchemaCompatibility;
+  readonly compatibility_shims: readonly ConcordiaCompatibilityShimStatus[];
+  readonly rollback_points: readonly ConcordiaRollbackPoint[];
+  readonly aligned_documents: readonly ConcordiaAlignedDocumentStatus[];
+}
+
 // ============================================================================
 // Plugin configuration
 // ============================================================================

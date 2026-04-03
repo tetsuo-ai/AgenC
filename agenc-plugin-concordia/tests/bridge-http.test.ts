@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { createBridgeServer } from "../src/bridge-http.js";
+import {
+  COMPAT_SHIM_LEGACY_AGENT_STATE,
+  COMPAT_SHIM_LEGACY_LAUNCH,
+  COMPAT_SHIM_LEGACY_SIMULATION_CONTROL,
+  COMPAT_SHIM_LEGACY_SIMULATION_STATUS,
+  CONCORDIA_HEADER_COMPATIBILITY_SHIM,
+  CONCORDIA_HEADER_DEPRECATED,
+  CONCORDIA_HEADER_MIGRATION_STATUS,
+  CONCORDIA_HEADER_REQUEST_SCHEMA,
+} from "../src/migration-compatibility.js";
 import { ConcordiaAdmissionError } from "../src/operations.js";
 import { SessionManager } from "../src/session-manager.js";
 import type { Server } from "node:http";
@@ -446,9 +456,31 @@ describe("Bridge HTTP Server", () => {
       const resp = await fetch(url("/metrics"));
       const data = await resp.json();
       expect(resp.status).toBe(HTTP_OK);
+      expect(resp.headers.get(CONCORDIA_HEADER_REQUEST_SCHEMA)).toBe("2");
+      expect(resp.headers.get(CONCORDIA_HEADER_MIGRATION_STATUS)).toBe("/migration/status");
       expect(typeof data.act_requests).toBe("number");
       expect(typeof data.observe_requests).toBe("number");
       expect(typeof data.errors).toBe("number");
+    });
+  });
+
+  describe("GET /migration/status", () => {
+    it("returns migration compatibility and rollback metadata", async () => {
+      const resp = await fetch(url("/migration/status"));
+      const data = await resp.json();
+      expect(resp.status).toBe(HTTP_OK);
+      expect(data.request_response_schema.current_version).toBe(2);
+      expect(data.compatibility_shims).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ shim_id: COMPAT_SHIM_LEGACY_LAUNCH }),
+          expect.objectContaining({ shim_id: COMPAT_SHIM_LEGACY_SIMULATION_STATUS }),
+        ]),
+      );
+      expect(data.rollback_points).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ rollback_id: "checkpoint-manifest-v3" }),
+        ]),
+      );
     });
   });
 
@@ -505,6 +537,10 @@ describe("Bridge HTTP Server", () => {
       const resp = await fetch(url("/simulation/status"));
       const data = await resp.json();
       expect(resp.status).toBe(HTTP_OK);
+      expect(resp.headers.get(CONCORDIA_HEADER_COMPATIBILITY_SHIM)).toBe(
+        COMPAT_SHIM_LEGACY_SIMULATION_STATUS,
+      );
+      expect(resp.headers.get(CONCORDIA_HEADER_DEPRECATED)).toBe("true");
       expect(data.simulation_id).toBe("sim-running");
     });
   });
@@ -600,6 +636,10 @@ describe("Bridge HTTP Server", () => {
       });
       const data = await resp.json();
       expect(resp.status).toBe(HTTP_OK);
+      expect(resp.headers.get(CONCORDIA_HEADER_COMPATIBILITY_SHIM)).toBe(
+        COMPAT_SHIM_LEGACY_LAUNCH,
+      );
+      expect(resp.headers.get(CONCORDIA_HEADER_DEPRECATED)).toBe("true");
       expect(data.status).toBe("ok");
       expect(data.pid).toBe(4242);
       expect(data.simulation_id).toBe("sim-launch");
@@ -629,6 +669,10 @@ describe("Bridge HTTP Server", () => {
         method: "POST",
       });
       expect(resp.status).toBe(HTTP_OK);
+      expect(resp.headers.get(CONCORDIA_HEADER_COMPATIBILITY_SHIM)).toBe(
+        COMPAT_SHIM_LEGACY_SIMULATION_CONTROL,
+      );
+      expect(resp.headers.get(CONCORDIA_HEADER_DEPRECATED)).toBe("true");
       expect(controlCalls.at(-1)).toEqual({
         simulationId: "sim-running",
         command: "pause",
@@ -831,6 +875,10 @@ describe("Bridge HTTP Server", () => {
       const resp = await fetch(url("/agent/alice/state"));
       const data = await resp.json();
       expect(resp.status).toBe(HTTP_OK);
+      expect(resp.headers.get(CONCORDIA_HEADER_COMPATIBILITY_SHIM)).toBe(
+        COMPAT_SHIM_LEGACY_AGENT_STATE,
+      );
+      expect(resp.headers.get(CONCORDIA_HEADER_DEPRECATED)).toBe("true");
       expect(data.identity.name).toBe("alice");
       expect(data.turnCount).toBe(1);
       expect(data.simulationId).toBe("sim-agent-state");
