@@ -618,6 +618,52 @@ describe("ConcordiaChannelAdapter registry-backed pending response handling", ()
     expect(adapter.registry.get("sim-stop")?.status).toBe("stopped");
   });
 
+
+  it("does not emit unhandled rejections when shutdown clears a pending act", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    await adapter.initialize(makeContext() as never);
+    await adapter.handleLaunch({
+      world_id: "world-stop-clean",
+      workspace_id: "ws-stop-clean",
+      simulation_id: "sim-stop-clean",
+      agents: [{ agent_id: "agent-a", agent_name: "Agent A", personality: "steady" }],
+      premise: "stop premise",
+      control_port: 4311,
+      event_port: 4312,
+    });
+
+    const handle = adapter.registry.get("sim-stop-clean");
+    const session = createSession(adapter, "sim-stop-clean", "agent-a");
+    const pending = adapter.createPendingResponse(
+      handle,
+      "req-stop-clean",
+      session.sessionId,
+      "agent-a",
+      5_000,
+      "timeout",
+      session.worldId,
+      4,
+      handle.simulationId,
+    ) as Promise<string>;
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+
+    try {
+      await adapter.cleanupSimulationHandle(handle, "stop requested", {
+        status: "stopped",
+        stopRunner: true,
+        removeSessions: true,
+        runPostCleanup: false,
+        clearMemoryContext: true,
+      });
+      await flushCleanupTurn();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.removeListener("unhandledRejection", unhandled);
+      await pending.catch(() => undefined);
+    }
+  });
+
   it("terminalizes one simulation on unexpected child exit without corrupting others", async () => {
     const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
     await adapter.initialize(makeContext() as never);

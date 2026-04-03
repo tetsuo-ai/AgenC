@@ -3340,7 +3340,7 @@ export class ConcordiaChannelAdapter
     step: number,
     simulationId: string | null = null,
   ): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
+    const responsePromise = new Promise<string>((resolve, reject) => {
       this.initializePendingResponse({
         handle,
         requestId,
@@ -3355,6 +3355,8 @@ export class ConcordiaChannelAdapter
         reject,
       });
     });
+    responsePromise.catch(() => undefined);
+    return responsePromise;
   }
 
   private initializePendingResponse(params: PendingResponseInit): void {
