@@ -32,7 +32,7 @@ import {
   type MemoryIngestionEngineLike,
   type MemoryRetrieverLike,
 } from "../src/memory-wiring.js";
-import { buildConcordiaMemoryNamespaces } from "../src/memory-namespaces.js";
+import { buildBaseMemoryContextProps } from "./helpers/memory-context-fixture.js";
 
 function createMockBackend(): MemoryBackendLike {
   return {
@@ -88,6 +88,15 @@ function createMockSocialMemory(): SocialMemoryLike {
       observedBy: "gm",
       confirmations: 1,
       confirmedBy: ["gm"],
+      visibility: "world-visible",
+      trust: { source: "system", score: 0.95, confidence: 0.95, threshold: 0.58 },
+      provenance: [{
+        type: "concordia_premise",
+        source: "system",
+        source_id: "concordia-gm",
+        timestamp: 1000,
+      }],
+      auditTrail: [{ timestamp: 1000, action: "write", actor: "gm", visibility: "world-visible" }],
     }),
     confirmWorldFact: vi.fn().mockResolvedValue({
       id: "fact-1",
@@ -95,12 +104,46 @@ function createMockSocialMemory(): SocialMemoryLike {
       observedBy: "gm",
       confirmations: 2,
       confirmedBy: ["gm", "alice"],
+      visibility: "private",
+      trust: { source: "system", score: 0.98, confidence: 0.95, threshold: 0.58 },
+      provenance: [{
+        type: "concordia_observation_confirmation",
+        source: "system",
+        source_id: "alice",
+        timestamp: 1000,
+      }],
+      auditTrail: [{ timestamp: 1000, action: "confirm", actor: "alice", visibility: "private" }],
     }),
     getWorldFacts: vi.fn().mockResolvedValue([
-      { content: "It is morning", observedBy: "gm", confirmations: 0 },
+      {
+        id: "fact-1",
+        content: "It is morning",
+        observedBy: "gm",
+        confirmations: 2,
+        confirmedBy: ["gm", "alice"],
+        visibility: "world-visible",
+        trust: { source: "system", score: 0.96, confidence: 0.95, threshold: 0.58 },
+        provenance: [{
+          type: "gm_observation",
+          source: "system",
+          source_id: "concordia-gm",
+          timestamp: 1000,
+        }],
+        auditTrail: [{ timestamp: 1000, action: "write", actor: "gm", visibility: "world-visible" }],
+      },
     ]),
     checkCollectiveEmergence: vi.fn().mockResolvedValue([
-      { content: "The market opens at dawn", confirmedBy: ["alice", "bob", "sera"] },
+      {
+        content: "The market opens at dawn",
+        confirmedBy: ["alice", "bob", "sera"],
+        trust: { source: "system", score: 0.98, confidence: 0.97, threshold: 0.58 },
+        provenance: [{
+          type: "collective_emergence",
+          source: "system",
+          source_id: "concordia-gm",
+          timestamp: 1000,
+        }],
+      },
     ]),
   };
 }
@@ -135,12 +178,27 @@ function createMockGraph(): MemoryGraphLike {
   };
 }
 
+function buildSharedFactFixture() {
+  return {
+    id: "shared-1",
+    content: "User prefers detailed simulations",
+    author: "concordia:prev-sim",
+    visibility: "shared" as const,
+    trust: { source: "system" as const, score: 0.92, confidence: 0.9, threshold: 0.72 },
+    provenance: [{
+      type: "concordia_shared_promotion",
+      source: "system" as const,
+      source_id: "concordia:prev-sim",
+      timestamp: 1000,
+    }],
+    authorization: { mode: "auto" as const, approved: true, approved_by: "system:auto" },
+  };
+}
+
 function createMockSharedMemory(): SharedMemoryLike {
   return {
-    writeFact: vi.fn().mockResolvedValue({}),
-    getFacts: vi.fn().mockResolvedValue([
-      { content: "User prefers detailed simulations", author: "concordia:prev-sim" },
-    ]),
+    writeFact: vi.fn().mockResolvedValue(buildSharedFactFixture()),
+    getFacts: vi.fn().mockResolvedValue([buildSharedFactFixture()]),
   };
 }
 
@@ -181,33 +239,10 @@ function createMockRetriever(): MemoryRetrieverLike {
 }
 
 function createContext(overrides?: Partial<MemoryWiringContext>): MemoryWiringContext {
-  const worldId = overrides?.worldId ?? "test-world";
-  const workspaceId = overrides?.workspaceId ?? "test-ws";
-  const simulationId = overrides?.simulationId ?? "sim-test";
-  const lineageId = overrides?.lineageId ?? "lineage-test";
-  const parentSimulationId = overrides?.parentSimulationId ?? null;
-  const namespaceResolution = buildConcordiaMemoryNamespaces({
-    worldId,
-    workspaceId,
-    simulationId,
-    lineageId,
-    parentSimulationId,
-    continuityMode: overrides?.continuityMode,
-    effectiveStorageKey: overrides?.effectiveStorageKey,
-    checkpointMetadata: overrides?.checkpointMetadata ?? null,
-  });
+  const baseContext = buildBaseMemoryContextProps(overrides);
 
   return {
-    worldId,
-    workspaceId,
-    simulationId,
-    lineageId,
-    parentSimulationId,
-    effectiveStorageKey: overrides?.effectiveStorageKey ?? namespaceResolution.namespaces.effectiveStorageKey,
-    continuityMode: overrides?.continuityMode ?? namespaceResolution.continuityMode,
-    carryOverPolicy: overrides?.carryOverPolicy ?? namespaceResolution.carryOverPolicy,
-    namespaces: overrides?.namespaces ?? namespaceResolution.namespaces,
-    checkpointMetadata: overrides?.checkpointMetadata ?? null,
+    ...baseContext,
     memoryBackend: createMockBackend(),
     identityManager: createMockIdentityManager(),
     socialMemory: createMockSocialMemory(),
@@ -272,6 +307,11 @@ describe("recordObservationWorldFact", () => {
       "A red sell order flashes across the board.",
       "alice",
       "private",
+      undefined,
+      expect.objectContaining({
+        trustSource: "system",
+        confidence: 0.92,
+      }),
     );
     expect(ctx.memoryBackend.set).toHaveBeenCalled();
   });
@@ -300,6 +340,10 @@ describe("recordObservationWorldFact", () => {
       "fact-1",
       ctx.namespaces.worldScopeId,
       "bob",
+      expect.objectContaining({
+        trustSource: "system",
+        confidence: 0.94,
+      }),
     );
   });
 });
@@ -458,7 +502,12 @@ describe("storePremise", () => {
       ctx.namespaces.worldScopeId,
       "It is morning in Thornfield.",
       ctx.namespaces.sharedAuthor,
-      "world",
+      "world-visible",
+      undefined,
+      expect.objectContaining({
+        trustSource: "system",
+        confidence: 0.99,
+      }),
     );
   });
 });
@@ -485,6 +534,10 @@ describe("phase 4 isolation scopes", () => {
       "The forge fire has gone cold.",
       "alice",
       "private",
+      undefined,
+      expect.objectContaining({
+        trustSource: "system",
+      }),
     );
   });
 });
@@ -671,6 +724,10 @@ describe("promoteToSharedMemory", () => {
       content: "User enjoys medieval sims",
       author: ctx.namespaces.sharedAuthor,
       userId: "user-1",
+      visibility: "shared",
+      trustSource: "system",
+      authorization: expect.objectContaining({ approved: true }),
+      provenance: expect.any(Array),
     }));
   });
 });
@@ -700,7 +757,12 @@ describe("promoteCollectiveEmergenceFacts", () => {
       ctx.namespaces.worldScopeId,
       "The market opens at dawn",
       ctx.namespaces.sharedAuthor,
-      "world",
+      "world-visible",
+      undefined,
+      expect.objectContaining({
+        trustSource: "system",
+        confidence: 0.97,
+      }),
     );
   });
 });

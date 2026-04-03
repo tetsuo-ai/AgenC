@@ -12,7 +12,17 @@
  */
 
 import { createHash } from "node:crypto";
-import type { ConcordiaChannelConfig, EventNotification } from "./types.js";
+import type {
+  ConcordiaAuditRecord,
+  ConcordiaAuthorizationMode,
+  ConcordiaAuthorizationRecord,
+  ConcordiaChannelConfig,
+  ConcordiaProvenanceRecord,
+  ConcordiaTrustRecord,
+  ConcordiaTrustSource,
+  ConcordiaVisibilityTier,
+  EventNotification,
+} from "./types.js";
 import type {
   ConcordiaCarryOverPolicy,
   ConcordiaCheckpointMetadata,
@@ -130,6 +140,29 @@ export interface AgentIdentityLike {
   readonly beliefs: Readonly<Record<string, { belief: string; confidence: number }>>;
 }
 
+interface WorldFactMutationOptions {
+  readonly provenance?: readonly ConcordiaProvenanceRecord[];
+  readonly trustSource?: ConcordiaTrustSource;
+  readonly confidence?: number;
+  readonly reason?: string;
+}
+
+interface WorldFactViewLike {
+  readonly id?: string;
+  readonly content: string;
+  readonly observedBy: string;
+  readonly confirmations: number;
+  readonly confirmedBy?: readonly string[];
+  readonly visibility?: ConcordiaVisibilityTier;
+  readonly trust?: ConcordiaTrustRecord | null;
+  readonly provenance?: readonly ConcordiaProvenanceRecord[];
+  readonly auditTrail?: readonly ConcordiaAuditRecord[];
+}
+
+interface SharedFactViewLike {
+  readonly trust?: ConcordiaTrustRecord | null;
+}
+
 export interface SocialMemoryLike {
   recordInteraction(
     agentId: string,
@@ -154,37 +187,25 @@ export interface SocialMemoryLike {
     worldId: string,
     content: string,
     observedBy: string,
-    visibility?: string,
+    visibility?: ConcordiaVisibilityTier | "world",
     allowedAgents?: readonly string[],
-  ): Promise<{
-    id: string;
-    content: string;
-    observedBy: string;
-    confirmations: number;
-    confirmedBy?: readonly string[];
-  }>;
+    options?: WorldFactMutationOptions,
+  ): Promise<WorldFactViewLike>;
 
   confirmWorldFact(
     factId: string,
     worldId: string,
     agentId: string,
-  ): Promise<{
-    id: string;
-    content: string;
-    observedBy: string;
-    confirmations: number;
-    confirmedBy: readonly string[];
-  } | null>;
+    options?: WorldFactMutationOptions,
+  ): Promise<(WorldFactViewLike & { readonly confirmedBy: readonly string[] }) | null>;
 
-  getWorldFacts(worldId: string, agentId?: string): Promise<Array<{
-    content: string;
-    observedBy: string;
-    confirmations: number;
-  }>>;
+  getWorldFacts(worldId: string, agentId?: string): Promise<WorldFactViewLike[]>;
 
   checkCollectiveEmergence(worldId: string, minConfirmations?: number): Promise<Array<{
     content: string;
     confirmedBy: readonly string[];
+    trust?: ConcordiaTrustRecord | null;
+    provenance?: readonly ConcordiaProvenanceRecord[];
   }>>;
 }
 
@@ -261,14 +282,43 @@ export interface KnownAgentReference {
 /** Duck-typed shared memory interface (Task 10.5). */
 export interface SharedMemoryLike {
   writeFact(params: {
-    scope: string;
+    scope: "user" | "organization" | "capability";
     content: string;
     author: string;
     userId?: string;
-  }): Promise<unknown>;
-  getFacts(scope: string, userId?: string): Promise<Array<{
+    visibility?: ConcordiaVisibilityTier;
+    lineageId?: string | null;
+    trustSource?: ConcordiaTrustSource;
+    confidence?: number;
+    provenance?: readonly ConcordiaProvenanceRecord[];
+    authorization?: ConcordiaAuthorizationRecord;
+  }): Promise<{
+    id?: string;
     content: string;
     author: string;
+    userId?: string;
+    visibility?: ConcordiaVisibilityTier;
+    trust?: ConcordiaTrustRecord | null;
+    provenance?: readonly ConcordiaProvenanceRecord[];
+    authorization?: ConcordiaAuthorizationRecord | null;
+  }>;
+  getFacts(
+    scope: "user" | "organization" | "capability",
+    userId?: string,
+    options?: {
+      readonly lineageId?: string | null;
+      readonly minTrustScore?: number;
+      readonly allowedVisibilities?: readonly ConcordiaVisibilityTier[];
+    },
+  ): Promise<Array<{
+    id?: string;
+    content: string;
+    author: string;
+    userId?: string;
+    visibility?: ConcordiaVisibilityTier;
+    trust?: ConcordiaTrustRecord | null;
+    provenance?: readonly ConcordiaProvenanceRecord[];
+    authorization?: ConcordiaAuthorizationRecord | null;
   }>>;
 }
 
@@ -374,6 +424,14 @@ const WORLD_FACT_LIMIT = 8;
 const GRAPH_ENTITY_SCAN_LIMIT = 5;
 const RELATION_EDGE_SCAN_LIMIT = 6;
 const COLLECTIVE_EMERGENCE_INTERVAL = 5;
+const WORLD_FACT_PROMPT_TRUST_THRESHOLD = 0.58;
+const SHARED_FACT_PROMPT_TRUST_THRESHOLD = 0.72;
+const TRUST_SOURCE_BASE_SCORES: Record<ConcordiaTrustSource, number> = {
+  system: 0.96,
+  user: 0.88,
+  external: 0.72,
+  agent: 0.58,
+};
 const CONTRADICTION_CUES = [
   "no longer",
   "revealed",
@@ -389,6 +447,8 @@ interface ObservationFactIndexEntry {
   readonly canonicalContent: string;
   readonly confirmedBy: readonly string[];
 }
+
+type SharedMemoryScopeName = "user" | "organization" | "capability";
 
 function truncateUtf8(content: string, maxBytes: number): string {
   if (Buffer.byteLength(content, "utf8") <= maxBytes) {
@@ -457,6 +517,201 @@ function buildScopedMetadata(
     checkpointLineageId: ctx.checkpointMetadata?.checkpointLineageId ?? null,
     resumedFromStep: ctx.checkpointMetadata?.resumedFromStep ?? null,
   };
+}
+
+function normalizeVisibilityTier(
+  visibility: ConcordiaVisibilityTier | "world" | undefined,
+  fallback: ConcordiaVisibilityTier,
+): ConcordiaVisibilityTier {
+  if (!visibility) {
+    return fallback;
+  }
+  return visibility === "world" ? "world-visible" : visibility;
+}
+
+function buildProvenanceRecord(
+  ctx: MemoryWiringContext,
+  input: {
+    readonly type: string;
+    readonly source: ConcordiaTrustSource;
+    readonly sourceId: string;
+    readonly timestamp?: number;
+    readonly eventId?: string | null;
+    readonly metadata?: Record<string, unknown>;
+  },
+): ConcordiaProvenanceRecord {
+  const timestamp = input.timestamp ?? Date.now();
+  return {
+    type: input.type,
+    source: input.source,
+    source_id: input.sourceId,
+    simulation_id: ctx.simulationId ?? null,
+    lineage_id: ctx.lineageId ?? null,
+    parent_simulation_id: ctx.parentSimulationId ?? null,
+    world_id: resolveWorldScopeId(ctx),
+    workspace_id: resolveScopedWorkspaceId(ctx),
+    event_id: input.eventId ?? null,
+    timestamp,
+    metadata: input.metadata ? buildScopedMetadata(ctx, input.metadata) : null,
+  };
+}
+
+function buildTrustRecord(input: {
+  readonly source: ConcordiaTrustSource;
+  readonly confidence: number;
+  readonly threshold: number;
+  readonly confirmations?: number;
+}): ConcordiaTrustRecord {
+  const confirmations = Math.max(1, input.confirmations ?? 1);
+  const base = TRUST_SOURCE_BASE_SCORES[input.source] ?? TRUST_SOURCE_BASE_SCORES.agent;
+  const clampedConfidence = Math.max(0, Math.min(1, input.confidence));
+  const confirmationBoost = Math.min(0.2, Math.max(0, confirmations - 1) * 0.05);
+  const score = Math.max(
+    0,
+    Math.min(1, base * 0.65 + clampedConfidence * 0.35 + confirmationBoost),
+  );
+  return {
+    source: input.source,
+    confidence: clampedConfidence,
+    threshold: input.threshold,
+    score,
+  };
+}
+
+function resolveTrustRecord(
+  fact: { readonly trust?: ConcordiaTrustRecord | null; readonly confirmations?: number },
+  fallbackSource: ConcordiaTrustSource,
+  fallbackConfidence: number,
+  threshold: number,
+): ConcordiaTrustRecord {
+  if (fact.trust) {
+    return fact.trust;
+  }
+  return buildTrustRecord({
+    source: fallbackSource,
+    confidence: fallbackConfidence,
+    threshold,
+    confirmations: fact.confirmations ?? 1,
+  });
+}
+
+function resolveWorldFactTrust(
+  fact: WorldFactViewLike,
+  fallbackSource: ConcordiaTrustSource,
+  fallbackConfidence: number,
+): ConcordiaTrustRecord {
+  return resolveTrustRecord(
+    fact,
+    fallbackSource,
+    fallbackConfidence,
+    WORLD_FACT_PROMPT_TRUST_THRESHOLD,
+  );
+}
+
+function resolveSharedTrust(
+  fact: SharedFactViewLike,
+  fallbackSource: ConcordiaTrustSource,
+  fallbackConfidence: number,
+): ConcordiaTrustRecord {
+  return resolveTrustRecord(
+    fact,
+    fallbackSource,
+    fallbackConfidence,
+    SHARED_FACT_PROMPT_TRUST_THRESHOLD,
+  );
+}
+
+function createApprovedAuthorization(
+  approvedBy: string | null | undefined,
+  reason: string,
+): ConcordiaAuthorizationRecord {
+  return {
+    mode: "auto",
+    approved: true,
+    approved_by: approvedBy ?? "system:auto",
+    approved_at: Date.now(),
+    reason,
+  };
+}
+
+function createPendingAuthorization(
+  mode: Extract<ConcordiaAuthorizationMode, "requires-user-authorization" | "requires-system-authorization">,
+  reason: string,
+): ConcordiaAuthorizationRecord {
+  return {
+    mode,
+    approved: false,
+    reason,
+  };
+}
+
+function buildSharedAuthorizationRecord(input: {
+  readonly scope: SharedMemoryScopeName;
+  readonly visibility: ConcordiaVisibilityTier;
+  readonly userId?: string;
+  readonly trustSource: ConcordiaTrustSource;
+  readonly approved?: boolean;
+  readonly approvedBy?: string | null;
+  readonly reason?: string | null;
+}): ConcordiaAuthorizationRecord {
+  if (input.approved === true) {
+    return createApprovedAuthorization(
+      input.approvedBy,
+      input.reason ?? "explicitly_approved",
+    );
+  }
+
+  if (
+    input.scope === "organization" ||
+    input.visibility === "world-visible" ||
+    input.visibility === "lineage-shared"
+  ) {
+    return createPendingAuthorization(
+      "requires-system-authorization",
+      input.reason ?? "broad_shared_scope_requires_system_review",
+    );
+  }
+
+  if (
+    input.scope === "user" &&
+    input.userId &&
+    (input.trustSource === "system" || input.trustSource === "user")
+  ) {
+    return createApprovedAuthorization(
+      input.approvedBy,
+      input.reason ?? "user_scoped_fact_meets_auto_policy",
+    );
+  }
+
+  if (input.scope === "capability" && input.trustSource === "system") {
+    return createApprovedAuthorization(
+      input.approvedBy,
+      input.reason ?? "capability_fact_system_generated",
+    );
+  }
+
+  return createPendingAuthorization(
+    "requires-user-authorization",
+    input.reason ?? "fact_requires_explicit_user_review",
+  );
+}
+
+function traceTrustDecision(
+  ctx: MemoryWiringContext,
+  params: {
+    readonly entryId: string;
+    readonly trust: ConcordiaTrustRecord;
+    readonly source: string;
+    readonly excluded: boolean;
+  },
+): void {
+  traceMemoryTrustFilter(ctx, {
+    entryId: params.entryId,
+    trustScore: params.trust.score,
+    threshold: params.trust.threshold,
+    excluded: params.excluded,
+    source: params.source,
+  });
 }
 
 function listAgentAliases(agent: KnownAgentReference): string[] {
@@ -603,7 +858,25 @@ async function createObservationWorldFact(
     canonicalContent,
     agentId,
     "private",
+    undefined,
+    {
+      provenance: [buildProvenanceRecord(ctx, {
+        type: "concordia_observation_world_fact",
+        source: "system",
+        sourceId: agentId,
+        metadata: {
+          observedBy: agentId,
+          factFingerprint: fingerprint,
+        },
+      })],
+      trustSource: "system",
+      confidence: 0.92,
+      reason: "private_observation_ingest",
+    },
   );
+  if (!fact.id) {
+    throw new Error("Observation world fact persisted without an id");
+  }
   await writeObservationFactIndex(ctx, {
     ...factIndex,
     [fingerprint]: {
@@ -625,6 +898,19 @@ async function confirmObservationWorldFact(
     existing.factId,
     resolveWorldScopeId(ctx),
     agentId,
+    {
+      provenance: [buildProvenanceRecord(ctx, {
+        type: "concordia_observation_confirmation",
+        source: "system",
+        sourceId: agentId,
+        metadata: {
+          factFingerprint: fingerprint,
+        },
+      })],
+      trustSource: "system",
+      confidence: 0.94,
+      reason: "independent_observation_confirmation",
+    },
   );
   await writeObservationFactIndex(ctx, {
     ...factIndex,
@@ -855,13 +1141,96 @@ export async function storePremise(
     resolveWorldScopeId(ctx),
     normalizedPremise,
     ctx.namespaces.sharedAuthor,
-    "world",
+    "world-visible",
+    undefined,
+    {
+      provenance: [buildProvenanceRecord(ctx, {
+        type: "concordia_premise",
+        source: "system",
+        sourceId: ctx.namespaces.sharedAuthor,
+      })],
+      trustSource: "system",
+      confidence: 0.99,
+      reason: "premise_seed",
+    },
   );
 }
 
 /**
  * Get agent state for the viewer.
  */
+function buildIdentityView(identity: AgentIdentityLike | null): Record<string, unknown> | null {
+  if (!identity) {
+    return null;
+  }
+  return {
+    name: identity.name,
+    personality: identity.corePersonality,
+    learnedTraits: identity.learnedTraits,
+    beliefs: identity.beliefs,
+  };
+}
+
+function summarizeRecentMemories(
+  recentMemories: Awaited<ReturnType<MemoryBackendLike["getThread"]>>,
+): Array<Record<string, unknown>> {
+  return recentMemories.map((memory) => ({
+    content: memory.content.slice(0, 200),
+    role: memory.role,
+    timestamp: memory.timestamp,
+    metadata: memory.metadata,
+  }));
+}
+
+function summarizeWorldFacts(worldFacts: readonly WorldFactViewLike[]): Array<Record<string, unknown>> {
+  return worldFacts.map((fact) => ({
+    id: fact.id,
+    content: fact.content,
+    observedBy: fact.observedBy,
+    confirmations: fact.confirmations,
+    confirmedBy: fact.confirmedBy,
+    visibility: normalizeVisibilityTier(fact.visibility, "private"),
+    trust: resolveWorldFactTrust(fact, "system", 0.9),
+    provenance: fact.provenance,
+    audit: fact.auditTrail,
+  }));
+}
+
+async function buildRelationshipSummaries(
+  ctx: MemoryWiringContext,
+  agentId: string,
+): Promise<Array<{
+  otherAgentId: string;
+  relationship: string;
+  sentiment: number;
+  interactionCount: number;
+}>> {
+  const worldScopeId = resolveWorldScopeId(ctx);
+  const knownAgents = await ctx.socialMemory.listKnownAgents(agentId, worldScopeId);
+  const relationships = await Promise.all(
+    knownAgents.map(async (otherId) => {
+      const relationship = await ctx.socialMemory.getRelationship(agentId, otherId, worldScopeId);
+      if (!relationship) {
+        return null;
+      }
+      return {
+        otherAgentId: otherId,
+        relationship: relationship.relationship ?? "acquaintance",
+        sentiment: relationship.sentiment,
+        interactionCount: relationship.interactions.length,
+      };
+    }),
+  );
+  return relationships.filter(
+    (relationship): relationship is {
+      otherAgentId: string;
+      relationship: string;
+      sentiment: number;
+      interactionCount: number;
+    } => relationship !== null,
+  );
+}
+
 export async function getAgentState(
   ctx: MemoryWiringContext,
   agentId: string,
@@ -869,44 +1238,20 @@ export async function getAgentState(
   turnCount: number,
   lastAction: string | null,
 ): Promise<Record<string, unknown>> {
-  const identity = await ctx.identityManager.load(agentId, ctx.namespaces.identityWorkspaceId);
-  const recentMemories = await ctx.memoryBackend.getThread(sessionId, 10);
-  const knownAgents = await ctx.socialMemory.listKnownAgents(agentId, resolveWorldScopeId(ctx));
-  const worldFacts = await ctx.socialMemory.getWorldFacts(resolveWorldScopeId(ctx), agentId);
-
-  const relationships: Array<Record<string, unknown>> = [];
-  for (const otherId of knownAgents) {
-    const rel = await ctx.socialMemory.getRelationship(agentId, otherId, resolveWorldScopeId(ctx));
-    if (rel) {
-      relationships.push({
-        otherAgentId: otherId,
-        relationship: rel.relationship ?? "acquaintance",
-        sentiment: rel.sentiment,
-        interactionCount: rel.interactions.length,
-      });
-    }
-  }
+  const worldScopeId = resolveWorldScopeId(ctx);
+  const [identity, recentMemories, worldFacts, relationships] = await Promise.all([
+    ctx.identityManager.load(agentId, ctx.namespaces.identityWorkspaceId),
+    ctx.memoryBackend.getThread(sessionId, 10),
+    ctx.socialMemory.getWorldFacts(worldScopeId, agentId),
+    buildRelationshipSummaries(ctx, agentId),
+  ]);
 
   return {
-    identity: identity ? {
-      name: identity.name,
-      personality: identity.corePersonality,
-      learnedTraits: identity.learnedTraits,
-      beliefs: identity.beliefs,
-    } : null,
+    identity: buildIdentityView(identity),
     memoryCount: recentMemories.length,
-    recentMemories: recentMemories.map((m) => ({
-      content: m.content.slice(0, 200),
-      role: m.role,
-      timestamp: m.timestamp,
-      metadata: m.metadata,
-    })),
+    recentMemories: summarizeRecentMemories(recentMemories),
     relationships,
-    worldFacts: worldFacts.map((f) => ({
-      content: f.content,
-      observedBy: f.observedBy,
-      confirmations: f.confirmations,
-    })),
+    worldFacts: summarizeWorldFacts(worldFacts),
     turnCount,
     lastAction,
   };
@@ -1173,14 +1518,37 @@ export async function getSharedContext(
 ): Promise<string> {
   if (!ctx.sharedMemory || !userId) return "";
 
-  const userFacts = await ctx.sharedMemory.getFacts("user", userId);
+  const userFacts = await ctx.sharedMemory.getFacts("user", userId, {
+    lineageId: ctx.lineageId ?? null,
+    minTrustScore: SHARED_FACT_PROMPT_TRUST_THRESHOLD,
+    allowedVisibilities: ["shared", "lineage-shared"],
+  });
   if (userFacts.length === 0) return "";
 
-  return "[Shared Knowledge]\n" + userFacts
-    .map((fact) => normalizeSimulationContent(fact.content))
-    .filter(Boolean)
-    .map((content) => `- ${content}`)
-    .join("\n");
+  const trustedLines = userFacts.flatMap((fact) => {
+    const trust = resolveSharedTrust(fact, "system", 0.85);
+    const factId = fact.id ?? `${fact.author}:${hashFactFingerprint(fact.content)}`;
+    const excluded = trust.score < trust.threshold;
+    traceTrustDecision(ctx, {
+      entryId: factId,
+      trust,
+      source: `shared:${fact.author}`,
+      excluded,
+    });
+    if (excluded) {
+      return [];
+    }
+    const visibility = normalizeVisibilityTier(fact.visibility, "shared");
+    const content = normalizeSimulationContent(fact.content);
+    if (!content) {
+      return [];
+    }
+    return [`- [${visibility}; trust ${trust.score.toFixed(2)}] ${content}`];
+  });
+
+  return trustedLines.length > 0
+    ? ["[Shared Knowledge]", ...trustedLines].join("\n")
+    : "";
 }
 
 /**
@@ -1190,21 +1558,56 @@ export async function promoteToSharedMemory(
   ctx: MemoryWiringContext,
   content: string,
   userId?: string,
+  options: {
+    readonly scope?: SharedMemoryScopeName;
+    readonly visibility?: ConcordiaVisibilityTier;
+    readonly trustSource?: ConcordiaTrustSource;
+    readonly approved?: boolean;
+    readonly approvedBy?: string | null;
+    readonly reason?: string | null;
+  } = {},
 ): Promise<void> {
   if (!ctx.sharedMemory) return;
   const normalizedContent = normalizeSimulationContent(content);
   if (!normalizedContent) return;
+
+  const scope = options.scope ?? "user";
+  const visibility = normalizeVisibilityTier(options.visibility, "shared");
+  const trustSource = options.trustSource ?? "system";
+  const authorization = buildSharedAuthorizationRecord({
+    scope,
+    visibility,
+    userId,
+    trustSource,
+    approved: options.approved,
+    approvedBy: options.approvedBy ?? null,
+    reason: options.reason ?? null,
+  });
+  if (!authorization.approved) {
+    return;
+  }
+
   await ctx.sharedMemory.writeFact({
-    scope: "user",
+    scope,
     content: normalizedContent,
     author: ctx.namespaces.sharedAuthor,
     userId,
+    visibility,
+    lineageId: visibility === "lineage-shared" ? ctx.lineageId ?? null : null,
+    trustSource,
+    confidence: trustSource === "system" ? 0.92 : 0.78,
+    provenance: [buildProvenanceRecord(ctx, {
+      type: "concordia_shared_promotion",
+      source: trustSource,
+      sourceId: ctx.namespaces.sharedAuthor,
+      metadata: {
+        scope,
+        visibility,
+      },
+    })],
+    authorization,
   });
 }
-
-// ============================================================================
-// Task 10.6: Collective emergence — check for multi-agent consensus
-// ============================================================================
 
 /**
  * Check if multiple agents have independently confirmed the same facts.
@@ -1221,6 +1624,45 @@ export async function checkCollectiveEmergence(
  * Promote collectively confirmed private/shared observations into explicit
  * world-visible facts on the planned cadence.
  */
+function normalizeCollectiveEmergenceFact(content: string): string | null {
+  return normalizeWorldFactContent(normalizeSimulationContent(content));
+}
+
+async function promoteCollectiveEmergenceFact(
+  ctx: MemoryWiringContext,
+  step: number,
+  fact: { readonly content: string; readonly confirmedBy: readonly string[] },
+): Promise<string | null> {
+  const canonicalContent = normalizeCollectiveEmergenceFact(fact.content);
+  if (!canonicalContent) {
+    return null;
+  }
+
+  await ctx.socialMemory.addWorldFact(
+    resolveWorldScopeId(ctx),
+    canonicalContent,
+    ctx.namespaces.sharedAuthor,
+    "world-visible",
+    undefined,
+    {
+      provenance: [buildProvenanceRecord(ctx, {
+        type: "concordia_collective_emergence",
+        source: "system",
+        sourceId: ctx.namespaces.sharedAuthor,
+        metadata: {
+          confirmedBy: fact.confirmedBy,
+          step,
+        },
+      })],
+      trustSource: "system",
+      confidence: 0.97,
+      reason: "collective_emergence_promotion",
+    },
+  );
+
+  return canonicalContent;
+}
+
 export async function promoteCollectiveEmergenceFacts(
   ctx: MemoryWiringContext,
   step: number,
@@ -1236,15 +1678,13 @@ export async function promoteCollectiveEmergenceFacts(
   }
 
   const promotedKey = buildCollectiveEmergenceKey(ctx);
-  const existingPromotions =
-    (await ctx.memoryBackend.get<Record<string, true>>(promotedKey)) ?? {};
+  const updatedPromotions = {
+    ...((await ctx.memoryBackend.get<Record<string, true>>(promotedKey)) ?? {}),
+  };
   const newlyPromoted: Array<{ content: string; confirmedBy: readonly string[] }> = [];
-  const updatedPromotions = { ...existingPromotions };
 
   for (const fact of promoted) {
-    const canonicalContent = normalizeWorldFactContent(
-      normalizeSimulationContent(fact.content),
-    );
+    const canonicalContent = normalizeCollectiveEmergenceFact(fact.content);
     if (!canonicalContent) {
       continue;
     }
@@ -1252,16 +1692,13 @@ export async function promoteCollectiveEmergenceFacts(
     if (updatedPromotions[fingerprint]) {
       continue;
     }
-
-    await ctx.socialMemory.addWorldFact(
-      resolveWorldScopeId(ctx),
-      canonicalContent,
-      ctx.namespaces.sharedAuthor,
-      "world",
-    );
+    const persistedContent = await promoteCollectiveEmergenceFact(ctx, step, fact);
+    if (!persistedContent) {
+      continue;
+    }
     updatedPromotions[fingerprint] = true;
     newlyPromoted.push({
-      content: canonicalContent,
+      content: persistedContent,
       confirmedBy: fact.confirmedBy,
     });
   }
@@ -1380,10 +1817,29 @@ async function buildWorldFactsPromptSection(
 ): Promise<string | null> {
   const worldFacts = await ctx.socialMemory.getWorldFacts(resolveWorldScopeId(ctx), agentId);
   const worldFactLines = worldFacts
-    .slice(0, WORLD_FACT_LIMIT)
-    .map((fact) => `- ${normalizeSimulationContent(fact.content)}`);
+    .flatMap((fact) => {
+      const trust = resolveWorldFactTrust(fact, "system", 0.9);
+      const factId = fact.id ?? `${fact.observedBy}:${hashFactFingerprint(fact.content)}`;
+      const excluded = trust.score < trust.threshold;
+      traceTrustDecision(ctx, {
+        entryId: factId,
+        trust,
+        source: `world:${fact.observedBy}`,
+        excluded,
+      });
+      if (excluded) {
+        return [];
+      }
+      const content = normalizeSimulationContent(fact.content);
+      if (!content) {
+        return [];
+      }
+      const visibility = normalizeVisibilityTier(fact.visibility, "private");
+      return [`- [${visibility}; trust ${trust.score.toFixed(2)}] ${content}`];
+    })
+    .slice(0, WORLD_FACT_LIMIT);
   return worldFactLines.length > 0
-    ? ['[Visible World Facts]', ...worldFactLines].join('\n')
+    ? ["[Visible World Facts]", ...worldFactLines].join("\n")
     : null;
 }
 

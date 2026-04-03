@@ -265,4 +265,46 @@ describe("ConcordiaChannelAdapter registry-backed pending response handling", ()
     expect(adapter.registry.get("sim-beta")?.runner).toBeTruthy();
     expect(simulationRunnerMocks.stopSimulationRunnerMock).not.toHaveBeenCalled();
   });
+
+  it("records trust, visibility, and provenance on replay events", async () => {
+    const adapter = new ConcordiaChannelAdapter() as PrivateAdapter;
+    const context = makeContext();
+    await adapter.initialize(context as never);
+
+    createHandle(adapter, "sim-governed");
+
+    await adapter.handleEvent({
+      type: "action",
+      step: 3,
+      acting_agent: "agent-a",
+      content: "Agent A posts a bid.",
+      world_id: "world-sim-governed",
+      workspace_id: "ws-sim-governed",
+      simulation_id: "sim-governed",
+      timestamp: 12345,
+      metadata: { source: "live-test" },
+    });
+
+    const replayEvents = adapter.registry.listReplayEvents("sim-governed");
+    expect(replayEvents).toHaveLength(1);
+    expect(replayEvents[0]).toEqual(expect.objectContaining({
+      visibility: "world-visible",
+      trust: expect.objectContaining({ source: "agent" }),
+      provenance: [expect.objectContaining({
+        type: "concordia_event:action",
+        source: "agent",
+        source_id: "agent-a",
+        simulation_id: "sim-governed",
+      })],
+      world_event: expect.objectContaining({
+        trust: expect.objectContaining({ source: "agent" }),
+        provenance: [expect.objectContaining({ type: "concordia_event:action" })],
+      }),
+      metadata: expect.objectContaining({
+        trust_source: "agent",
+        provenance_type: "concordia_event:action",
+      }),
+    }));
+  });
+
 });

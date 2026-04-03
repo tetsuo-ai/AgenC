@@ -32,6 +32,9 @@ import type {
 } from "@tetsuo-ai/plugin-kit";
 import type {
   ConcordiaChannelConfig,
+  ConcordiaProvenanceRecord,
+  ConcordiaTrustRecord,
+  ConcordiaTrustSource,
   ActRequest,
   SetupRequest,
   EventNotification,
@@ -663,6 +666,86 @@ export class ConcordiaChannelAdapter
     };
   }
 
+  private inferEventTrustSource(event: EventNotification): ConcordiaTrustSource {
+    if (event.type === "action") {
+      return "agent";
+    }
+    if (event.type === "error") {
+      return "external";
+    }
+    return "system";
+  }
+
+  private buildEventTrustRecord(
+    event: EventNotification,
+    source: ConcordiaTrustSource,
+  ): ConcordiaTrustRecord {
+    const base = source === "system"
+      ? 0.96
+      : source === "user"
+        ? 0.88
+        : source === "external"
+          ? 0.72
+          : 0.6;
+    const confidence = source === "system" ? 0.94 : source === "external" ? 0.7 : 0.78;
+    return {
+      source,
+      confidence,
+      threshold: 0.58,
+      score: Math.min(1, base * 0.7 + confidence * 0.3),
+    };
+  }
+
+  private buildEventProvenance(
+    handle: ConcordiaSimulationHandle,
+    event: EventNotification,
+    source: ConcordiaTrustSource,
+  ): readonly ConcordiaProvenanceRecord[] {
+    return [{
+      type: `concordia_event:${event.type}`,
+      source,
+      source_id: event.acting_agent ?? event.agent_name ?? "concordia-gm",
+      simulation_id: handle.simulationId,
+      lineage_id: handle.lineageId,
+      parent_simulation_id: handle.parentSimulationId,
+      world_id: handle.worldId,
+      workspace_id: handle.workspaceId,
+      event_id: event.world_event?.event_id ?? String(handle.replayCursor + 1),
+      timestamp: event.timestamp ?? Date.now(),
+      metadata: {
+        step: event.step,
+        type: event.type,
+      },
+    }];
+  }
+
+  private applyEventGovernance(
+    handle: ConcordiaSimulationHandle,
+    event: EventNotification,
+  ): EventNotification {
+    const source = this.inferEventTrustSource(event);
+    const trust = event.trust ?? this.buildEventTrustRecord(event, source);
+    const provenance = event.provenance ?? this.buildEventProvenance(handle, event, source);
+    return {
+      ...event,
+      visibility: event.visibility ?? "world-visible",
+      trust,
+      provenance,
+      world_event: event.world_event
+        ? {
+            ...event.world_event,
+            trust: event.world_event.trust ?? trust,
+            provenance: event.world_event.provenance ?? provenance,
+          }
+        : event.world_event,
+      metadata: {
+        ...(event.metadata ?? {}),
+        provenance_type: provenance[0]?.type ?? null,
+        trust_source: trust.source,
+        trust_score: trust.score,
+      },
+    };
+  }
   private async handleActResult(params: {
     readonly request: ActRequest;
     readonly sessionId: string;
@@ -1104,7 +1187,10 @@ export class ConcordiaChannelAdapter
       return;
     }
 
-    const enrichedEvent = this.applyWorldStateEvent(handle, event);
+    const enrichedEvent = this.applyEventGovernance(
+      handle,
+      this.applyWorldStateEvent(handle, event),
+    );
     const replayEvent = this.registry.appendReplayEvent(handle.simulationId, enrichedEvent);
     this.context.logger.debug?.(
       this.buildEventDebugLog(enrichedEvent, replayEvent.event_id),

@@ -47,6 +47,59 @@ export type SimulationLifecycleStatus =
 
 export type WorldTaskStatus = "pending" | "active" | "completed" | "blocked";
 
+export type ConcordiaVisibilityTier =
+  | "private"
+  | "shared"
+  | "world-visible"
+  | "lineage-shared";
+
+export type ConcordiaTrustSource = "system" | "agent" | "user" | "external";
+
+export type ConcordiaAuthorizationMode =
+  | "auto"
+  | "requires-user-authorization"
+  | "requires-system-authorization";
+
+export interface ConcordiaProvenanceRecord {
+  readonly type: string;
+  readonly source: ConcordiaTrustSource;
+  readonly source_id: string;
+  readonly simulation_id?: string | null;
+  readonly lineage_id?: string | null;
+  readonly parent_simulation_id?: string | null;
+  readonly world_id?: string | null;
+  readonly workspace_id?: string | null;
+  readonly event_id?: string | null;
+  readonly timestamp: number;
+  readonly metadata?: Record<string, unknown> | null;
+}
+
+export interface ConcordiaTrustRecord {
+  readonly source: ConcordiaTrustSource;
+  readonly score: number;
+  readonly confidence: number;
+  readonly threshold: number;
+}
+
+export interface ConcordiaAuthorizationRecord {
+  readonly mode: ConcordiaAuthorizationMode;
+  readonly approved: boolean;
+  readonly approved_by?: string | null;
+  readonly approved_at?: number | null;
+  readonly reason?: string | null;
+}
+
+export interface ConcordiaAuditRecord {
+  readonly timestamp: number;
+  readonly action: string;
+  readonly actor: string;
+  readonly visibility?: ConcordiaVisibilityTier | null;
+  readonly authorization_mode?: ConcordiaAuthorizationMode | null;
+  readonly authorized_by?: string | null;
+  readonly reason?: string | null;
+  readonly metadata?: Record<string, unknown> | null;
+}
+
 export interface WorldCoordinate {
   readonly location_id: string | null;
   readonly scene_id: string | null;
@@ -74,9 +127,15 @@ export interface RelationshipSummary {
 }
 
 export interface WorldFactSummary {
+  readonly id?: string;
   readonly content: string;
   readonly observedBy: string;
   readonly confirmations: number;
+  readonly confirmedBy?: readonly string[];
+  readonly visibility?: ConcordiaVisibilityTier;
+  readonly trust?: ConcordiaTrustRecord | null;
+  readonly provenance?: readonly ConcordiaProvenanceRecord[];
+  readonly audit?: readonly ConcordiaAuditRecord[];
 }
 
 export interface WorldObjectState {
@@ -163,6 +222,8 @@ export interface WorldEvent {
   readonly location_id?: string | null;
   readonly intent?: AgentIntent | null;
   readonly outcome?: AgentOutcome | null;
+  readonly trust?: ConcordiaTrustRecord | null;
+  readonly provenance?: readonly ConcordiaProvenanceRecord[] | null;
   readonly metadata?: Record<string, unknown> | null;
 }
 
@@ -368,6 +429,10 @@ export interface EventNotification {
   readonly action_spec?: Record<string, unknown> | null;
   readonly resolved_event?: string | null;
   readonly scene?: string | null;
+  readonly visibility?: ConcordiaVisibilityTier | null;
+  readonly trust?: ConcordiaTrustRecord | null;
+  readonly provenance?: readonly ConcordiaProvenanceRecord[] | null;
+  readonly authorization?: ConcordiaAuthorizationRecord | null;
   readonly metadata?: Record<string, unknown> | null;
   readonly intent?: AgentIntent | null;
   readonly outcome?: AgentOutcome | null;

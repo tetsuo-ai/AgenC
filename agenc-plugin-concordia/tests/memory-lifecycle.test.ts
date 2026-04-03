@@ -9,38 +9,15 @@ import {
   TRUST_SOURCE_EXTERNAL,
 } from "../src/memory-lifecycle.js";
 import type { MemoryWiringContext } from "../src/memory-wiring.js";
-import { buildConcordiaMemoryNamespaces } from "../src/memory-namespaces.js";
+import { buildBaseMemoryContextProps } from "./helpers/memory-context-fixture.js";
 import { deriveSessionId } from "../src/session-manager.js";
 
 function createMockContext(
   overrides?: Partial<MemoryWiringContext>,
 ): MemoryWiringContext {
-  const worldId = overrides?.worldId ?? "test-world";
-  const workspaceId = overrides?.workspaceId ?? "test-ws";
-  const simulationId = overrides?.simulationId ?? "sim-test";
-  const lineageId = overrides?.lineageId ?? "lineage-test";
-  const parentSimulationId = overrides?.parentSimulationId ?? null;
-  const namespaceResolution = buildConcordiaMemoryNamespaces({
-    worldId,
-    workspaceId,
-    simulationId,
-    lineageId,
-    parentSimulationId,
-    continuityMode: overrides?.continuityMode,
-    effectiveStorageKey: overrides?.effectiveStorageKey,
-    checkpointMetadata: overrides?.checkpointMetadata ?? null,
-  });
+  const baseContext = buildBaseMemoryContextProps(overrides);
   return {
-    worldId,
-    workspaceId,
-    simulationId,
-    lineageId,
-    parentSimulationId,
-    effectiveStorageKey: overrides?.effectiveStorageKey ?? namespaceResolution.namespaces.effectiveStorageKey,
-    continuityMode: overrides?.continuityMode ?? namespaceResolution.continuityMode,
-    carryOverPolicy: overrides?.carryOverPolicy ?? namespaceResolution.carryOverPolicy,
-    namespaces: overrides?.namespaces ?? namespaceResolution.namespaces,
-    checkpointMetadata: overrides?.checkpointMetadata ?? null,
+    ...baseContext,
     memoryBackend: {
       addEntry: vi.fn().mockResolvedValue({ id: "e1", timestamp: Date.now() }),
       getThread: vi.fn().mockResolvedValue([]),
