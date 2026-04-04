@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from collections.abc import Collection, Sequence
 from dataclasses import asdict
@@ -45,6 +46,63 @@ from concordia_bridge.simulation_identity import (
 
 logger = logging.getLogger(__name__)
 _MAX_MULTIPLE_CHOICE_ATTEMPTS = 20
+
+_CHOICE_PREFIX_RE = re.compile(
+    r"^\s*(?:option|choice)?\s*[\(\[]?([a-zA-Z])[\)\].:\-]?\s*(.*)$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_choice_text(value: str) -> str:
+    collapsed = re.sub(r"\s+", " ", value).strip()
+    collapsed = collapsed.strip(" \"'`")
+    collapsed = collapsed.strip("()[]{}<>")
+    collapsed = re.sub(r"[.,!?;:]+$", "", collapsed)
+    return collapsed.casefold()
+
+
+def _match_response_index(answer: str, responses: Sequence[str]) -> int | None:
+    try:
+        return responses.index(answer)
+    except ValueError:
+        pass
+
+    normalized_answer = _normalize_choice_text(answer)
+    normalized_responses = [_normalize_choice_text(response) for response in responses]
+
+    for idx, normalized_response in enumerate(normalized_responses):
+        if normalized_answer == normalized_response:
+            return idx
+
+    prefix_match = _CHOICE_PREFIX_RE.match(answer)
+    if prefix_match:
+        choice_index = ord(prefix_match.group(1).lower()) - ord("a")
+        if 0 <= choice_index < len(responses):
+            trailing = _normalize_choice_text(prefix_match.group(2) or "")
+            expected = normalized_responses[choice_index]
+            if (
+                not trailing
+                or trailing == expected
+                or trailing.startswith(expected)
+                or expected.startswith(trailing)
+            ):
+                return choice_index
+
+    contains = [
+        idx
+        for idx, normalized_response in enumerate(normalized_responses)
+        if normalized_response
+        and (
+            normalized_answer == normalized_response
+            or normalized_answer.startswith(normalized_response + " ")
+            or normalized_answer.endswith(" " + normalized_response)
+            or f" {normalized_response} " in f" {normalized_answer} "
+        )
+    ]
+    if len(contains) == 1:
+        return contains[0]
+
+    return None
 
 
 def _resolve_gm_api_key(config: SimulationConfig) -> str:
@@ -138,9 +196,9 @@ class _XAiLanguageModel(language_model.LanguageModel):
     ) -> tuple[int, str, dict[str, float]]:
         choice_prompt = (
             prompt
-            + "\nRespond EXACTLY with one of the following strings:\n"
-            + "\n".join(responses)
-            + "."
+            + "\nRespond with the matching option only. Acceptable examples: \"Yes\", \"No\", \"(a) Yes\", \"b\", or \"option c\" when the option list is labeled.\n"
+            + "Options:\n"
+            + "\n".join(f"({chr(ord('a') + idx)}) {response}" for idx, response in enumerate(responses))
         )
         answer = ""
         for _ in range(_MAX_MULTIPLE_CHOICE_ATTEMPTS):
@@ -149,9 +207,8 @@ class _XAiLanguageModel(language_model.LanguageModel):
                 temperature=0.0,
                 seed=seed,
             ).strip()
-            try:
-                idx = responses.index(answer)
-            except ValueError:
+            idx = _match_response_index(answer, responses)
+            if idx is None:
                 continue
             return idx, responses[idx], {}
 
