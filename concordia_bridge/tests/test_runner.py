@@ -17,6 +17,8 @@ from concordia_bridge.bridge_types import (
 )
 from concordia_bridge.observation_component import FreshObservationComponent
 from concordia_bridge.runner import (
+    _XAiLanguageModel,
+    _match_response_index,
     _post_bridge_event,
     _configure_observation_override,
     _resolve_gm_api_key,
@@ -233,6 +235,28 @@ class TestObservationOverride:
         )
 
         assert prefab.params == {"name": "conversation rules"}
+
+
+
+class TestChoiceParsing:
+    def test_matches_labeled_yes_no_response(self) -> None:
+        assert _match_response_index("(a) Yes", ["Yes", "No"]) == 0
+        assert _match_response_index("option b no", ["Yes", "No"]) == 1
+
+    def test_sample_choice_accepts_labeled_response(self) -> None:
+        model = object.__new__(_XAiLanguageModel)
+        model._sample_text = lambda *_args, **_kwargs: "(a) Yes"
+
+        idx, response, debug = model.sample_choice(
+            "Does the inactive player volunteer?",
+            ["Yes", "No"],
+        )
+
+        assert idx == 0
+        assert response == "Yes"
+        assert debug == {}
+
+
 
 
 class TestBridgeEventPosting:
