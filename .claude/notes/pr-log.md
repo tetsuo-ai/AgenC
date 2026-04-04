@@ -18,3 +18,10 @@
 - **What worked:** aligning the simultaneous engine with the runner's shared `scenes` input and restoring Concordia's exact observation prompt contract removed the launch-time 500 and let fresh simulations survive setup plus the first real observation/action turn
 - **What didn't:** scene lifecycle handling is still duplicated between the sequential and simultaneous engines, and Concordia turn routing still logs `send() missing request_id` during live runs
 - **Rule added to CLAUDE.md:** no
+
+## PR #1549: fix(concordia): accept labeled GM choice responses
+- **Date:** 2026-04-03
+- **Files changed:** `concordia_bridge/runner.py`, `concordia_bridge/tests/test_runner.py`, root tech-debt notes
+- **What worked:** normalizing and parsing labeled multiple-choice replies in the Concordia runner removed the brittle exact-match failure that was crashing GM resolution on valid answers like `(a) Yes`
+- **What didn't:** this verifies the parser path and engine tests, but a fresh live sim replay is still the best follow-up for full runtime confidence
+- **Rule added to CLAUDE.md:** no
