@@ -156,7 +156,12 @@ class EventServer:
                 dead_clients: list[websockets.server.ServerConnection] = []
                 for client in list(self._clients):
                     try:
-                        await client.send(data)
+                        await asyncio.wait_for(client.send(data), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Client send timed out after 5s, removing client"
+                        )
+                        dead_clients.append(client)
                     except websockets.exceptions.ConnectionClosed:
                         dead_clients.append(client)
                 for client in dead_clients:
