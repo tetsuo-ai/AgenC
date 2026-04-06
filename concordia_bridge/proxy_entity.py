@@ -11,6 +11,7 @@ Phase 0 of the CONCORDIA_TODO.MD implementation plan.
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import threading
 import time
@@ -122,7 +123,12 @@ class ProxyEntity(Entity):
 
     def _parse_action_response(self, response: requests.Response) -> str:
         response.raise_for_status()
-        result = response.json()
+        try:
+            result = response.json()
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ProxyEntityActError(
+                f"{self._name} bridge returned invalid JSON: {response.text[:200]}",
+            ) from exc
         action = result.get("action", "")
         self._circuit_breaker.record_success()
         logger.debug(
@@ -166,7 +172,7 @@ class ProxyEntity(Entity):
                 raise ProxyEntityActError(
                     f"{self._name} action timed out after {self._timeout:.1f}s",
                 )
-            except requests.ConnectionError as exc:
+            except (requests.ConnectionError, ValueError) as exc:
                 last_exc = exc
                 self._circuit_breaker.record_failure()
                 if attempt < self._max_retries:
