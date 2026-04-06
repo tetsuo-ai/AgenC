@@ -61,7 +61,11 @@ def _normalize_choice_text(value: str) -> str:
     return collapsed.casefold()
 
 
-def _match_response_index(answer: str, responses: Sequence[str]) -> int | None:
+def _match_response_index(
+    answer: str,
+    responses: Sequence[str],
+    labels: Sequence[str] | None = None,
+) -> int | None:
     try:
         return responses.index(answer)
     except ValueError:
@@ -102,6 +106,13 @@ def _match_response_index(answer: str, responses: Sequence[str]) -> int | None:
     ]
     if len(contains) == 1:
         return contains[0]
+
+    # When responses are letter keys, try matching against the display labels
+    if labels and len(labels) == len(responses):
+        normalized_labels = [_normalize_choice_text(label) for label in labels]
+        for idx, normalized_label in enumerate(normalized_labels):
+            if normalized_label and normalized_answer == normalized_label:
+                return idx
 
     return None
 
@@ -195,6 +206,20 @@ class _XAiLanguageModel(language_model.LanguageModel):
         *,
         seed: int | None = None,
     ) -> tuple[int, str, dict[str, float]]:
+        # Concordia's interactive_document passes letter keys ['a','b'] but the
+        # prompt already contains labeled options like "(a) Yes\n(b) No".
+        # Extract the display labels so we can match bare answers like "No".
+        labels: list[str] = []
+        for idx in range(len(responses)):
+            prefix = f"({chr(ord('a') + idx)}) "
+            for line in prompt.splitlines():
+                stripped = line.strip()
+                if stripped.startswith(prefix):
+                    labels.append(stripped[len(prefix):])
+                    break
+            else:
+                labels.append(responses[idx])
+
         choice_prompt = (
             prompt
             + "\nRespond with the matching option only. Acceptable examples: \"Yes\", \"No\", \"(a) Yes\", \"b\", or \"option c\" when the option list is labeled.\n"
@@ -208,7 +233,7 @@ class _XAiLanguageModel(language_model.LanguageModel):
                 temperature=0.0,
                 seed=seed,
             ).strip()
-            idx = _match_response_index(answer, responses)
+            idx = _match_response_index(answer, responses, labels=labels)
             if idx is None:
                 continue
             return idx, responses[idx], {}
