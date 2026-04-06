@@ -85,6 +85,7 @@ def _match_response_index(answer: str, responses: Sequence[str]) -> int | None:
                 or trailing == expected
                 or trailing.startswith(expected)
                 or expected.startswith(trailing)
+                or len(expected) == 1  # single-letter keys: letter match alone is sufficient
             ):
                 return choice_index
 
