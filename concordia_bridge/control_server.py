@@ -129,7 +129,13 @@ class StepController:
         """Block until the controller permits the next step."""
         _log_control_event("wait_enter", mode=self._mode, stopped=self._stop_event.is_set())
         while True:
-            self._event.wait()
+            signaled = self._event.wait(timeout=300)
+            if not signaled:
+                logger.warning(
+                    "Step permission wait timed out after 300s (mode=%s), retrying",
+                    self._mode,
+                )
+                continue
             with self._lock:
                 if self._mode in ("play", "stop"):
                     _log_control_event(

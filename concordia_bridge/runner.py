@@ -18,6 +18,7 @@ from dataclasses import asdict
 from typing import Optional
 
 import requests
+import openai
 from openai import OpenAI
 
 from concordia.associative_memory.basic_associative_memory import AssociativeMemoryBank
@@ -93,6 +94,23 @@ def _match_response_index(
             ):
                 return choice_index
 
+    # Colon separator pattern: "Option A: Yes" or "A: Yes"
+    colon_match = re.match(
+        r"^\s*(?:option\s+)?([a-zA-Z])\s*[:]\s*(.*)$", answer, re.IGNORECASE
+    )
+    if colon_match:
+        choice_index = ord(colon_match.group(1).lower()) - ord("a")
+        if 0 <= choice_index < len(responses):
+            trailing = _normalize_choice_text(colon_match.group(2) or "")
+            expected = normalized_responses[choice_index]
+            if (
+                not trailing
+                or trailing == expected
+                or trailing.startswith(expected)
+                or expected.startswith(trailing)
+            ):
+                return choice_index
+
     contains = [
         idx
         for idx, normalized_response in enumerate(normalized_responses)
@@ -112,6 +130,17 @@ def _match_response_index(
         normalized_labels = [_normalize_choice_text(label) for label in labels]
         for idx, normalized_label in enumerate(normalized_labels):
             if normalized_label and normalized_answer == normalized_label:
+                return idx
+
+    # Semantic yes/no matching for binary choices
+    if len(responses) == 2:
+        _YES_WORDS = {"yes", "yeah", "yep", "affirmative", "sure", "absolutely", "correct"}
+        _NO_WORDS = {"no", "nope", "negative", "nah", "never", "not"}
+        answer_words = set(normalized_answer.split())
+        for idx, normalized_response in enumerate(normalized_responses):
+            if normalized_response in _YES_WORDS and answer_words & _YES_WORDS:
+                return idx
+            if normalized_response in _NO_WORDS and answer_words & _NO_WORDS:
                 return idx
 
     return None
@@ -152,20 +181,46 @@ class _XAiLanguageModel(language_model.LanguageModel):
         timeout: float = language_model.DEFAULT_TIMEOUT_SECONDS,
         seed: int | None = None,
     ) -> str:
-        response = self._client.chat.completions.create(
-            model=self._model_name,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Continue the user's simulation prompt directly and do not repeat it.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=temperature,
-            max_completion_tokens=max_tokens,
-            timeout=timeout,
-            seed=seed,
-        )
+        max_attempts = 3
+        last_exc: Exception | None = None
+        for attempt in range(max_attempts):
+            try:
+                response = self._client.chat.completions.create(
+                    model=self._model_name,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "Continue the user's simulation prompt directly and do not repeat it.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=temperature,
+                    max_completion_tokens=max_tokens,
+                    timeout=timeout,
+                    seed=seed,
+                )
+                break
+            except openai.RateLimitError as exc:
+                last_exc = exc
+                backoff = 2 ** attempt  # 1s, 2s, 4s
+                logger.warning(
+                    "Rate limited (attempt %d/%d), retrying in %ds: %s",
+                    attempt + 1, max_attempts, backoff, exc,
+                )
+                time.sleep(backoff)
+            except openai.APIStatusError as exc:
+                last_exc = exc
+                if exc.status_code >= 500:
+                    backoff = 2 ** attempt
+                    logger.warning(
+                        "Server error %d (attempt %d/%d), retrying in %ds: %s",
+                        exc.status_code, attempt + 1, max_attempts, backoff, exc,
+                    )
+                    time.sleep(backoff)
+                else:
+                    raise
+        else:
+            raise last_exc  # type: ignore[misc]
         content = response.choices[0].message.content
         if isinstance(content, str):
             return content
