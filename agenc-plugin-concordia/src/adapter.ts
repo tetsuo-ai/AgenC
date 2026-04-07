@@ -2606,12 +2606,23 @@ export class ConcordiaChannelAdapter
 
   private async listenBridgeServer(port: number, host: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      this.bridgeServer!.on("error", reject);
-      this.bridgeServer!.listen(
-        port,
-        host,
-        this.handleBridgeServerListening(host, port, resolve),
-      );
+      // Audit S1.8: remove the temporary `error` listener once listen
+      // resolves or rejects so the server doesn't carry a one-shot
+      // reject as a permanent error handler. The previous code left
+      // the listener attached; while listenBridgeServer is only
+      // called once per server instance under current call sites, the
+      // explicit cleanup makes a future restart-without-recreate
+      // pattern safe and avoids polluting the server's error event.
+      const onError = (err: unknown): void => {
+        this.bridgeServer!.off("error", onError);
+        reject(err);
+      };
+      const onListen = (): void => {
+        this.bridgeServer!.off("error", onError);
+        this.handleBridgeServerListening(host, port, resolve)();
+      };
+      this.bridgeServer!.on("error", onError);
+      this.bridgeServer!.listen(port, host, onListen);
     });
   }
 
