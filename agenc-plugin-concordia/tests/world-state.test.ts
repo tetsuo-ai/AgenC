@@ -168,4 +168,44 @@ describe("world-state", () => {
     expect(resolved.snapshot.agent_states.alice.last_outcome?.task_status).toBe("completed");
     expect(resolved.snapshot.recent_events).toHaveLength(2);
   });
+
+  it("does not crash on malformed event payloads with missing string fields", () => {
+    // Audit S1.8 regression: the original 2-month-old crash was a
+    // `.trim()` of undefined inside applyEventToWorldState when the
+    // bridge HTTP payload arrived with all summary-source fields
+    // missing or non-string. The defensive coercion must produce a
+    // safe summary instead of throwing.
+    const snapshot = createInitialWorldState(seed);
+    const malformed = {
+      // Intentionally drop resolved_event/content/type as proper
+      // strings to simulate a malformed bridge response.
+      type: undefined as unknown as "step",
+      step: 1,
+      world_id: "world-harbor",
+      workspace_id: "ws-harbor",
+      simulation_id: "sim-world",
+    };
+    expect(() => applyEventToWorldState(snapshot, malformed as never)).not.toThrow();
+    const applied = applyEventToWorldState(snapshot, malformed as never);
+    // The fallback summary should land on "unknown" rather than crash.
+    expect(applied.worldEvent.summary).toBe("unknown");
+  });
+
+  it("does not crash applying a structured-act result with missing string fields", () => {
+    // Audit S1.8 regression: applyStructuredActResult chained
+    // narration?.trim() || action.trim(), which crashed when both
+    // fields arrived as undefined or non-string from the bridge.
+    const snapshot = createInitialWorldState(seed);
+    const malformed = {
+      agentId: "alice",
+      agentName: "Alice",
+      // narration and action both missing — previously a TypeError
+      action: undefined as unknown as string,
+      narration: undefined as unknown as string,
+      turnCount: 1,
+      step: 1,
+      intent: null as never,
+    };
+    expect(() => applyStructuredActResult(snapshot, malformed as never)).not.toThrow();
+  });
 });

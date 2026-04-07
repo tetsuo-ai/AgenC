@@ -358,7 +358,12 @@ function buildWorldEventFromIntent(params: {
     type: "action",
     step: params.step,
     timestamp: Date.now(),
-    summary: params.narration?.trim() || params.action.trim(),
+    // Audit S1.8: defensive default. The TypeScript type marks
+    // params.action as `string` but the value originates in a Concordia
+    // bridge HTTP response that may be malformed. The original
+    // production crash that started this audit was a `.trim()` on an
+    // undefined `params.action`. Coerce to "" first.
+    summary: (params.narration ?? "").trim() || (params.action ?? "").trim(),
     agent_id: params.agentId,
     agent_name: params.agentName,
     scene_id: params.coordinate.scene_id,
@@ -641,7 +646,10 @@ export function applyStructuredActResult(
   };
 
   const normalizedIntent = result.intent ?? {
-    summary: result.narration?.trim() || result.action.trim(),
+    // Audit S1.8: same defensive default — bridge HTTP responses may
+    // arrive with missing string fields that crash the original
+    // `.trim()` call.
+    summary: (result.narration ?? "").trim() || (result.action ?? "").trim(),
     mode: "action",
     destination: null,
     target_agent_ids: [],
@@ -739,7 +747,18 @@ export function applyEventToWorldState(
   const step = normalizeStep(event, snapshot);
   const timestamp = typeof event.timestamp === "number" ? event.timestamp : Date.now();
   const actingAgentId = event.acting_agent ?? event.agent_name ?? null;
-  const summary = (event.resolved_event ?? event.content ?? event.type).trim() || event.type;
+  // Audit S1.8: defensive default. The previous code chained
+  // resolved_event ?? content ?? type → trim, but the bridge HTTP
+  // payload could arrive with all three fields missing or non-string,
+  // crashing on `.trim() of undefined`. Coerce each to "" first, then
+  // fall back to `event.type` (also coerced) as the last resort.
+  const summary =
+    (
+      (typeof event.resolved_event === "string" ? event.resolved_event : "") ||
+      (typeof event.content === "string" ? event.content : "") ||
+      (typeof event.type === "string" ? event.type : "")
+    ).trim() ||
+    (typeof event.type === "string" ? event.type : "unknown");
   const metadata = normalizedEventMetadata(event);
 
   next.clock = {
