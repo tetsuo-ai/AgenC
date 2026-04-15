@@ -64,7 +64,7 @@ if (!IS_DEMO_MODE) {
 // import { PrivacyClient, generateProof, generateSalt } from '@tetsuo-ai/sdk';
 
 // Simulated imports for demo
-const AGENC_PROGRAM_ID = new PublicKey('6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab');
+const AGENC_PROGRAM_ID = new PublicKey('2jdBSJ8U5ixfwgs1bRLPtRRnpZAPm8Xv1tEdu8yjHJC7');
 const ROUTER_PROGRAM_ID = new PublicKey('E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ');
 const VERIFIER_PROGRAM_ID = new PublicKey('3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc');
 const TRUSTED_SELECTOR = Buffer.from('525a5631', 'hex');

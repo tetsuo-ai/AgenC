@@ -81,7 +81,7 @@ npm run subscribe
 
 | Program | Address |
 |---------|---------|
-| AgenC Coordination | `6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab` |
+| AgenC Coordination | `2jdBSJ8U5ixfwgs1bRLPtRRnpZAPm8Xv1tEdu8yjHJC7` |
 
 Note: private completion verification now routes through router/verifier-entry accounts and the trusted verifier program.
 
