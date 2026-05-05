@@ -12,6 +12,7 @@
   "scripts": {
     "bootstrap:repos": "./scripts/bootstrap-agenc-repos.sh",
     "check:public-contract-boundary": "node scripts/check-public-contract-boundary.mjs",
+    "check:sibling-package-pins": "node agenc-core/scripts/check-sibling-package-pins.mjs --root .",
     "check:umbrella-boundary": "node scripts/check-umbrella-boundary.mjs",
     "check:public-examples": "./scripts/smoke-test-examples.sh",
     "example:helius-webhook:server": "npm run server --workspace agenc-helius-webhook",
@@ -20,6 +21,6 @@
     "example:simple-usage": "npm run start --workspace @tetsuo-ai/simple-usage",
     "techdebt": "node scripts/techdebt.mjs",
     "example:tetsuo-integration": "npm run demo --workspace tetsuo-agenc-integration",
-    "validate:umbrella": "npm run check:public-contract-boundary && npm run check:umbrella-boundary && npm run check:public-examples && ./scripts/bootstrap-agenc-repos.sh --help >/dev/null"
+    "validate:umbrella": "npm run check:public-contract-boundary && npm run check:sibling-package-pins && npm run check:umbrella-boundary && npm run check:public-examples && ./scripts/bootstrap-agenc-repos.sh --help >/dev/null"
   }
 }
