@@ -128,3 +128,4 @@ __pycache__/
 **/.agenc/
 .pytest_cache/
 **/.pytest_cache/
+.canary-keys
