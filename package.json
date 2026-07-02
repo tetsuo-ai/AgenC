@@ -12,7 +12,7 @@
   "scripts": {
     "bootstrap:repos": "./scripts/bootstrap-agenc-repos.sh",
     "check:public-contract-boundary": "node scripts/check-public-contract-boundary.mjs",
-    "check:sibling-package-pins": "node agenc-core/scripts/check-sibling-package-pins.mjs --root .",
+    "check:sibling-package-pins": "node scripts/check-sibling-package-pins.mjs --root .",
     "check:umbrella-boundary": "node scripts/check-umbrella-boundary.mjs",
     "check:public-examples": "./scripts/smoke-test-examples.sh",
     "example:helius-webhook:server": "npm run server --workspace agenc-helius-webhook",
