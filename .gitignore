@@ -129,3 +129,8 @@ __pycache__/
 .pytest_cache/
 **/.pytest_cache/
 .canary-keys
+
+# Internal planning docs — never publish to the public umbrella remote (see memory: umbrella-repo-is-public)
+PLAN.md
+TODO.md
+docs/thesis-audit-*/

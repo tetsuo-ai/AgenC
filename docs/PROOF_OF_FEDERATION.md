@@ -88,3 +88,96 @@ directions, moderation via the public WP-C1 API, agenc.ag prod deploy). Those
 remain the fuller WP-B2 product proof. What the thesis's core economic claim
 needed — "operator keeps its cut, referrer keeps its cut, protocol takes a
 slice, worker keeps the rest, all in one settlement" — is now demonstrated live.
+
+---
+
+# ADDENDUM — the CROSS-NODE product proof (same day, 2026-07-02)
+
+The product path named above ran end to end later the same day: an
+**independent second node** ("Canary Node", scaffolded with
+`npx create-agenc-store@latest`, sdk 0.7.1 / store-core 0.3.1 / react 0.3.0,
+mainnet opt-in, its own referrer wallet) discovered an agenc.ag listing **in
+its own browser UI**, hired it from the store's checkout with the store's
+referrer injected, had the task moderated by the **public roster attestor**
+(attest.agenc.ag, attestor `13tuj7ELwtHmeR22kvaSaa2pKqSscyoHtQBF65aHuo6v` —
+NOT the global authority), and settled with all four legs paid.
+
+**Task:** `CQwmEWVirRgq2hxurJgCtouQsxA5YTdHFXi2uhrDWYWJ` (listing
+`5K3qmQxiKvdnVUNGB8wBo46Uyp2Vq2frYyxP3pszmv7b`, reward 0.005 SOL).
+
+| Step | Signer | Tx |
+| --- | --- | --- |
+| Hire (store UI checkout, referrer `4pytU…` @ 250 bps snapshotted in the HireRecord) | buyer `CHd4HD…` | [`5S8hYrXR…`](https://solscan.io/tx/5S8hYrXR94vpkM9EYz6aKbjwosJhZQdtan6nx8LCcvZQ6WHD4NVcjexLuNGZm9ZTs1Bp7DHsVudPVvwFtoK7yGed) |
+| Task moderation via PUBLIC attest.agenc.ag | roster attestor `13tuj…` | [`VgV2vDpV…`](https://solscan.io/tx/VgV2vDpVQgFKZsRVPMLE3XsQE8Wki5ywZGjMmJUwKdLA9bXEf3X6YZDq9wcZSkH6tEfCZo2RC3d5hJFArNXWjpw) |
+| Activation — **first mainnet consumption of a ROSTER attestation through the WP-A1 gate** (`moderation_attestor` account attached) | buyer | [`5vPR8sE6…`](https://solscan.io/tx/5vPR8sE6S6q5mpXvKQJcnWSUrSkC3FvPzkboXyH9NdwJtCe8Er2TfaKTPDMhoxMQX17AYHoJ5CQ4Cv3WjJtmcea5) |
+| Claim | provider `Fv1pB…` | [`29ZGTM6i…`](https://solscan.io/tx/29ZGTM6iEtsVRz6yhuub9ox3G97Bu3ovCPLQu6uAoR2N1YYuqtV8p3fxue751y9cuDxMSPr6hqLhjJaq5mQuRDEE) |
+| Submit result | provider | [`5zT6dAvX…`](https://solscan.io/tx/5zT6dAvXkzvNn5njno4rGD6GEsGh6V6sQiT2aa6CwKoPkB6qAGrAHFKm6txhUmDeKfAhHz3vSoo3Cc9f1YfdaMnS) |
+| **Accept — 4-way split** | buyer | [`XB6kqfYb…`](https://solscan.io/tx/XB6kqfYbKb9agso1Xfi8jsE1PX5JjbcnV58urD5MfZaPsXBTFHhXRLxHj7B64ogYj6pAsVoKJassXf4safQzgUR) |
+
+Verified balance deltas at accept: worker `Fv1pB…` +6,678,760 (4,375,000
+reward share @ 87.5% + stake/rent refunds), operator `A2ULnb…` **+250,000**
+(500 bps), referrer `4pytU…` **+125,000** (250 bps — the demand-side store's
+cut), treasury `4tA32m…` +250,000 (500 bps).
+
+**Scope/honesty for the addendum:** discovery, checkout (with on-chain
+referrer injection + fee disclosure) ran in the scaffolded store's browser UI;
+activation and settlement ran through the documented SDK path with the same
+buyer key, because the published react 0.3.0 hook cannot yet attach the
+`moderation_attestor` account (so roster-attested tasks fail UI activation)
+and the dashboard's lifecycle reads need the indexer projections. The provider
+and operator wallets are the same operator-controlled throwaways as the
+protocol proof — this is a surface-level second node, not yet an
+organizationally independent party. Job spec + artifact were hosted on the
+store's own (localhost dev) origin.
+
+## ADDENDUM 2 — the REVERSE direction (same day, 2026-07-02)
+
+A listing carrying the **independent node's OPERATOR terms** (published by
+the Canary Node: operator `4pytU…` @ 500 bps), moderated by the **public
+roster attestor with the spec supplied INLINE**, hired by an **organic
+agenc.ag-side buyer** (no referrer), settled with the operator leg paying the
+independent marketplace:
+
+| Step | Tx |
+| --- | --- |
+| `create_service_listing` (listing `9KgMKwmiZBzbX6eF5S1z6cByvgweVkHhw2vJFtkhcQ5e`, price 0.002 SOL, operator = Canary Node) | `5wwWSweT…` |
+| Listing moderation via public attest.agenc.ag (roster attestor, inline spec) | `48qeckvS…` |
+| Hire — **first roster-attested LISTING consumption at a hire gate** (roster PDA attached) | `4kBHZEnp…` |
+| Task moderation + activation (roster PDA attached) | `4JEyzLr4…` |
+| Claim → Submit | `5BEBBhyy…` → `3NtQBDfB…` |
+| **Accept — settlement** | `4WHYohzz…` |
+
+Verified deltas: worker +4,103,760 (90% share + stake/rent refunds),
+**operator `4pytU…` +100,000 (500 bps — the independent node's supply-side
+cut)**, treasury +100,000 (500 bps). Task
+`HHGrQ8chs5FQBZbnwkRaZrBg35HkhMNLhrGaLo7f2Lya`.
+
+Combined with Addendum 1, the two-sided economics are live in both
+directions: the independent node earned a **referrer** leg when its buyer
+hired an agenc.ag listing, and an **operator** leg when its listing was hired
+by an agenc.ag-side buyer.
+
+**Post-canary fixes shipped (published 2026-07-02/03):**
+`@tetsuo-ai/marketplace-react@0.3.1` auto-attaches the roster
+`moderation_attestor` at activation (agenc-protocol #100/#101);
+`@tetsuo-ai/store-core@0.3.2` + `create-agenc-store@0.3.1` externalize
+react-query (fixing the every-page SSR 500), fix `STORE_CORE_VERSION`, and
+route hosted RPCs correctly in the templates (agenc-store-templates #7/#8).
+Clean-room proof: a pure-registry scaffold with the update banner enabled
+serves SSR 200 and resolves one deduped react-query instance.
+
+**Earnings are now visible (2026-07-03):** the hosted explorer serves
+`GET /api/explorer/{referrers,operators}/:wallet/hires` and
+`GET /api/explorer/revenue` over a durable settlement history (fee legs
+survive `close_task`; missed settlements are reconstructed from settle-tx
+balance deltas — the B2 leg above was recovered exactly this way after its
+account closed), and `@tetsuo-ai/marketplace-react@0.3.2`'s
+`useReferrerEarnings` reads it live. The canary node's own earnings page
+renders its 125,000-lamport referral from the real settlement. Verify it
+yourself:
+`https://api.agenc.ag/api/explorer/referrers/4pytUExt2ikzt9fio2kJrUNJmhiPx2qf6y9X5HbqwiKw/hires`.
+
+**New finding (#9, TODO P5.5 live):** the B2 listing's hosted spec content
+(`https://agenc.ag/canary/listing-spec.json`) no longer serves — on-chain
+pointers outlive their hosted content; content-addressed or mirrored spec
+storage is not optional.
