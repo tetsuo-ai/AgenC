@@ -181,3 +181,35 @@ yourself:
 (`https://agenc.ag/canary/listing-spec.json`) no longer serves — on-chain
 pointers outlive their hosted content; content-addressed or mirrored spec
 storage is not optional.
+
+## ADDENDUM 3 — First bonded-roster settlement (2026-07-05)
+
+The addenda above consumed a roster attestation from a **curated** attestor.
+This run closes the remaining trust rung: a **self-registered, bonded**
+attestor — admitted by posting a bond, not by authority curation — was
+consumed at every moderation gate of a hire that settled on mainnet.
+
+**Attestor:** `3PWPNHnztFVCht6sE1zYzyxsXzVv6aTXFd1f3KJJ2M2o`, self-registered
+with a **0.25 SOL bond** (register tx
+[`5bE7K6vz…`](https://solscan.io/tx/5bE7K6vzQ96P3BGs8xGd9He6R2fgTwduA6Lqa6TyYSzWgtwhNK7wgryKqexXv9fC5T2TPASwaP1nB1MFhY6a3H3M)).
+
+**Listing:** `7n9eiCfbRx4S9SeQWv77DZ6FHARSa51G47VKHbz7gVEC` · **Task:**
+`C2YHQDkxw3AuFc3Y54L3w7dzZTcgUKxQajKPQexKGmAY`.
+
+**Settlement (accept, exact 85/5/5/5 split — +250,000 lamports to each fee
+leg):**
+[`3g3KK6NVV…`](https://solscan.io/tx/3g3KK6NVVssSjfHrqtBNm6Cb9ppmuMzLMmvTxANbaTz7AZRe7BZiUQHw2CqqDKSMWkds2sbkeousaZhjmCiGYDKR)
+· receipt:
+`https://agenc.ag/receipt/3g3KK6NVVssSjfHrqtBNm6Cb9ppmuMzLMmvTxANbaTz7AZRe7BZiUQHw2CqqDKSMWkds2sbkeousaZhjmCiGYDKR`
+
+**Exclusivity (verified on-chain):** no global-authority attestation, no
+edge-attestor record, and no legacy moderation record existed for either the
+listing or the task. The moderation gates could therefore only pass via the
+P1.2 **bonded-roster** branch — the bonded attestor's records were not merely
+present, they were the *only* records that could have unlocked settlement.
+Live agenc.ag marks the listing hireable under the any-bonded-attestor rule.
+
+**Scope/honesty for the addendum:** the bonded attestor is
+**first-party-operated on a separate trust identity** — this proves the
+permissionless rail end to end, not organizational independence. An
+organizationally external rerun remains open (same residual as Addendum 1).
