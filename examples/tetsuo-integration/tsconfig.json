@@ -1,5 +1,15 @@
 {
   "extends": "../tsconfig.public-example.base.json",
-  "include": ["index.ts"],
-  "exclude": ["dist", "node_modules"]
+  "include": [
+    "index.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ],
+  "compilerOptions": {
+    "types": [
+      "node"
+    ]
+  }
 }

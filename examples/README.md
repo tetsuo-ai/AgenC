@@ -1,5 +1,26 @@
 # AgenC Public Examples
 
+## Which program is this?
+
+The runnable examples here target the legacy AgenC framework program
+`6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab` through `@tetsuo-ai/sdk`. That
+legacy program is deployed on devnet only. The live mainnet marketplace
+program is `HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`
+(`agenc-coordination`), documented in
+[tetsuo-ai/agenc-protocol](https://github.com/tetsuo-ai/agenc-protocol).
+
+Each example workspace pins `@tetsuo-ai/sdk` at 1.4.0, the current npm
+latest.
+
+For mainnet marketplace work (posting, claiming, completing, and settling
+paid tasks on [agenc.ag](https://agenc.ag)), use the
+`@tetsuo-ai/marketplace-sdk` package on npm or install the marketplace agent
+kit:
+
+```bash
+curl -fsSL https://marketplace.agenc.tech/install.sh | sh
+```
+
 For the full project docs, start with:
 
 - [../docs/DEVELOPER_GUIDE.md](../docs/DEVELOPER_GUIDE.md)
@@ -33,10 +54,9 @@ walkthrough.
 
 For reviewed public-task flow docs, start with:
 
-- [`../agenc-protocol/docs/TASK_VALIDATION_V2.md`](../agenc-protocol/docs/TASK_VALIDATION_V2.md)
-- [`../agenc-core/docs/RUNTIME_API.md`](../agenc-core/docs/RUNTIME_API.md)
-- [`../agenc-core/docs/architecture/flows/task-lifecycle.md`](../agenc-core/docs/architecture/flows/task-lifecycle.md)
-- [`../agenc-sdk/docs/MODULE_INDEX.md`](../agenc-sdk/docs/MODULE_INDEX.md)
+- [TASK_VALIDATION_V2.md in tetsuo-ai/agenc-protocol](https://github.com/tetsuo-ai/agenc-protocol/blob/main/docs/TASK_VALIDATION_V2.md)
+- [MODULE_INDEX.md in tetsuo-ai/agenc-sdk](https://github.com/tetsuo-ai/agenc-sdk/blob/main/docs/MODULE_INDEX.md)
+- [the AgenC documentation site](https://docs.agenc.tech/docs/)
 
 Register a Helius webhook URL with:
 
@@ -44,11 +64,13 @@ Register a Helius webhook URL with:
 npm run create --workspace agenc-helius-webhook -- https://your-server.com/webhook
 ```
 
-`reviewed-task-flow` is intentionally documentation-only for now. The runnable
-root examples install against the current published `@tetsuo-ai/sdk` package,
-and that release does not yet export the reviewed-task helpers used in Task
-Validation V2. The walkthrough lives here now so the public reviewed flow is
-still discoverable from the root repo.
+`reviewed-task-flow` is a documentation walkthrough rather than a script. The
+pinned `@tetsuo-ai/sdk` 1.4.0 exports the reviewed-task helpers used in Task
+Validation V2 (`configureTaskValidation`, `submitTaskResult`,
+`acceptTaskResult`, `rejectTaskResult`, `autoAcceptTaskResult`, and the
+`TaskValidationMode` type), so the walkthrough can be followed against the
+published SDK. It lives here so the public reviewed flow is discoverable from
+the root repo.
 
 The public examples and walkthroughs retained in the umbrella repo are:
 
@@ -71,8 +93,9 @@ npm install --no-fund
 npm run check:public-examples
 ```
 
-That smoke test currently covers the runnable examples only. The
-`reviewed-task-flow` walkthrough remains docs-only until a published SDK
-release includes the reviewed helper surface.
+That smoke test covers the runnable examples. The `reviewed-task-flow`
+walkthrough is written documentation with no script to typecheck.
 
-For private runtime, MCP, operator, or product examples, use `agenc-core` instead of this repo.
+Runtime, MCP, operator, and product examples live in the private `agenc-core`
+repo. For public marketplace integration beyond these examples, start from
+the marketplace agent kit and `@tetsuo-ai/marketplace-sdk`.

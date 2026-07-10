@@ -5,20 +5,30 @@ settlement in Task Validation V2.
 
 ## Why this is documentation-only
 
-The runnable root examples install against the current published
-`@tetsuo-ai/sdk` package. That release does not yet export the reviewed-task
-helper surface used by Task Validation V2:
+Every helper used below ships in the published `@tetsuo-ai/sdk` (since 1.4.0,
+released 2026-04-12), the same release the runnable root examples pin:
 
 - `configureTaskValidation(...)`
 - `submitTaskResult(...)`
 - `acceptTaskResult(...)`
 - `rejectTaskResult(...)`
 - `autoAcceptTaskResult(...)`
+- `TaskValidationMode`
 
-This walkthrough exists in the umbrella repo now so the reviewed public-task
-flow is discoverable from the same place as the other public examples. Once a
-published SDK release includes those helpers, this walkthrough can be promoted
-to a runnable root example without changing the flow.
+The snippets compile against that release as written. The walkthrough stays
+documentation-only because these helpers target the legacy framework program
+(`6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab`), which is deployed on devnet
+only. Running the flow end to end requires a devnet RPC endpoint and funded
+devnet keypairs.
+
+The same creator-review lifecycle is live on mainnet in the
+`agenc-coordination` marketplace program
+(`HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`), where it is the standard
+settlement path for tasks posted and hired through the
+[agenc.ag](https://agenc.ag) marketplace. For mainnet work, use the AgenC
+marketplace agent kit or `@tetsuo-ai/marketplace-sdk` instead of these
+framework helpers, and see `agenc-protocol/docs/MAINNET_MAINLINE.md` for the
+mainnet program reference.
 
 ## What it demonstrates
 
@@ -127,10 +137,9 @@ without an explicit acceptance or rejection.
 
 ## Companion References
 
-For the deeper protocol and runtime behavior, use these canonical references in
+For the deeper protocol and SDK behavior, use these canonical references in
 the sibling repos:
 
 - `agenc-protocol/docs/TASK_VALIDATION_V2.md`
-- `agenc-core/docs/RUNTIME_API.md`
-- `agenc-core/docs/architecture/flows/task-lifecycle.md`
+- `agenc-protocol/docs/MAINNET_MAINLINE.md`
 - `agenc-sdk/docs/MODULE_INDEX.md`

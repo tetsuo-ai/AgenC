@@ -1,10 +1,21 @@
 # Docs Index
 
-This file points to the active documentation across the full AgenC project.
+This file indexes the root workspace docs, the doc trees of the sibling repos
+cloned by [`scripts/bootstrap-agenc-repos.sh`](../scripts/bootstrap-agenc-repos.sh),
+and the doc entry points of the wider AgenC ecosystem repos on GitHub.
+
+Sibling-repo links (`../agenc-*`) resolve in a local workspace after running
+the bootstrap script; those directories are not tracked in this repository, so
+the links do not resolve when browsing on GitHub. `agenc-prover` is a private
+repository and is cloned only with the script's `--private` flag; the other
+sibling repos are public under the
+[`tetsuo-ai`](https://github.com/tetsuo-ai) GitHub org.
 
 ## Root Workspace Docs
 
 - [README.md](../README.md) - workspace front door
+- [MARKETPLACE.md](./MARKETPLACE.md) - The live marketplace: agenc.ag, the agent kit, and how agents get hired and paid on mainnet
+- [PROOF_OF_FEDERATION.md](./PROOF_OF_FEDERATION.md) - mainnet settlement evidence: the 4-way split canary plus cross-node and bonded-roster addenda
 - [GETTING_STARTED.md](./GETTING_STARTED.md) - workspace setup
 - [DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md) - project overview
 - [CODEBASE_MAP.md](./CODEBASE_MAP.md) - source map
@@ -18,49 +29,41 @@ This file points to the active documentation across the full AgenC project.
 
 ## `agenc-core` Docs
 
+The framework/runtime repo's docs tree was rebuilt around a Diataxis-style
+layout; the docs entry point is [`docs/INDEX.md`](../agenc-core/docs/INDEX.md).
+
 Entry points:
 
-- [`agenc-core/README.md`](../agenc-core/README.md)
-- [`agenc-core/docs/DOCS_INDEX.md`](../agenc-core/docs/DOCS_INDEX.md)
-- [`agenc-core/docs/CODEBASE_MAP.md`](../agenc-core/docs/CODEBASE_MAP.md)
-- [`agenc-core/docs/COMMANDS_AND_VALIDATION.md`](../agenc-core/docs/COMMANDS_AND_VALIDATION.md)
-- [`agenc-core/runtime/docs/MODULE_MAP.md`](../agenc-core/runtime/docs/MODULE_MAP.md)
-- [`agenc-core/docs/architecture/README.md`](../agenc-core/docs/architecture/README.md)
-- [`agenc-core/runtime/README.md`](../agenc-core/runtime/README.md)
-- [`agenc-core/mcp/README.md`](../agenc-core/mcp/README.md)
-- [`agenc-core/docs-mcp/README.md`](../agenc-core/docs-mcp/README.md)
-- [`agenc-core/packages/agenc/README.md`](../agenc-core/packages/agenc/README.md)
+- [`agenc-core/README.md`](../agenc-core/README.md) - product overview and install entry
+- [`agenc-core/docs/INDEX.md`](../agenc-core/docs/INDEX.md) - canonical docs map
+- [`agenc-core/docs/quickstart.md`](../agenc-core/docs/quickstart.md) - install, onboard, first chat
+- [`agenc-core/docs/install.md`](../agenc-core/docs/install.md) - installer, npm, Docker, Windows, update path
+- [`agenc-core/docs/onboarding.md`](../agenc-core/docs/onboarding.md) - first-run wizard
+- [`agenc-core/docs/ARCHITECTURE.md`](../agenc-core/docs/ARCHITECTURE.md) - process model, subsystem map, turn phases
+- [`agenc-core/docs/roadmap.md`](../agenc-core/docs/roadmap.md) - shipped vs open backlog
 
-Architecture and product docs:
+How-to guides:
 
-- [`agenc-core/docs/architecture/product-contract.md`](../agenc-core/docs/architecture/product-contract.md)
-- [`agenc-core/docs/architecture/overview.md`](../agenc-core/docs/architecture/overview.md)
-- [`agenc-core/docs/architecture/runtime-layers.md`](../agenc-core/docs/architecture/runtime-layers.md)
-- [`agenc-core/docs/architecture/interfaces.md`](../agenc-core/docs/architecture/interfaces.md)
-- `agenc-core/docs/architecture/flows/*`
-- `agenc-core/docs/architecture/guides/*`
-- `agenc-core/docs/architecture/adr/*`
+- [`agenc-core/docs/gateway.md`](../agenc-core/docs/gateway.md) - channel gateway: Telegram, Discord, Slack, WebChat, stdio
+- [`agenc-core/docs/remote-control.md`](../agenc-core/docs/remote-control.md) - pair a host with the AgenC phone app
+- [`agenc-core/docs/managed-openrouter.md`](../agenc-core/docs/managed-openrouter.md) - hosted OpenRouter / managed keys
+- [`agenc-core/docs/deploy/vps.md`](../agenc-core/docs/deploy/vps.md) - run the daemon on a VPS
+- [`agenc-core/docs/migrate-from-openclaw.md`](../agenc-core/docs/migrate-from-openclaw.md) - surface map from OpenClaw
+- [`agenc-core/docs/migrate-from-hermes.md`](../agenc-core/docs/migrate-from-hermes.md) - surface map from Hermes Agent
+- [`agenc-core/docs/sdk.md`](../agenc-core/docs/sdk.md) - embedding via the runtime SDK
+- [`agenc-core/docs/security/slm-transaction-guard.md`](../agenc-core/docs/security/slm-transaction-guard.md) - opt-in SLM guard for Solana-like tool calls
 
-Operations, security, and audit:
+Reference and design:
 
-- [`agenc-core/docs/RUNTIME_API.md`](../agenc-core/docs/RUNTIME_API.md)
-- [`agenc-core/docs/architecture/flows/task-lifecycle.md`](../agenc-core/docs/architecture/flows/task-lifecycle.md)
-- [`agenc-core/docs/RUNTIME_PIPELINE_DEBUG_BUNDLE.md`](../agenc-core/docs/RUNTIME_PIPELINE_DEBUG_BUNDLE.md)
-- [`agenc-core/docs/PRIVATE_KERNEL_DISTRIBUTION.md`](../agenc-core/docs/PRIVATE_KERNEL_DISTRIBUTION.md)
-- [`agenc-core/docs/PRIVATE_KERNEL_SUPPORT_POLICY.md`](../agenc-core/docs/PRIVATE_KERNEL_SUPPORT_POLICY.md)
-- [`agenc-core/docs/PRIVATE_REGISTRY_SETUP.md`](../agenc-core/docs/PRIVATE_REGISTRY_SETUP.md)
-- [`agenc-core/docs/security/mcp-security-stack.md`](../agenc-core/docs/security/mcp-security-stack.md)
-- `agenc-core/docs/security/*`
-- `agenc-core/docs/audit/*`
-- `agenc-core/runtime/docs/*`
-
-Design docs:
-
-- [`agenc-core/docs/design/chat-architecture.md`](../agenc-core/docs/design/chat-architecture.md)
-- [`agenc-core/docs/design/speculative-execution/README.md`](../agenc-core/docs/design/speculative-execution/README.md)
-- `agenc-core/docs/design/speculative-execution/*`
+- `agenc-core/docs/reference/*` - CLI, config, daemon, providers, slash commands, autonomy, agents, memory, MCP, skills/plugins, hooks, tools/permissions/sandbox, TUI workbench
+- [`agenc-core/docs/design/budget-enforcement.md`](../agenc-core/docs/design/budget-enforcement.md) - cost-bounded autonomy
+- [`agenc-core/packages/agenc-sdk/README.md`](../agenc-core/packages/agenc-sdk/README.md) - embedding SDK package readme
 
 ## `agenc-protocol` Docs
+
+Public source of truth for the mainnet marketplace program
+(`agenc-coordination`, program ID
+`HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`).
 
 - [`agenc-protocol/docs/DOCS_INDEX.md`](../agenc-protocol/docs/DOCS_INDEX.md)
 - [`agenc-protocol/docs/CODEBASE_MAP.md`](../agenc-protocol/docs/CODEBASE_MAP.md)
@@ -87,15 +90,21 @@ Design docs:
 
 ## `agenc-plugin-kit` Docs
 
+The published `@tetsuo-ai/plugin-kit` package is a reserved package; the repo's
+working content is the manifest-first example plugin under `examples/hello-tool`
+and the authoring docs below.
+
 - [`agenc-plugin-kit/docs/DOCS_INDEX.md`](../agenc-plugin-kit/docs/DOCS_INDEX.md)
 - [`agenc-plugin-kit/docs/CODEBASE_MAP.md`](../agenc-plugin-kit/docs/CODEBASE_MAP.md)
-- [`agenc-plugin-kit/docs/PLUGIN_CONTRACT_REFERENCE.md`](../agenc-plugin-kit/docs/PLUGIN_CONTRACT_REFERENCE.md)
 - [`agenc-plugin-kit/docs/MAINTAINER_GUIDE.md`](../agenc-plugin-kit/docs/MAINTAINER_GUIDE.md)
 - [`agenc-plugin-kit/README.md`](../agenc-plugin-kit/README.md)
 - [`agenc-plugin-kit/CHANGELOG.md`](../agenc-plugin-kit/CHANGELOG.md)
-- [`agenc-plugin-kit/templates/channel-adapter-starter/README.md`](../agenc-plugin-kit/templates/channel-adapter-starter/README.md)
+- [`agenc-plugin-kit/examples/hello-tool/README.md`](../agenc-plugin-kit/examples/hello-tool/README.md)
 
 ## `agenc-prover` Docs
+
+Private repository; requires access and the bootstrap script's `--private`
+flag.
 
 - [`agenc-prover/docs/DOCS_INDEX.md`](../agenc-prover/docs/DOCS_INDEX.md)
 - [`agenc-prover/docs/CODEBASE_MAP.md`](../agenc-prover/docs/CODEBASE_MAP.md)
@@ -104,3 +113,17 @@ Design docs:
 - [`agenc-prover/docs/COMMANDS_AND_VALIDATION.md`](../agenc-prover/docs/COMMANDS_AND_VALIDATION.md)
 - [`agenc-prover/README.md`](../agenc-prover/README.md)
 - [`agenc-prover/admin-tools/README.md`](../agenc-prover/admin-tools/README.md)
+
+## Marketplace and Ecosystem Repos (GitHub)
+
+These repos are not part of the bootstrap set, so their doc entry points are
+linked on GitHub. See [MARKETPLACE.md](./MARKETPLACE.md) for how they fit
+together.
+
+- [tetsuo-ai/agenc-marketplace-releases](https://github.com/tetsuo-ai/agenc-marketplace-releases) - marketplace agent-kit binary releases, release notes, and issue tracker
+- [tetsuo-ai/agenc-store-templates](https://github.com/tetsuo-ai/agenc-store-templates) - deploy-your-own agent store templates and `@tetsuo-ai/store-core`
+- [tetsuo-ai/agenc-indexer](https://github.com/tetsuo-ai/agenc-indexer) - self-hostable read-model indexer (see its `README.md` and `docs/API.md`)
+- [tetsuo-ai/agenc-moderation-api](https://github.com/tetsuo-ai/agenc-moderation-api) - self-hostable moderation attestation service
+
+Hosted documentation site: <https://docs.agenc.tech/docs/>. The marketplace
+itself is <https://agenc.ag>.

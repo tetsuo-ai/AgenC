@@ -12,6 +12,7 @@
     "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {
+    "@types/node": "^24.10.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   }
