@@ -84,14 +84,13 @@ by side:
 ./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc
 ```
 
-To also include `agenc-core` and `agenc-prover`:
+To also include `agenc-prover`, the only repo that requires private access:
 
 ```bash
 ./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc --private
 ```
 
-Of the bootstrap set, only `agenc-prover` currently requires private access;
-skip it (or the `--private` flag) if you do not have org credentials.
+Skip the `--private` flag if you do not have org credentials.
 
 ## Install The Root Workspace
 

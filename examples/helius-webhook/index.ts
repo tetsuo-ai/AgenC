@@ -124,26 +124,28 @@ function checkRateLimit(ip: string): boolean {
 }
 
 /**
- * Verify Helius webhook signature
+ * Verify the Helius webhook auth header
  * SECURITY: Prevents webhook spoofing attacks
- * @see https://docs.helius.xyz/webhooks/webhook-security
+ *
+ * The webhook is registered with `authHeader` set to HELIUS_WEBHOOK_SECRET,
+ * and Helius includes that value verbatim in the Authorization header of
+ * every delivery. Helius does not compute a per-payload HMAC.
+ * @see https://www.helius.dev/docs/api-reference/webhooks/create-webhook
  */
-function verifyWebhookSignature(payload: string, signature: string | undefined): boolean {
-  if (!signature) {
+function verifyWebhookAuth(authHeader: string | undefined): boolean {
+  if (!authHeader) {
     return false;
   }
 
-  const expectedSignature = crypto
-    .createHmac('sha256', VERIFIED_HELIUS_WEBHOOK_SECRET)
-    .update(payload)
-    .digest('hex');
+  const received = Buffer.from(authHeader);
+  const expected = Buffer.from(VERIFIED_HELIUS_WEBHOOK_SECRET);
+  if (received.length !== expected.length) {
+    return false;
+  }
 
   // Use timing-safe comparison to prevent timing attacks
   try {
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    );
+    return crypto.timingSafeEqual(received, expected);
   } catch {
     return false;
   }
@@ -233,6 +235,7 @@ async function createWebhook(webhookUrl: string): Promise<string> {
       accountAddresses: [ROUTER_PROGRAM_ID, VERIFIER_PROGRAM_ID, AGENC_PROGRAM_ID],
       webhookType: 'enhanced',
       txnStatus: 'success',
+      authHeader: VERIFIED_HELIUS_WEBHOOK_SECRET,
     }),
   });
 
@@ -465,12 +468,12 @@ function handleWebhookRequest(req: Request, res: Response): void {
     return;
   }
 
-  const signature = req.headers['x-helius-signature'] as string | undefined;
+  const authHeader = req.headers['authorization'] as string | undefined;
   const rawBody = readRawRequestBody(req.body);
 
-  if (!verifyWebhookSignature(rawBody.toString('utf8'), signature)) {
-    console.warn(chalk.red('Invalid webhook signature from IP:'), clientIp);
-    res.status(401).json({ error: 'Invalid signature' });
+  if (!verifyWebhookAuth(authHeader)) {
+    console.warn(chalk.red('Invalid webhook auth header from IP:'), clientIp);
+    res.status(401).json({ error: 'Unauthorized' });
     return;
   }
 

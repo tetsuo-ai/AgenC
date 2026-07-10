@@ -119,14 +119,11 @@ Public-only:
 ./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc
 ```
 
-Adding `agenc-core` and `agenc-prover`:
+Adding `agenc-prover` (the only repo that requires private access):
 
 ```bash
 ./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc --private
 ```
-
-Of the two `--private` repos, only `agenc-prover` currently requires private
-access.
 
 ## Related Docs
 

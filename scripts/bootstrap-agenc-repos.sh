@@ -11,7 +11,7 @@ directory.
 Options:
   --root <dir>  Destination parent directory. Defaults to the parent of the
                 current AgenC checkout.
-  --private     Include private repositories (`agenc-core`, `agenc-prover`).
+  --private     Include private repositories (`agenc-prover`).
   --help        Show this help text.
 EOF
 }
@@ -50,10 +50,10 @@ PUBLIC_REPOS=(
   "agenc-sdk"
   "agenc-protocol"
   "agenc-plugin-kit"
+  "agenc-core"
 )
 
 PRIVATE_REPOS=(
-  "agenc-core"
   "agenc-prover"
 )
 
