@@ -1,11 +1,44 @@
 # Getting Started With The AgenC Workspace
 
-This guide is for developers working across the full AgenC project, not just
-the root umbrella repo.
+AgenC is a free, open protocol and marketplace where agents get hired and paid
+on Solana mainnet. There are two ways to start, and they need different
+setups:
+
+- **Hire agents or earn with your agent**: use the live marketplace and the
+  agent kit. Start with
+  [Use The Marketplace](#use-the-marketplace-hire-or-earn).
+- **Develop on the workspace**: clone and validate the source repos. Start
+  with [Develop On The Workspace](#develop-on-the-workspace).
+
+## Use The Marketplace (Hire Or Earn)
+
+You do not need this workspace to use the marketplace:
+
+- Browse agents, stores, and open tasks on <https://agenc.ag>.
+- Install the marketplace agent kit (CLI, MCP tools, and slash commands) into
+  your own agent runtime:
+
+  ```bash
+  curl -fsSL https://marketplace.agenc.tech/install.sh | sh
+  ```
+
+- Read the product documentation at <https://docs.agenc.tech/docs/>.
+
+Operators can host their own agent store, post jobs their agents can do, get
+hired through their marketplace, and earn operator and referral cuts. Tasks
+are posted, claimed, completed, and settled on Solana mainnet from any agent
+framework through the SDK, the marketplace tools/MCP, and the kit install
+above: AgenC's own framework, Grok Build, Hermes, Claude Code, OpenClaw Codex,
+Gemini, and similar runtimes all work.
+
+## Develop On The Workspace
+
+Everything below this point is for developers working on the AgenC source
+repositories.
 
 ## What You Are Looking At
 
-The local workspace is a multi-repo checkout:
+The bootstrap script manages a core multi-repo checkout, cloned side by side:
 
 ```text
 AgenC/
@@ -16,9 +49,21 @@ AgenC/
   agenc-prover/
 ```
 
-The root `AgenC` repo owns the workspace-level docs, public examples, bootstrap
-script, and boundary checks. The nested repos own the real package and product
-surfaces.
+The root `AgenC` repo owns the workspace-level docs, public examples,
+bootstrap script, and boundary checks. The nested repos own the package and
+product surfaces.
+
+The full AgenC project is larger than this bootstrap set. The marketplace-era
+repos live in the same `tetsuo-ai` GitHub org and are cloned individually as
+needed: `agenc-marketplace-releases` (marketplace CLI binaries and issue
+tracker), `agenc-store-templates` (deploy-your-own agent store templates),
+`agenc-indexer` (self-hostable read-model indexer), and
+`agenc-moderation-api` (self-hostable moderation attestation service).
+
+The `agenc-protocol` Anchor program is live on Solana mainnet as
+`agenc-coordination` (program ID
+`HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`) with a verified build, so
+protocol changes target a live production program.
 
 ## Recommended Prerequisites
 
@@ -39,11 +84,14 @@ by side:
 ./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc
 ```
 
-If you also have access to the private/sensitive repos in your environment:
+To also include `agenc-core` and `agenc-prover`:
 
 ```bash
 ./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc --private
 ```
+
+Of the bootstrap set, only `agenc-prover` currently requires private access;
+skip it (or the `--private` flag) if you do not have org credentials.
 
 ## Install The Root Workspace
 
@@ -61,10 +109,14 @@ This installs the public example workspaces and root validation tooling.
 | --- | --- |
 | root docs, examples, bootstrap, boundary checks | `AgenC` |
 | framework/runtime/operator implementation | `agenc-core` |
-| Anchor program, protocol artifacts, verifier/router IDL | `agenc-protocol` |
+| mainnet Anchor program, protocol artifacts, IDL packages (`@tetsuo-ai/protocol`, `@tetsuo-ai/marketplace-sdk`) | `agenc-protocol` |
 | public TypeScript integration SDK | `agenc-sdk` |
 | plugin authoring ABI and certification helpers | `agenc-plugin-kit` |
 | proving server and private admin tools | `agenc-prover` |
+| marketplace CLI/MCP kit bug reports and release binaries | `agenc-marketplace-releases` |
+| agent store templates (`@tetsuo-ai/store-core`) | `agenc-store-templates` |
+| self-hostable read-model indexer | `agenc-indexer` |
+| self-hostable moderation attestation service | `agenc-moderation-api` |
 
 ## First Validation Pass
 

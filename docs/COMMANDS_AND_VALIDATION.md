@@ -1,7 +1,14 @@
 # Commands And Validation
 
-This file collects the main setup and validation commands for the full AgenC
-workspace.
+This file collects the main setup and validation commands for the umbrella
+repo and the bootstrap repo set (`AgenC` root, `agenc-core`, `agenc-protocol`,
+`agenc-sdk`, `agenc-plugin-kit`, `agenc-prover`). Marketplace usage (hiring,
+earning, the agent kit CLI/MCP) is documented at
+<https://docs.agenc.tech/docs/> and is not covered here.
+
+Repo access: every repo below is public except `agenc-prover`, which is
+private. If you cannot clone a repo, its commands do not apply to your
+checkout.
 
 ## Root `AgenC`
 
@@ -31,23 +38,21 @@ examples/reviewed-task-flow/README.md
 
 ## `agenc-core`
 
-Core/framework validation:
+Runtime validation:
 
 ```bash
 npm install
 npm run build
 npm run typecheck
 npm run test
-npm run test:cross-repo-integration
-npm run build:product-surfaces
-npm run typecheck:product-surfaces
-npm run test:product-surfaces
-npm run typecheck:runtime-examples
-npm run check:private-kernel-surface
-npm run check:private-kernel-distribution
-npm run check:proof-harness-boundary
-npm run pack:smoke:skip-build
+npm run validate:runtime
+npm run check:agent-surface-contract
+npm run check:unused
+npm run check:sbom
 ```
+
+`validate:runtime` typechecks and builds the runtime workspace and checks TUI
+runtime startup; `check:sbom` validates the SPDX SBOM.
 
 ## `agenc-protocol`
 
@@ -88,9 +93,10 @@ npm run api:baseline:check
 npm run pack:smoke
 ```
 
-## `agenc-prover`
+## `agenc-prover` (private repo)
 
-Rust-first repo:
+Rust-first repo, private to the `tetsuo-ai` org; skip this section without
+access:
 
 - build/test the Rust crates through the repo Cargo workflows
 - use the admin-tools package for TypeScript validation
@@ -113,11 +119,14 @@ Public-only:
 ./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc
 ```
 
-With private/sensitive repos in your environment:
+Adding `agenc-core` and `agenc-prover`:
 
 ```bash
 ./scripts/bootstrap-agenc-repos.sh --root /path/to/agenc --private
 ```
+
+Of the two `--private` repos, only `agenc-prover` currently requires private
+access.
 
 ## Related Docs
 

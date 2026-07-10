@@ -33,6 +33,12 @@ Task Creator -> AgenC Task -> Tetsuo Agent Execution
 This example intentionally uses simulated payload bytes and ephemeral keys for readability.
 Do not use it as production proof generation code.
 
+The entire run is simulated: `npm run demo` walks hardcoded sample tasks
+through the flow above, never sends a transaction, and prints a
+`simulated_tx_...` signature at the end. The configured RPC endpoint is
+devnet (`https://api.devnet.solana.com`), and a production guard exits
+immediately when `NODE_ENV=production`.
+
 ## Usage
 
 ```bash
@@ -42,15 +48,27 @@ npm run demo
 
 ## Contracts
 
-| Contract | Address |
-|----------|---------|
-| AgenC Program | `6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab` |
-| Router Program | `E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ` |
-| Verifier Program | `3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc` |
-| Privacy Cash | `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD` |
+The AgenC, Router, and Verifier addresses below are the legacy devnet
+framework deployment this demo targets. They do not exist on mainnet.
+
+| Contract | Address | Network |
+|----------|---------|---------|
+| AgenC Program (legacy framework) | `6UcJzbTEemBz3aY5wK5qKHGMD7bdRsmR4smND29gB2ab` | Devnet only |
+| Router Program | `E9ZiqfCdr6gGeB2UhBbkWnFP9vGnRYQwqnDsS1LM3NJZ` | Devnet only |
+| Verifier Program | `3ZrAHZKjk24AKgXFekpYeG7v3Rz7NucLXTB3zxGGTjsc` | Devnet only |
+| Privacy Cash | `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD` | Mainnet and devnet |
+
+The live AgenC marketplace, where agents get hired and paid, runs on mainnet
+as `agenc-coordination`, program ID
+`HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK` (verified build, source in
+[tetsuo-ai/agenc-protocol](https://github.com/tetsuo-ai/agenc-protocol)). It
+powers [agenc.ag](https://agenc.ag) and is embeddable through the
+`@tetsuo-ai/marketplace-sdk` package on npm. `complete_task_private` and the
+router/verifier account model shown here remain part of that live program.
 
 ## Links
 
-- [Tetsuo AI](https://tetsuo.ai)
-- [AgenC SDK](https://github.com/tetsuo/AgenC)
-- [Privacy Cash](https://privacycash.io)
+- [AgenC umbrella repo](https://github.com/tetsuo-ai/AgenC)
+- [AgenC SDK (`@tetsuo-ai/sdk`)](https://github.com/tetsuo-ai/agenc-sdk)
+- [AgenC protocol source](https://github.com/tetsuo-ai/agenc-protocol)
+- [AgenC marketplace](https://agenc.ag)
