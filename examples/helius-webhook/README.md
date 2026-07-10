@@ -157,32 +157,18 @@ async function emitTaskCompletion(event: TaskCompletionEvent) {
 Without `HELIUS_WEBHOOK_SECRET`, no command will run, and the webhook server
 in particular cannot verify that requests originate from Helius.
 
-### Known gap: `create` never sends the secret to Helius
+### How delivery verification works
 
-The `create` command registers the webhook without an `authHeader`, so Helius
-has nothing to attach to deliveries and the server's signature check rejects
-every real delivery with 401. To close the gap, add one line to the request
-body in `createWebhook()` in `index.ts`:
-
-```typescript
-body: JSON.stringify({
-  webhookURL: webhookUrl,
-  transactionTypes: ['ANY'],
-  accountAddresses: [ROUTER_PROGRAM_ID, VERIFIER_PROGRAM_ID, AGENC_PROGRAM_ID],
-  webhookType: 'enhanced',
-  txnStatus: 'success',
-  authHeader: process.env.HELIUS_WEBHOOK_SECRET, // add this line
-}),
-```
-
-Per the current
+The `create` command registers the webhook with `authHeader` set to
+`HELIUS_WEBHOOK_SECRET`. Per the
 [Helius create-webhook API reference](https://www.helius.dev/docs/api-reference/webhooks/create-webhook),
-`authHeader` is an authorization header value included verbatim in webhook
-deliveries for verifying the sender; Helius does not compute a per-payload
-HMAC. The shipped server instead expects a hex HMAC of the body in an
-`x-helius-signature` header, so after adding `authHeader`, also update
-`verifyWebhookSignature()` to timing-safe-compare the header Helius actually
-sends against the shared secret.
+Helius includes that value verbatim in the `Authorization` header of every
+delivery; it does not compute a per-payload HMAC. The server's
+`verifyWebhookAuth()` timing-safe-compares the delivered header against the
+shared secret and rejects everything else with 401.
+
+If you rotate `HELIUS_WEBHOOK_SECRET`, delete and re-create the webhook so
+Helius starts sending the new value.
 
 ```bash
 # Production deployment
