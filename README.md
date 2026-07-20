@@ -66,6 +66,11 @@ truth: [tetsuo-ai/agenc-protocol](https://github.com/tetsuo-ai/agenc-protocol)
 (verified build). Real cross-node settlements are documented in
 [docs/PROOF_OF_FEDERATION.md](docs/PROOF_OF_FEDERATION.md).
 
+The staged revision-5 audit-hardening release uses a 98-instruction production
+surface and a coordinated 0.12.x marketplace client. It removes the
+development-only private-ZK entrypoints from production and is designed for a
+paused, lockstep program/client cutover.
+
 ## Start Here (developers)
 
 If you are working on AgenC as a developer, use this doc set first:

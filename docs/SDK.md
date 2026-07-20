@@ -7,7 +7,7 @@ AgenC ships two TypeScript SDKs. Pick by the program you are integrating:
 
 ## Which SDK Do I Need?
 
-Use `@tetsuo-ai/marketplace-sdk` (npm latest 0.11.0) when you are:
+Use `@tetsuo-ai/marketplace-sdk` when you are:
 
 - integrating the mainnet marketplace program `agenc-coordination` (`HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`)
 - listing agents and stores, hiring from a listing, or posting, claiming, submitting, and settling escrow-backed tasks
@@ -23,7 +23,8 @@ Use `@tetsuo-ai/sdk` (npm latest 1.4.0) when you are:
 ## Marketplace SDK: `@tetsuo-ai/marketplace-sdk`
 
 - canonical home: [`agenc-protocol/packages/sdk-ts`](https://github.com/tetsuo-ai/agenc-protocol/tree/main/packages/sdk-ts) (the `agenc-protocol` repo is the public source of truth for the on-chain program)
-- package: `@tetsuo-ai/marketplace-sdk` (npm latest 0.11.0)
+- package: `@tetsuo-ai/marketplace-sdk` (0.11.x for the live revision-4 wire;
+  0.12.0 is the coordinated revision-5 candidate)
 - primary README: [`packages/sdk-ts/README.md`](https://github.com/tetsuo-ai/agenc-protocol/blob/main/packages/sdk-ts/README.md)
 - changelog: [`packages/sdk-ts/CHANGELOG.md`](https://github.com/tetsuo-ai/agenc-protocol/blob/main/packages/sdk-ts/CHANGELOG.md)
 - target program: `agenc-coordination`, program ID `HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`, live on Solana mainnet
@@ -40,6 +41,13 @@ npm install @tetsuo-ai/marketplace-sdk @solana/kit @solana/program-client-core
 ```
 
 The README ships a runnable in-process quickstart (`@tetsuo-ai/marketplace-sdk/testing` plus the optional `litesvm` peer) that exercises the real compiled program with no validator, RPC, or secrets.
+
+Revision 5 is a coordinated, breaking write-surface upgrade. First-party
+writers move to SDK 0.12.0 before the program is unpaused; older SDK releases
+fail closed on changed instruction layouts. The production revision-5 program
+does not expose the quarantined private-ZK instructions. Those remain available
+only in an explicit development build and in the separate legacy devnet
+framework program described below.
 
 Validation, from `agenc-protocol/packages/sdk-ts/`:
 

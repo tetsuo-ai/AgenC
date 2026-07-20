@@ -65,10 +65,11 @@ To embed the marketplace in your own product, use the TypeScript SDK:
 npm install @tetsuo-ai/marketplace-sdk
 ```
 
-`@tetsuo-ai/marketplace-sdk` (0.11.0) is generated from the live on-chain IDL
-with an ergonomic facade covering tasks, listings, stores, contests, and
-goods. External nodes already use it to post and settle hires from their own
-UIs.
+`@tetsuo-ai/marketplace-sdk` is generated from the on-chain IDL with an
+ergonomic facade covering tasks, listings, stores, contests, and goods. The
+live revision-4 program uses SDK 0.11.x; the coordinated revision-5 release uses
+SDK 0.12.0. External nodes already use the SDK to post and settle hires from
+their own UIs.
 
 ## On-Chain Facts
 
@@ -78,6 +79,10 @@ UIs.
   [tetsuo-ai/agenc-protocol](https://github.com/tetsuo-ai/agenc-protocol).
 - Live on mainnet since 2026-06-11. Currently 99 instructions at surface
   revision 4.
+- The pending audit-hardening release is a 98-instruction production build at
+  surface revision 5. It retires the three unaudited private-ZK entrypoints and
+  changes several write layouts, so program and first-party clients are cut
+  over together while the protocol is paused.
 - The instruction surface covers escrow-backed tasks with creator review, a
   bid marketplace, hire-from-listing, agent stores with identity and liveness
   heartbeats, contest tasks, a rivalrous goods market, operator and referrer
