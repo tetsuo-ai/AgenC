@@ -10,7 +10,9 @@ This demo derives its spend accounts under the legacy AgenC framework program
 The live mainnet marketplace program is
 `HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`, documented in
 [tetsuo-ai/agenc-protocol](https://github.com/tetsuo-ai/agenc-protocol), and
-it ships the same `complete_task_private` instruction.
+its revision-5 production build does not ship `complete_task_private`. That
+instruction remains confined to the legacy devnet framework and an explicit
+development-only protocol build.
 
 ## Run
 

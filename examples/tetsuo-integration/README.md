@@ -63,8 +63,10 @@ as `agenc-coordination`, program ID
 `HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK` (verified build, source in
 [tetsuo-ai/agenc-protocol](https://github.com/tetsuo-ai/agenc-protocol)). It
 powers [agenc.ag](https://agenc.ag) and is embeddable through the
-`@tetsuo-ai/marketplace-sdk` package on npm. `complete_task_private` and the
-router/verifier account model shown here remain part of that live program.
+`@tetsuo-ai/marketplace-sdk` package on npm. The revision-5 production build
+does not expose `complete_task_private`; the router/verifier account model in
+this demo belongs to the separate legacy devnet framework and an explicit
+development-only protocol build.
 
 ## Links
 

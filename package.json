@@ -22,5 +22,14 @@
     "techdebt": "node scripts/techdebt.mjs",
     "example:tetsuo-integration": "npm run demo --workspace tetsuo-agenc-integration",
     "validate:umbrella": "npm run check:public-contract-boundary && npm run check:sibling-package-pins && npm run check:umbrella-boundary && npm run check:public-examples && ./scripts/bootstrap-agenc-repos.sh --help >/dev/null"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1",
+    "jayson": {
+      "uuid": "^11.1.1"
+    },
+    "rpc-websockets": {
+      "uuid": "^14.0.0"
+    }
   }
 }

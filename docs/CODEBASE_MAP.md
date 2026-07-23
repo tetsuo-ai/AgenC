@@ -150,7 +150,10 @@ Top-level guides include `quickstart.md`, `install.md`, `onboarding.md`,
 Public source of truth for the on-chain marketplace.
 `programs/agenc-coordination/` is the live mainnet marketplace program
 (`HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`), on mainnet since 2026-06-11
-and currently at 99 instructions, surface_revision 4.
+and currently at 99 instructions, `surface_revision = 4`. The staged
+audit-hardening release is a 98-instruction production build at
+`surface_revision = 5`; its quarantined private-ZK instructions are available
+only behind a development-only feature and are not part of the production IDL.
 
 Repo-local navigation:
 

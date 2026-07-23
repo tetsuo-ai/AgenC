@@ -3,7 +3,9 @@
 This file maps the published AgenC packages to the repo and docs that own them.
 Each owning repo is an independent repository, not a subdirectory of this one,
 so cross-repo links point at GitHub. Private repos are named without links.
-npm versions are the `latest` dist-tags as of 2026-07-10.
+npm versions are the `latest` dist-tags as of 2026-07-19. Unreleased
+revision-5 versions are labeled explicitly and must be published as one
+coordinated compatibility set.
 
 ## Marketplace Packages
 
@@ -15,10 +17,14 @@ npm versions are the `latest` dist-tags as of 2026-07-10.
 - changelog: [`packages/sdk-ts/CHANGELOG.md`](https://github.com/tetsuo-ai/agenc-protocol/blob/main/packages/sdk-ts/CHANGELOG.md)
 - target program: `agenc-coordination`, program ID `HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`, live on Solana mainnet
 - embeddable marketplace SDK: Codama-generated `@solana/kit` client plus an ergonomic facade covering stores, contests, and goods
+- revision-5 candidate: 0.12.0 (breaking write-surface update; coordinated with
+  `@tetsuo-ai/protocol` 0.4.0)
 
 ### `@tetsuo-ai/protocol`
 
 - npm latest: 0.3.0
+- revision-5 candidate: 0.4.0 (98-instruction production IDL; private-ZK
+  entrypoints excluded)
 - canonical repo: [`agenc-protocol`](https://github.com/tetsuo-ai/agenc-protocol)
 - package docs: [`packages/protocol/README.md`](https://github.com/tetsuo-ai/agenc-protocol/blob/main/packages/protocol/README.md)
 - repo README: [`agenc-protocol/README.md`](https://github.com/tetsuo-ai/agenc-protocol/blob/main/README.md)
@@ -31,6 +37,7 @@ npm versions are the `latest` dist-tags as of 2026-07-10.
 ### `@tetsuo-ai/store-core`
 
 - npm latest: 0.6.0
+- revision-5 candidate: 0.6.1
 - canonical repo: [`agenc-store-templates`](https://github.com/tetsuo-ai/agenc-store-templates), package home [`packages/store-core`](https://github.com/tetsuo-ai/agenc-store-templates/tree/main/packages/store-core)
 - package docs: [`packages/store-core/README.md`](https://github.com/tetsuo-ai/agenc-store-templates/blob/main/packages/store-core/README.md)
 - repo README: [`agenc-store-templates/README.md`](https://github.com/tetsuo-ai/agenc-store-templates/blob/main/README.md)

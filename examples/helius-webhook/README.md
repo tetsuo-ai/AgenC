@@ -116,8 +116,10 @@ mainnet. The live mainnet marketplace program is
 `HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`; see Network Scope above for
 how to point this example at it.
 
-Note: private completion verification routes through router/verifier-entry
-accounts and the trusted verifier program.
+Note: on the legacy devnet framework, private completion verification routes
+through router/verifier-entry accounts and the trusted verifier program. The
+revision-5 production mainnet marketplace does not expose private-ZK
+completion.
 
 ## Integration Examples
 
