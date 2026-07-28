@@ -11,7 +11,7 @@
     "list": "tsx index.ts list"
   },
   "dependencies": {
-    "chalk": "^5.6.2",
+    "chalk": "^6.0.0",
     "express": "^5.2.1",
     "ws": "^8.19.0"
   },
